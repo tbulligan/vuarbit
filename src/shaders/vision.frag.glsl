@@ -64,62 +64,56 @@ vec2 computePerPixelDiplopiaDeg(float distMeters) {
   return vec2(dx, dy);
 }
 
-// Spontaneous photopsia / phosphene flashes: asynchronous brief (60-200ms) sparks & small soft irregular patches
-vec3 computeFlashPhosphenes(vec2 p, float t, float closed, float decomp) {
-  vec3 acc = vec3(0.0);
-  float halfW = uAspect * 0.48;
-  const int SLOTS = 10;
+// O(1) jittered micro-flash layer (no visible grid: randomized position per firing + rotated coordinates)
+vec3 flashLayer(vec2 coord, float t, float closed, float decomp, float sparkScale, float speedScale, float seedOff) {
+  vec2 cell = floor(coord);
+  vec2 f = fract(coord);
 
-  for (int k = 0; k < SLOTS; k++) {
-    float fk = float(k);
-    bool isSpark = (k < 6);
+  // Fast asynchronous per-cell firing cadence (quick 35-95ms flashes)
+  float period = (0.18 + hash12(cell + vec2(seedOff, 1.7)) * 0.28) / speedScale;
+  float phaseOff = hash12(cell + vec2(seedOff, 4.3)) * period;
+  float ts = t + phaseOff;
+  float cycle = floor(ts / period);
+  float age = ts - cycle * period;
 
-    // Asynchronous cadence per slot: sparks pop briefly (60-130ms), soft patches flash slightly longer (120-200ms)
-    float period = isSpark ? (0.85 + hash12(vec2(fk, 1.7)) * 1.15) : (1.35 + hash12(vec2(fk, 2.9)) * 1.55);
-    float phaseOff = hash12(vec2(fk, 4.1)) * period;
-    float timeShifted = t + phaseOff;
-    float cycle = floor(timeShifted / period);
-    float age = timeShifted - cycle * period;
+  // Ultra-quick sharp onset + fast decay flash envelope
+  float peakT = 0.015 / speedScale;
+  float u = age / peakT;
+  float env = (u > 0.0 && u < 6.0) ? (u * exp(1.0 - u)) : 0.0;
 
-    // Sharp-onset, fast-exponential-decay flash envelope: peaks in ~22-40ms, fades by ~100-200ms
-    float peakT = isSpark ? 0.024 : 0.042;
-    float u = age / peakT;
-    float env = (u > 0.0 && u < 7.0) ? (u * exp(1.0 - u)) : 0.0;
+  // Plentiful firing when closed; sparser when open
+  float fireRoll = hash12(cell * 1.37 + vec2(cycle * 7.3, seedOff));
+  float fireChance = mix(0.14 + decomp * 0.14, 0.58, closed);
+  if (env < 0.005 || fireRoll > fireChance) return vec3(0.0);
 
-    // Gate open-eye flashes to be sparser than closed-eye flashes
-    float fireRoll = hash12(vec2(fk * 11.3, cycle * 3.7));
-    float fireChance = mix(0.28 + decomp * 0.22, 0.82, closed);
-    if (env < 0.004 || fireRoll > fireChance) continue;
+  // Random non-grid sub-cell center per firing event
+  vec2 center = vec2(
+    0.16 + 0.68 * hash12(cell + vec2(cycle * 11.1, seedOff + 2.1)),
+    0.16 + 0.68 * hash12(cell + vec2(cycle * 17.7, seedOff + 5.9))
+  );
+  vec2 d = f - center;
+  float r = sparkScale * (0.65 + 0.65 * hash12(cell + vec2(cycle, seedOff + 8.3)));
+  float dotMask = exp(-dot(d, d) / max(1e-5, r * r));
 
-    // Random non-grid position across full FOV per flash event
-    vec2 pos = vec2(
-      (hash12(vec2(cycle * 7.1 + fk, 13.3)) * 2.0 - 1.0) * halfW,
-      (hash12(vec2(cycle * 5.3 + fk, 29.7)) * 2.0 - 1.0) * 0.46
-    );
-    vec2 d = p - pos;
+  // Vivid luminous flash tint (more saturated closed, muted open)
+  vec3 raw = hash32(cell * 2.13 + vec2(cycle * 9.1, seedOff));
+  vec3 vivid = smoothstep(0.10, 0.88, raw);
+  float luma = dot(vivid, vec3(0.299, 0.587, 0.114));
+  vec3 tint = mix(vec3(luma), mix(vec3(0.95, 0.97, 1.0), vivid, 0.82), mix(0.30, 0.96, closed));
 
-    // Slight random organic elongation so flash patches aren't rigid circles
-    float ang = hash12(vec2(cycle + fk, 41.1)) * 6.28318;
-    float ca = cos(ang);
-    float sa = sin(ang);
-    vec2 dr = vec2(ca * d.x - sa * d.y, (sa * d.x + ca * d.y) * (isSpark ? 1.15 : 1.55));
+  float amp = mix(0.10 + decomp * 0.06, 0.52, closed);
+  return tint * dotMask * env * amp;
+}
 
-    float rad = isSpark
-      ? (0.007 + 0.013 * hash12(vec2(cycle, fk + 5.1)))
-      : (0.032 + 0.048 * hash12(vec2(cycle, fk + 8.3)));
-    float shape = exp(-dot(dr, dr) / max(1e-5, rad * rad));
-
-    // Luminous photopsia color: mix of bright white-hot core and saturated peripheral tint
-    vec3 raw = hash32(vec2(cycle * 9.7 + fk, fk * 3.1));
-    vec3 vivid = smoothstep(0.12, 0.86, raw);
-    vec3 flashTint = mix(vec3(0.96, 0.98, 1.0), vivid, mix(0.32, 0.78, closed));
-    float amp = isSpark
-      ? mix(0.08 + decomp * 0.05, 0.44, closed)
-      : mix(0.03 + decomp * 0.025, 0.22, closed);
-
-    acc += flashTint * shape * env * amp;
-  }
-  return acc;
+// Plentiful, tiny, ultra-quick non-grid photopsia flashes (2 rotated O(1) jittered scales, 0 texture reads)
+vec3 computeFlashPhosphenes(vec2 px, float t, float closed, float decomp) {
+  mat2 rot1 = mat2(0.92, -0.39, 0.39, 0.92);
+  mat2 rot2 = mat2(0.60,  0.80, -0.80, 0.60);
+  // Layer 1: very small, rapid pinpoint sparks (~2px radius, ~16px avg spacing)
+  vec3 fine = flashLayer((rot1 * px) / 16.0, t, closed, decomp, 0.12, 1.15, 3.1);
+  // Layer 2: slightly larger quick micro-flashes (~4px radius, ~30px avg spacing)
+  vec3 mid = flashLayer((rot2 * px) / 30.0, t, closed, decomp, 0.13, 0.85, 19.7) * 0.72;
+  return fine + mid;
 }
 
 // Realism OD sampling: sharp focal peak + 8-tap CoC defocus + directional astigmatic streaks, halos, coma & veiling glare
@@ -376,8 +370,8 @@ void main() {
     col = mix(col, innerLid, clamp(closedMask * uEyelidClose, 0.0, 1.0));
   }
 
-  // Asynchronous brief photopsia flashes (sparks + small soft irregular patches; preserves eyelid shade)
-  col += computeFlashPhosphenes(p + uMlnOffsetUV * 0.5, uTime, uEyelidClose, decomp);
+  // Plentiful tiny ultra-quick photopsia flashes (2 rotated non-grid scales; preserves eyelid translucency)
+  col += computeFlashPhosphenes(px + uMlnOffsetUV * uResolution * 0.35, uTime, uEyelidClose, decomp);
 
   // Ever-present CRT-static snow across full FOV (open AND closed)
   vec2 staticCoord = floor(px * 0.75);
