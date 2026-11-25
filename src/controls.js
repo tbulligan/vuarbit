@@ -70,8 +70,8 @@ export function createControls(domElement, state, sceneApi) {
 
     if (chosen) {
       state.holding = chosen.id;
-      // Start centered in right eye's lower reading-distance zone (~36cm)
-      state.heldOffset = { x: 0.029, y: -0.065, z: 0.36 };
+      // Start centered in right eye's lower reading-distance sweet spot (~28cm)
+      state.heldOffset = { x: 0.029, y: -0.052, z: 0.28 };
     }
   }
 
@@ -216,10 +216,10 @@ export function createControls(domElement, state, sceneApi) {
     wheelDeltaAccum = 0;
 
     if (state.mode === 'seated' && state.holding) {
-      // Prevent clipping through glasses (~4.2cm front plane) or bare cornea (~2.8cm)
+      // Prevent clipping through glasses (~3.6cm front plane) or bare cornea (~2.2cm) while allowing closer inspection
       const heldItem = sceneApi.pickables.find((p) => p.id === state.holding);
-      const halfDepth = heldItem?.halfDepth || 0.025;
-      const minZ = (state.glassesOn ? 0.044 : 0.028) + halfDepth;
+      const halfDepth = heldItem?.halfDepth || 0.022;
+      const minZ = (state.glassesOn ? 0.036 : 0.022) + halfDepth;
 
       const xySpeed = 0.42;
       const zSpeed = 0.45;
@@ -271,9 +271,9 @@ export function createControls(domElement, state, sceneApi) {
       camera.rotation.z = 0;
 
       if (state.mode === 'seated') {
-        // Leaning forward moves head toward workbook/desk (~0.24m forward, ~0.22m down at lean=1)
-        const fwdLean = state.lean * 0.24;
-        const dropLean = Math.max(0, state.lean) * 0.22 - Math.min(0, state.lean) * 0.05;
+        // Slouching forward brings eyes down to ~22-28cm over the workbook (pediatric aphakia relative-distance magnification)
+        const fwdLean = state.lean * 0.28;
+        const dropLean = Math.max(0, state.lean) * 0.24 - Math.min(0, state.lean) * 0.05;
         camera.position.set(
           seatPos.x - Math.sin(state.yaw) * fwdLean,
           seatPos.y - dropLean,

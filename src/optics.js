@@ -15,7 +15,7 @@ const FULLSCREEN_VERT = /* glsl */ `
   }
 `;
 
-function createEyeRenderTarget(w, h) {
+function createEyeRenderTarget(w, h, samples = 0) {
   const depthTexture = new THREE.DepthTexture(w, h);
   depthTexture.type = THREE.UnsignedIntType;
   depthTexture.format = THREE.DepthFormat;
@@ -26,6 +26,7 @@ function createEyeRenderTarget(w, h) {
     format: THREE.RGBAFormat,
     depthBuffer: true,
     depthTexture,
+    samples,
   });
 }
 
@@ -67,9 +68,9 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
   const odCamera = new THREE.PerspectiveCamera(62, aspect, NEAR_CLIP, FAR_CLIP);
   const osCamera = new THREE.PerspectiveCamera(62, aspect, NEAR_CLIP, FAR_CLIP);
 
-  // shortcut: amblyopic OS (VOS 0.15) rendered at half resolution (4x cheaper), upgrade if OS acuity ever approaches 1.0
-  const rtOD = createEyeRenderTarget(initW, initH);
-  const rtOS = createEyeRenderTarget(Math.max(1, Math.floor(initW * 0.5)), Math.max(1, Math.floor(initH * 0.5)));
+  // Realism mode: 4x WebGL2 MSAA on dominant OD target; 0.75x target on amblyopic OS (VOS 0.15)
+  const rtOD = createEyeRenderTarget(initW, initH, 4);
+  const rtOS = createEyeRenderTarget(Math.max(1, Math.floor(initW * 0.75)), Math.max(1, Math.floor(initH * 0.75)), 0);
 
   const baseFreq = waveformData?.phases?.mln_occluded?.dominant_freq_hz || waveformData?.waveform?.cycle_freq_hz || 0.85;
   const waveSpeedScale = THREE.MathUtils.clamp(TARGET_MLN_FREQ_HZ / Math.max(0.25, baseFreq), 1.0, 9.0);
@@ -120,15 +121,23 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
   function render(dt, state) {
     elapsed += dt;
 
-    // Instantaneous gaze-shift nystagmus: active ONLY while mouse moves, stops immediately when movement stops
-    const gazeSpike = Math.min(1.0, (state.gazeVel || 0) * 0.65);
+    // Instantaneous gaze-shift nystagmus: prominent when turning head/mouse (strongest unfocused), stops immediately on 0 speed
+    const gazeSpike = Math.min(1.0, (state.gazeVel || 0) * 1.10);
 
     const isNormal = Boolean(state.compareNormal);
     const wave = sampleLoopingWaveform(waveformData, elapsed, waveSpeedScale);
-    const mlnScale = isNormal ? 0 : Math.min(1.25, (state.mlnIntensity || 0) + gazeSpike * 0.45);
+    const mlnScale = isNormal ? 0 : Math.min(1.25, (state.mlnIntensity || 0) + gazeSpike * 0.55);
     const mln = isNormal
       ? { dxDeg: 0, dyDeg: 0, velDegS: 0 }
-      : computeMlnAngleDeg(wave, elapsed, TARGET_MLN_FREQ_HZ, state.occlusionLevel || 0, mlnScale, gazeSpike);
+      : computeMlnAngleDeg(
+          wave,
+          elapsed,
+          TARGET_MLN_FREQ_HZ,
+          state.occlusionLevel || 0,
+          mlnScale,
+          gazeSpike,
+          state.focusStrength || 0,
+        );
 
     savedPos.copy(odCamera.position);
     savedQuat.copy(odCamera.quaternion);
@@ -142,8 +151,8 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     );
     mlnQuat.setFromEuler(mlnEuler);
 
-    // Refresh shadow map at most once every 3 frames (only before OD, never duplicated on OS)
-    if (shadowFrame % 3 === 0) {
+    // Refresh 2048 shadow map every 2 frames before OD pass only (reused by OS)
+    if (shadowFrame % 2 === 0) {
       renderer.shadowMap.needsUpdate = true;
     }
     shadowFrame += 1;
@@ -202,7 +211,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     osCamera.updateProjectionMatrix();
 
     rtOD.setSize(bw, bh);
-    rtOS.setSize(Math.max(1, Math.floor(bw * 0.5)), Math.max(1, Math.floor(bh * 0.5)));
+    rtOS.setSize(Math.max(1, Math.floor(bw * 0.75)), Math.max(1, Math.floor(bh * 0.75)));
     uniforms.uAspect.value = newAspect;
     uniforms.uResolution.value.set(bw, bh);
   }

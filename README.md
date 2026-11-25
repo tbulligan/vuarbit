@@ -6,9 +6,9 @@ First-person WebGL2 visual & auditory simulation of childhood bilateral aphakia,
 
 - **Bilateral Aphakia & Straight-Cut Executive Bifocal**:
   - Upper distance half (`+13.0 D`): ~1.26x magnification, pincushion distortion, high-plus eccentric chromatic/prismatic dispersion ($\Delta = c \times D$), and a fixed focal plane at `3.8 m` (zero accommodation).
-  - Lower near half (`+15.75 D`, straight horizontal split across lens center): fixed focal plane at `0.36 m` for the 0.5 cm dark-green squared workbook and held desk objects.
+  - Lower near half (`+16.5 D`, straight horizontal split across lens center): crisp slouch-reading focal sweet spot around `0.27 m` (`~21–34 cm`) for the 0.5 cm dark-green squared workbook and held desk objects.
   - Outside the warm amber translucent rims (or with glasses removed via `Z`), unmagnified jack-in-the-box ring scotoma and heavy uncorrected `+13 D` blur.
-- **Residual Astigmatism & Corneal HOAs**: Directional blur along `123°` (OD) and `180°` (OS) with asymmetric coma/trefoil highlight scatter on sunlit windows and chalk.
+- **Residual Astigmatism & Corneal HOAs**: Directional blur along `123°` (OD) and `180°` (OS) with elongated astigmatic light streaks, spherical-aberration halos, asymmetric coma flare, and sunlit-window veiling glare.
 - **Per-Pixel Diplopia & Binocular Rivalry**: Dominant OD paired with amblyopic OS (`VOS 0.15`) shifted up and left at exact per-pixel metric offsets (`~1 cm L / 0.5 cm U @ 0.1 m`, `~2 cm L / 1 cm U @ 0.4 m`, `~5 cm L / 1.5 cm U @ 3 m+`), while solid foreground near objects stay corporeal.
 - **Manifest Latent Nystagmus (MLN) at ~5.5 Hz**: Video-derived waveform when unoccluded + instant gaze-shift burst while moving the mouse (stops immediately when gaze stops), shifting into a mechanical Point A → Point B sawtooth jerk when **one** eye is asymmetrically occluded (`<= 0.25 m`, not both eyes) with velocity-coupled motion smear.
 - **Conscious Focus Effort (`C` / `Space`) & Two-Speed Fatigue**: Active cortical concentration partially suppresses diplopia and unoccluded MLN, while accelerating central fatigue `2.4x` (and breaking down near exhaustion).

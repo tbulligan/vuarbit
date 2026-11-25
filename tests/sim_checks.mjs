@@ -119,8 +119,13 @@ assert.ok(Math.abs(mlnOcclStart.dxDeg - (-2.5)) < 0.05, `occluded MLN must start
 assert.ok(mlnOcclPeak.dxDeg > 2.4, `occluded MLN must reach Point B (+2.5 deg), got ${mlnOcclPeak.dxDeg}`);
 assert.ok(Math.abs(mlnOcclStart.dyDeg) < 0.1, 'occluded mechanical MLN must be primarily horizontal');
 
-const mlnGaze = computeMlnAngleDeg({ dxDeg: 0, dyDeg: 0, vxDegS: 0 }, 0.0, 5.5, 0.0, 0.0, 1.0);
-assert.ok(Math.abs(mlnGaze.dxDeg) > 1.0, 'mouse gaze-shift burst must trigger visible nystagmus excursion');
+const mlnGazeUnfocused = computeMlnAngleDeg({ dxDeg: 0, dyDeg: 0, vxDegS: 0 }, 0.0, 5.5, 0.0, 0.0, 1.0, 0.0);
+const mlnGazeFocused = computeMlnAngleDeg({ dxDeg: 0, dyDeg: 0, vxDegS: 0 }, 0.0, 5.5, 0.0, 0.0, 1.0, 1.0);
+assert.ok(Math.abs(mlnGazeUnfocused.dxDeg) > 2.0, 'unfocused mouse gaze-shift burst must trigger prominent nystagmus');
+assert.ok(
+  Math.abs(mlnGazeFocused.dxDeg) < Math.abs(mlnGazeUnfocused.dxDeg) * 0.55,
+  'Focus effort must damp gaze-shift nystagmus'
+);
 
 // 5. Validate src/state.js: updateSimState (two-speed fatigue, Focus suppression, occlusion, closed eyes)
 const stRelaxed = createSimState();

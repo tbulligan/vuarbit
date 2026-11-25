@@ -9,7 +9,7 @@ function zoneLabel(state) {
   if (state.eyelidClose > 0.8 || state.activeZone === 'closed') return 'Resting (Closed)';
   if (state.compareNormal || state.activeZone === 'normal') return 'Normal Vision (Compare)';
   if (!state.glassesOn || state.activeZone === 'uncorrected') return 'Uncorrected (+13 D off)';
-  if (state.activeZone === 'near') return 'Near Bifocal (+15.75 D)';
+  if (state.activeZone === 'near') return 'Near Bifocal (+16.5 D)';
   return 'Distance (+13.0 D)';
 }
 
@@ -90,7 +90,7 @@ export function createHud(rootElement, initialState) {
     valGlasses.textContent = state.compareNormal
       ? 'OFF (Normal Compare)'
       : state.glassesOn
-        ? 'ON (+13 / +15.75 D)'
+        ? 'ON (+13 / +16.5 D)'
         : 'OFF (Uncorrected)';
     valZone.textContent = zoneLabel(state);
     const isClosed = state.eyelidClose > 0.8 || state.activeZone === 'closed';

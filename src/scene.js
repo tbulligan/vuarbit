@@ -11,7 +11,7 @@ function makeCanvasTexture(width, height, drawFn, repeatX = 1, repeatY = 1) {
   drawFn(ctx, width, height);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
+  tex.anisotropy = 16;
   if (repeatX !== 1 || repeatY !== 1) {
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
@@ -862,7 +862,7 @@ export function createClassroomScene() {
   const sunLight = new THREE.DirectionalLight('#fff8eb', 1.72);
   sunLight.position.set(-7.5, 4.4, -1.0);
   sunLight.castShadow = true;
-  sunLight.shadow.mapSize.set(1024, 1024);
+  sunLight.shadow.mapSize.set(2048, 2048);
   sunLight.shadow.camera.near = 1;
   sunLight.shadow.camera.far = 18;
   sunLight.shadow.camera.left = -5.5;

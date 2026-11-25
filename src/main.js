@@ -51,8 +51,8 @@ async function init() {
     antialias: false,
     powerPreference: 'high-performance',
   });
-  // Cap DPR to 1.25 so dual-eye render targets + optical post-process stay smooth on high-DPI displays
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
+  // High-DPI realism rendering (1.75 DPR cap + 4x MSAA on OD render target eliminates jagged edges)
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;

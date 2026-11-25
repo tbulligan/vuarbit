@@ -31,7 +31,7 @@ export function createSimState() {
     eyelidClose: 0,
     lean: 0,
     holding: null,
-    heldOffset: { x: 0.029, y: -0.06, z: 0.36 },
+    heldOffset: { x: 0.029, y: -0.05, z: 0.28 },
     occlOD: 0,
     occlOS: 0,
     occlusionLevel: 0,
@@ -83,10 +83,10 @@ export function computeDiplopiaOffsetDeg(distMeters) {
 
 /**
  * Compute instantaneous MLN eye-oscillation angle (degrees) and angular velocity (deg/s).
- * Unoccluded: organic video-derived waveform + instantaneous 5.5 Hz gaze-shift burst while mouse moves.
+ * Unoccluded: organic video-derived waveform + prominent 5.5 Hz gaze-shift burst while mouse moves (stronger unfocused).
  * Occluded (asymmetric monocular): blends into mechanical horizontal Point A (-2.5 deg) -> Point B (+2.5 deg) jerk.
  */
-export function computeMlnAngleDeg(wave, elapsed, freqHz, occlusionLevel, mlnScale, gazeSpike) {
+export function computeMlnAngleDeg(wave, elapsed, freqHz, occlusionLevel, mlnScale, gazeSpike, focusStrength = 0) {
   const f = freqHz > 0 ? freqHz : 5.5;
   const occl = clamp(occlusionLevel || 0, 0, 1);
   const mechMix = smoothstep(0.12, 0.78, occl);
@@ -106,9 +106,11 @@ export function computeMlnAngleDeg(wave, elapsed, freqHz, occlusionLevel, mlnSca
     mechVelX = (-5.0 * 6.0 * t * (1.0 - t) * f) / (1.0 - slowFrac);
   }
 
-  // Gaze-shift jerk beat active ONLY while mouse/camera is moving (zero tail once stopped)
-  const gazeBurst = (gazeSpike || 0) * mechDegX * 0.58;
-  const gazeVelX = (gazeSpike || 0) * mechVelX * 0.58;
+  // Prominent gaze-shift jerk beat while mouse moves (strongest unfocused, damped ~58% in Focus, stops instantly on 0 speed)
+  const focusDamp = 1.0 - 0.58 * clamp(focusStrength || 0, 0, 1);
+  const gazeGain = 1.15 * focusDamp;
+  const gazeBurst = (gazeSpike || 0) * mechDegX * gazeGain;
+  const gazeVelX = (gazeSpike || 0) * mechVelX * gazeGain;
 
   const scale = clamp(mlnScale || 0, 0, 1.35);
   const organicX = (wave?.dxDeg || 0) * scale;
