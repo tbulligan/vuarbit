@@ -1,0 +1,21 @@
+THIRD-PARTY SOFTWARE NOTICES AND INFORMATION
+
+This project incorporates or relies upon the following third-party open-source packages:
+
+1. Three.js (https://threejs.org/)
+   License: MIT License
+
+2. Vite (https://vitejs.dev/)
+   License: MIT License
+
+3. OpenCV / opencv-python-headless (https://opencv.org/)
+   License: Apache License 2.0
+
+4. MediaPipe (https://developers.google.com/mediapipe)
+   License: Apache License 2.0
+
+5. NumPy (https://numpy.org/)
+   License: BSD 3-Clause License
+
+6. SciPy (https://scipy.org/)
+   License: BSD 3-Clause License

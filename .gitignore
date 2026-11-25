@@ -1,0 +1,23 @@
+# Dependencies & build artifacts
+node_modules/
+dist/
+.vite/
+
+# CV model cache & Python artifacts
+scripts/.cache/
+__pycache__/
+*.py[cod]
+
+# Media & personal reference files (strict privacy rule)
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.png
+*.jpg
+*.jpeg
+*.webp
+
+# OS / Editor
+.DS_Store
+Thumbs.db
