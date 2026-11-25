@@ -4,6 +4,8 @@ import {
   createSimState,
   computeOcclusionFromDistance,
   computeDiplopiaOffsetDeg,
+  computeMlnAngleDeg,
+  computeDecompensation,
   updateSimState,
 } from '../src/state.js';
 
@@ -84,10 +86,11 @@ const occNear = computeOcclusionFromDistance(0.11);
 assert.ok(occFar > 0 && occFar < occMid && occMid < occNear && occNear < 1, 'occlusion ramp must be strictly monotonic in (0.08, 0.25)');
 assert.ok(Math.abs(occMid - 0.5) < 1e-6, `midpoint occlusion expected 0.5, got ${occMid}`);
 
-// 3. Validate src/state.js: computeDiplopiaOffsetDeg
+// 3. Validate src/state.js: computeDiplopiaOffsetDeg (1cm/0.5cm @ 0.1m, 2cm/1cm @ 0.4m, 5cm/1.5cm @ 3m+)
 const dipNear = computeDiplopiaOffsetDeg(0.1);
 const dipMid = computeDiplopiaOffsetDeg(0.4);
 const dipFar = computeDiplopiaOffsetDeg(3.0);
+const dipBeyond = computeDiplopiaOffsetDeg(6.0);
 
 assert.ok(dipNear.dxDeg < 0 && dipNear.dyDeg > 0, 'OS ghost must shift left (dx<0) and up (dy>0)');
 assert.ok(Math.abs(dipNear.dxDeg - (-5.71)) < 0.15, `0.10m dxDeg expected ~-5.71, got ${dipNear.dxDeg}`);
@@ -96,57 +99,94 @@ assert.ok(Math.abs(dipMid.dxDeg - (-2.86)) < 0.15, `0.40m dxDeg expected ~-2.86,
 assert.ok(Math.abs(dipMid.dyDeg - 1.43) < 0.15, `0.40m dyDeg expected ~+1.43, got ${dipMid.dyDeg}`);
 assert.ok(Math.abs(dipFar.dxDeg - (-0.95)) < 0.15, `3.00m dxDeg expected ~-0.95, got ${dipFar.dxDeg}`);
 assert.ok(Math.abs(dipFar.dyDeg - 0.29) < 0.15, `3.00m dyDeg expected ~+0.29, got ${dipFar.dyDeg}`);
-assert.ok(
-  Math.abs(dipNear.dxDeg) > Math.abs(dipMid.dxDeg) && Math.abs(dipMid.dxDeg) > Math.abs(dipFar.dxDeg),
-  'horizontal diplopia divergence must increase at near'
-);
-assert.ok(
-  dipNear.dyDeg > dipMid.dyDeg && dipMid.dyDeg > dipFar.dyDeg,
-  'vertical diplopia divergence must increase at near'
-);
+assert.equal(dipBeyond.dxDeg, dipFar.dxDeg, 'beyond 3m must hold steady 3m+ offset');
 
-// 4. Validate src/state.js: updateSimState
-const stOpen = createSimState();
-const initialFatigue = stOpen.fatigue;
-for (let i = 0; i < 60; i++) {
-  updateSimState(stOpen, 0.05);
+// Verify GLSL per-pixel diplopia constants stay in sync with state.js
+const fragSrc = fs.readFileSync(new URL('../src/shaders/vision.frag.glsl', import.meta.url), 'utf8');
+for (const c of ['0.552', '1.2535', '0.143', '0.0295', '0.8316', '0.1938']) {
+  assert.ok(fragSrc.includes(c), `vision.frag.glsl missing diplopia constant ${c}`);
 }
-assert.ok(stOpen.fatigue > initialFatigue, `fatigue should rise while eyes open (${initialFatigue} -> ${stOpen.fatigue})`);
-assert.equal(stOpen.activeZone, 'distance');
 
-// MLN ramps with occlusion
+// 4. Validate src/state.js: computeMlnAngleDeg (organic unoccluded vs mechanical Point A -> Point B occluded)
+const dummyWave = { dxDeg: 1.2, dyDeg: -0.4, vxDegS: 10 };
+const mlnOrganic = computeMlnAngleDeg(dummyWave, 0.0, 5.5, 0.0, 1.0, 0.0);
+assert.ok(Math.abs(mlnOrganic.dxDeg - 1.2) < 1e-6, 'unoccluded MLN must preserve organic waveform X');
+assert.ok(Math.abs(mlnOrganic.dyDeg - (-0.4)) < 1e-6, 'unoccluded MLN must preserve organic waveform Y');
+
+const mlnOcclStart = computeMlnAngleDeg(dummyWave, 0.0, 5.5, 1.0, 1.0, 0.0);
+const mlnOcclPeak = computeMlnAngleDeg(dummyWave, 0.839 / 5.5, 5.5, 1.0, 1.0, 0.0);
+assert.ok(Math.abs(mlnOcclStart.dxDeg - (-2.5)) < 0.05, `occluded MLN must start at Point A (-2.5 deg), got ${mlnOcclStart.dxDeg}`);
+assert.ok(mlnOcclPeak.dxDeg > 2.4, `occluded MLN must reach Point B (+2.5 deg), got ${mlnOcclPeak.dxDeg}`);
+assert.ok(Math.abs(mlnOcclStart.dyDeg) < 0.1, 'occluded mechanical MLN must be primarily horizontal');
+
+const mlnGaze = computeMlnAngleDeg({ dxDeg: 0, dyDeg: 0, vxDegS: 0 }, 0.0, 5.5, 0.0, 0.0, 1.0);
+assert.ok(Math.abs(mlnGaze.dxDeg) > 1.0, 'mouse gaze-shift burst must trigger visible nystagmus excursion');
+
+// 5. Validate src/state.js: updateSimState (two-speed fatigue, Focus suppression, occlusion, closed eyes)
+const stRelaxed = createSimState();
+const stFocused = createSimState();
+stFocused.focusing = true;
+for (let i = 0; i < 60; i++) {
+  updateSimState(stRelaxed, 0.05);
+  updateSimState(stFocused, 0.05);
+}
+assert.ok(stRelaxed.fatigue > 0.08, 'fatigue should rise while eyes open');
+assert.ok(stFocused.fatigue > stRelaxed.fatigue + 0.01, 'Focus effort must build fatigue faster');
+assert.ok(stFocused.focusStrength > 0.8, 'Focus effort should engage strongly at low fatigue');
+assert.equal(stRelaxed.activeZone, 'distance');
+
+// Reserve-depletion -> tipping-point crash curve
+assert.equal(computeDecompensation(0.35), 0, 'symptoms must stay masked while compensatory reserve holds (<0.58)');
+assert.ok(computeDecompensation(0.85) > 0.7, 'symptoms must spike sharply past tipping point');
+assert.equal(computeDecompensation(1.0), 1, 'full exhaustion must reach 1.0 decompensation');
+
+// Asymmetric monocular occlusion triggers MLN; symmetric bilateral occlusion does NOT
 const stUnoccluded = createSimState();
 stUnoccluded.fatigue = 0.2;
 updateSimState(stUnoccluded, 0.016);
 
-const stOccluded = createSimState();
-stOccluded.fatigue = 0.2;
-stOccluded.occlOS = 1.0;
-updateSimState(stOccluded, 0.016);
-assert.equal(stOccluded.occlusionLevel, 1.0);
+const stMonocular = createSimState();
+stMonocular.fatigue = 0.2;
+stMonocular.occlOS = 1.0;
+stMonocular.occlOD = 0.0;
+updateSimState(stMonocular, 0.016);
+assert.equal(stMonocular.occlusionLevel, 1.0);
 assert.ok(
-  stOccluded.mlnIntensity > stUnoccluded.mlnIntensity + 0.5,
-  `MLN must ramp strongly with occlusion (${stUnoccluded.mlnIntensity} -> ${stOccluded.mlnIntensity})`
+  stMonocular.mlnIntensity > stUnoccluded.mlnIntensity + 0.5,
+  `Monocular occlusion must ramp MLN strongly (${stUnoccluded.mlnIntensity} -> ${stMonocular.mlnIntensity})`
 );
 
-// Near, uncorrected, and closed zones + fatigue recovery
-stOpen.focusDistM = 0.36;
-updateSimState(stOpen, 0.016);
-assert.equal(stOpen.activeZone, 'near');
+const stBilateral = createSimState();
+stBilateral.fatigue = 0.2;
+stBilateral.occlOS = 1.0;
+stBilateral.occlOD = 1.0;
+updateSimState(stBilateral, 0.016);
+assert.equal(stBilateral.occlusionLevel, 0.0, 'Symmetric bilateral occlusion must not trigger monocular MLN');
 
-stOpen.glassesOn = false;
-updateSimState(stOpen, 0.016);
-assert.equal(stOpen.activeZone, 'uncorrected');
+// Near, uncorrected, normal compare, and closed zones + fatigue recovery
+stRelaxed.focusDistM = 0.36;
+updateSimState(stRelaxed, 0.016);
+assert.equal(stRelaxed.activeZone, 'near');
 
-stOpen.eyesClosed = true;
-stOpen.fatigue = 0.8;
+stRelaxed.glassesOn = false;
+updateSimState(stRelaxed, 0.016);
+assert.equal(stRelaxed.activeZone, 'uncorrected');
+
+stRelaxed.compareNormal = true;
+updateSimState(stRelaxed, 0.016);
+assert.equal(stRelaxed.activeZone, 'normal');
+stRelaxed.compareNormal = false;
+
+stRelaxed.eyesClosed = true;
+stRelaxed.fatigue = 0.8;
 for (let i = 0; i < 100; i++) {
-  updateSimState(stOpen, 0.05);
+  updateSimState(stRelaxed, 0.05);
 }
-assert.ok(stOpen.eyelidClose > 0.99, `eyelidClose should approach 1, got ${stOpen.eyelidClose}`);
-assert.equal(stOpen.activeZone, 'closed');
-assert.ok(stOpen.fatigue < 0.8 && stOpen.fatigue >= 0.05, `fatigue should recover toward 0.05 when closed, got ${stOpen.fatigue}`);
+assert.ok(stRelaxed.eyelidClose > 0.99, `eyelidClose should approach 1, got ${stRelaxed.eyelidClose}`);
+assert.equal(stRelaxed.activeZone, 'closed');
+assert.equal(stRelaxed.focusDistM, 0, 'focusDistM must be 0 when eyes are closed');
+assert.ok(stRelaxed.fatigue < 0.8 && stRelaxed.fatigue >= 0.05, `fatigue should recover toward 0.05 when closed, got ${stRelaxed.fatigue}`);
 
 console.log(
-  `sim_checks.mjs PASSED: waveform=${wf.waveform.samples_x_deg.length} samples @ ${wf.waveform.sample_rate_hz} Hz (MLN p2p=${wf.phases.mln_occluded.peak_to_peak_deg} deg, SPV=${wf.phases.mln_occluded.slow_phase_velocity_deg_s} deg/s, exo=${wf.exotropia_estimate_deg} deg); all state/math assertions green.`
+  `sim_checks.mjs PASSED: waveform=${wf.waveform.samples_x_deg.length} samples @ ${wf.waveform.sample_rate_hz} Hz (MLN p2p=${wf.phases.mln_occluded.peak_to_peak_deg} deg, SPV=${wf.phases.mln_occluded.slow_phase_velocity_deg_s} deg/s, exo=${wf.exotropia_estimate_deg} deg); all state/MLN/diplopia assertions green.`
 );

@@ -7,6 +7,7 @@ function makeEl(tag, className, text) {
 
 function zoneLabel(state) {
   if (state.eyelidClose > 0.8 || state.activeZone === 'closed') return 'Resting (Closed)';
+  if (state.compareNormal || state.activeZone === 'normal') return 'Normal Vision (Compare)';
   if (!state.glassesOn || state.activeZone === 'uncorrected') return 'Uncorrected (+13 D off)';
   if (state.activeZone === 'near') return 'Near Bifocal (+15.75 D)';
   return 'Distance (+13.0 D)';
@@ -32,6 +33,7 @@ export function createHud(rootElement, initialState) {
   const valGlasses = makeRow('Glasses');
   const valZone = makeRow('Optical Zone');
   const valFocus = makeRow('Focus Dist');
+  const valEffort = makeRow('Focus Effort');
   const valMln = makeRow('Occl / MLN');
   const valFatigue = makeRow('Fatigue');
   const valTinnitus = makeRow('Tinnitus');
@@ -39,7 +41,7 @@ export function createHud(rootElement, initialState) {
   const controlsLegend = makeEl(
     'div',
     'hud-controls',
-    'WASD Move/Adjust | E/Q Lean/Near-Far | X Sit/Stand | F Pick | Z Glasses | R Rest | M Mute | H HUD',
+    'WASD Move/Adjust | E/Q/Wheel Lean/Near-Far | X Sit | F Pick | C/Space Focus | Z Glasses | R Rest | V Compare | M Mute | H HUD',
   );
 
   const reticle = makeEl('div', 'hud-reticle');
@@ -50,7 +52,7 @@ export function createHud(rootElement, initialState) {
   const line1 = makeEl(
     'p',
     null,
-    'First-person childhood bilateral aphakia (+13 D amber blended bifocal, zero accommodation) & MLN simulation.',
+    'First-person childhood bilateral aphakia (+13 D straight-cut executive bifocal, zero accommodation) & MLN simulation.',
   );
   const line2 = makeEl(
     'p',
@@ -66,11 +68,7 @@ export function createHud(rootElement, initialState) {
     overlay.classList.add('is-hidden');
     const canvas = document.getElementById('sim-canvas');
     if (canvas && canvas.requestPointerLock) {
-      try {
-        canvas.requestPointerLock();
-      } catch {
-        // Pointer lock may be unavailable in headless environments
-      }
+      Promise.resolve(canvas.requestPointerLock()).catch(() => {});
     }
   };
   overlay.addEventListener('click', onOverlayClick);
@@ -89,14 +87,25 @@ export function createHud(rootElement, initialState) {
 
     if (!state.hudVisible) return;
 
-    valGlasses.textContent = state.glassesOn ? 'ON (+13 / +15.75 D)' : 'OFF (Uncorrected)';
+    valGlasses.textContent = state.compareNormal
+      ? 'OFF (Normal Compare)'
+      : state.glassesOn
+        ? 'ON (+13 / +15.75 D)'
+        : 'OFF (Uncorrected)';
     valZone.textContent = zoneLabel(state);
-    valFocus.textContent = `${(state.focusDistM || 0).toFixed(2)} m`;
+    const isClosed = state.eyelidClose > 0.8 || state.activeZone === 'closed';
+    valFocus.textContent = isClosed ? '0.00 m (Closed)' : `${(state.focusDistM || 0).toFixed(2)} m`;
+    const effortPct = Math.round((state.focusStrength || 0) * 100);
+    valEffort.textContent = isClosed || state.compareNormal
+      ? 'Inactive'
+      : state.focusing
+        ? `ACTIVE (${effortPct}%, 2.4x fatigue)`
+        : 'Relaxed';
     const occlPct = Math.round((state.occlusionLevel || 0) * 100);
     const mlnPct = Math.round((state.mlnIntensity || 0) * 100);
     valMln.textContent = `${occlPct}% / ${mlnPct}%`;
     valFatigue.textContent = `${Math.round((state.fatigue || 0) * 100)}%`;
-    valTinnitus.textContent = state.muted ? 'MUTED' : 'ON (E7 + C9)';
+    valTinnitus.textContent = state.muted || state.compareNormal ? 'MUTED' : 'ON (E7 + C9)';
   }
 
   function dispose() {

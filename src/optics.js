@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { computeDiplopiaOffsetDeg } from './state.js';
+import { computeMlnAngleDeg } from './state.js';
 import visionFrag from './shaders/vision.frag.glsl?raw';
 
 const EYE_HALF_IPD_M = 0.029;
-const NEAR_CLIP = 0.04;
+const NEAR_CLIP = 0.02;
 const FAR_CLIP = 30.0;
+const TARGET_MLN_FREQ_HZ = 5.5; // 5-6 beats/sec clinical MLN beat rate
 
 const FULLSCREEN_VERT = /* glsl */ `
   varying vec2 vUv;
@@ -28,16 +29,15 @@ function createEyeRenderTarget(w, h) {
   });
 }
 
-function sampleLoopingWaveform(waveform, timeSec) {
+function sampleLoopingWaveform(waveform, timeSec, speedScale) {
   const wf = waveform?.waveform;
   const xs = wf?.samples_x_deg;
   const ys = wf?.samples_y_deg;
-  const rate = wf?.sample_rate_hz || 60;
+  const rate = (wf?.sample_rate_hz || 60) * speedScale;
   if (!xs || !ys || xs.length === 0) {
-    // Fallback physiological sawtooth jerk nystagmus (~3.5 Hz)
-    const phase = (timeSec * 3.5) % 1.0;
+    const phase = (timeSec * TARGET_MLN_FREQ_HZ) % 1.0;
     const jerkX = (phase < 0.8 ? phase / 0.8 : 1.0 - (phase - 0.8) / 0.2) * 2.2 - 1.1;
-    return { dxDeg: jerkX, dyDeg: jerkX * 0.15 };
+    return { dxDeg: jerkX, dyDeg: jerkX * 0.15, vxDegS: 0 };
   }
 
   const n = xs.length;
@@ -45,14 +45,17 @@ function sampleLoopingWaveform(waveform, timeSec) {
   const i0 = Math.floor(fIdx);
   const i1 = (i0 + 1) % n;
   const t = fIdx - i0;
+  const dx = xs[i1] - xs[i0];
   return {
-    dxDeg: xs[i0] + (xs[i1] - xs[i0]) * t,
+    dxDeg: xs[i0] + dx * t,
     dyDeg: ys[i0] + (ys[i1] - ys[i0]) * t,
+    vxDegS: dx * rate,
   };
 }
 
 /**
- * Dual-eye OD/OS WebGL2 optics pipeline with MLN waveform oscillopsia and aphakic bifocal shader.
+ * Dual-eye OD (full-res) / OS (half-res) WebGL2 optics pipeline with 5.5 Hz MLN oscillopsia,
+ * per-pixel diplopia, and straight-cut executive aphakic bifocal.
  */
 export function createOpticsRenderer(renderer, scene, waveformData) {
   const size = new THREE.Vector2();
@@ -64,8 +67,12 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
   const odCamera = new THREE.PerspectiveCamera(62, aspect, NEAR_CLIP, FAR_CLIP);
   const osCamera = new THREE.PerspectiveCamera(62, aspect, NEAR_CLIP, FAR_CLIP);
 
-  let rtOD = createEyeRenderTarget(initW, initH);
-  let rtOS = createEyeRenderTarget(initW, initH);
+  // shortcut: amblyopic OS (VOS 0.15) rendered at half resolution (4x cheaper), upgrade if OS acuity ever approaches 1.0
+  const rtOD = createEyeRenderTarget(initW, initH);
+  const rtOS = createEyeRenderTarget(Math.max(1, Math.floor(initW * 0.5)), Math.max(1, Math.floor(initH * 0.5)));
+
+  const baseFreq = waveformData?.phases?.mln_occluded?.dominant_freq_hz || waveformData?.waveform?.cycle_freq_hz || 0.85;
+  const waveSpeedScale = THREE.MathUtils.clamp(TARGET_MLN_FREQ_HZ / Math.max(0.25, baseFreq), 1.0, 9.0);
 
   const uniforms = {
     tColorOD: { value: rtOD.texture },
@@ -78,11 +85,13 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uTime: { value: 0 },
     uGlassesOn: { value: 1 },
     uEyelidClose: { value: 0 },
-    uFatigue: { value: 0.1 },
-    uOcclusion: { value: 0 },
-    uMlnIntensity: { value: 0 },
-    uDiplopiaDeg: { value: new THREE.Vector2(-0.95, 0.29) },
+    uEyelidLight: { value: 0.35 },
+    uFatigue: { value: 0.08 },
+    uOcclOD: { value: 0 },
+    uFocusEffort: { value: 0 },
+    uCompareNormal: { value: 0 },
     uMlnOffsetUV: { value: new THREE.Vector2(0, 0) },
+    uMlnVelUV: { value: 0 },
     uResolution: { value: new THREE.Vector2(initW, initH) },
   };
 
@@ -102,81 +111,80 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
   const savedPos = new THREE.Vector3();
   const savedQuat = new THREE.Quaternion();
   const rightVec = new THREE.Vector3();
-  const forwardVec = new THREE.Vector3();
-  const convergeTarget = new THREE.Vector3();
   const mlnEuler = new THREE.Euler(0, 0, 0, 'YXZ');
   const mlnQuat = new THREE.Quaternion();
 
   let elapsed = 0;
-  let gazeSpike = 0;
+  let shadowFrame = 0;
 
   function render(dt, state) {
     elapsed += dt;
 
-    // Velocity-coupled oscillopsia burst during rapid mouse turns
-    const velDrive = Math.min(1.0, (state.gazeVel || 0) * 0.22);
-    gazeSpike += (velDrive - gazeSpike) * Math.min(1, dt * 10);
+    // Instantaneous gaze-shift nystagmus: active ONLY while mouse moves, stops immediately when movement stops
+    const gazeSpike = Math.min(1.0, (state.gazeVel || 0) * 0.65);
 
-    const wave = sampleLoopingWaveform(waveformData, elapsed);
-    const mlnScale = Math.min(1.25, (state.mlnIntensity || 0) + gazeSpike * 0.65);
-    const gazeRebound = gazeSpike * Math.sin(elapsed * 28.0) * 1.4;
-    const mlnDegX = wave.dxDeg * mlnScale + gazeRebound;
-    const mlnDegY = wave.dyDeg * mlnScale;
+    const isNormal = Boolean(state.compareNormal);
+    const wave = sampleLoopingWaveform(waveformData, elapsed, waveSpeedScale);
+    const mlnScale = isNormal ? 0 : Math.min(1.25, (state.mlnIntensity || 0) + gazeSpike * 0.45);
+    const mln = isNormal
+      ? { dxDeg: 0, dyDeg: 0, velDegS: 0 }
+      : computeMlnAngleDeg(wave, elapsed, TARGET_MLN_FREQ_HZ, state.occlusionLevel || 0, mlnScale, gazeSpike);
 
-    // Preserve clean head-center pose for controls and scene raycasts
     savedPos.copy(odCamera.position);
     savedQuat.copy(odCamera.quaternion);
-
     rightVec.set(1, 0, 0).applyQuaternion(savedQuat);
-    forwardVec.set(0, 0, -1).applyQuaternion(savedQuat);
 
     mlnEuler.set(
-      THREE.MathUtils.degToRad(mlnDegY),
-      THREE.MathUtils.degToRad(-mlnDegX),
+      THREE.MathUtils.degToRad(mln.dyDeg),
+      THREE.MathUtils.degToRad(-mln.dxDeg),
       0,
       'YXZ',
     );
     mlnQuat.setFromEuler(mlnEuler);
 
-    // OD eye (+0.029m right) with MLN oscillopsia perturbation
-    odCamera.position.copy(savedPos).addScaledVector(rightVec, EYE_HALF_IPD_M);
+    // Refresh shadow map at most once every 3 frames (only before OD, never duplicated on OS)
+    if (shadowFrame % 3 === 0) {
+      renderer.shadowMap.needsUpdate = true;
+    }
+    shadowFrame += 1;
+
+    odCamera.position.copy(savedPos).addScaledVector(rightVec, isNormal ? 0 : EYE_HALF_IPD_M);
     odCamera.quaternion.copy(savedQuat).multiply(mlnQuat);
     odCamera.updateMatrixWorld(true);
-
-    // OS eye (-0.029m left), softly verged onto gaze distance + MLN perturbation
-    const vergeDist = THREE.MathUtils.clamp(state.focusDistM || 3.8, 0.28, 8.0);
-    convergeTarget.copy(savedPos).addScaledVector(forwardVec, vergeDist);
-    osCamera.position.copy(savedPos).addScaledVector(rightVec, -EYE_HALF_IPD_M);
-    osCamera.up.set(0, 1, 0).applyQuaternion(savedQuat);
-    osCamera.lookAt(convergeTarget);
-    osCamera.quaternion.multiply(mlnQuat);
-    osCamera.updateMatrixWorld(true);
 
     const prevTarget = renderer.getRenderTarget();
 
     renderer.setRenderTarget(rtOD);
     renderer.clear();
     renderer.render(scene, odCamera);
+    renderer.shadowMap.needsUpdate = false;
 
-    renderer.setRenderTarget(rtOS);
-    renderer.clear();
-    renderer.render(scene, osCamera);
+    // Skip OS render pass completely when eyelids are fully closed or in normal comparison mode
+    const needOS = !isNormal && (state.eyelidClose || 0) < 0.995;
+    if (needOS) {
+      osCamera.position.copy(savedPos).addScaledVector(rightVec, -EYE_HALF_IPD_M);
+      osCamera.quaternion.copy(odCamera.quaternion);
+      osCamera.updateMatrixWorld(true);
 
-    // Restore un-jittered head-center pose before next frame's controls/scene update
+      renderer.setRenderTarget(rtOS);
+      renderer.clear();
+      renderer.render(scene, osCamera);
+    }
+
     odCamera.position.copy(savedPos);
     odCamera.quaternion.copy(savedQuat);
     odCamera.updateMatrixWorld(true);
 
-    // Update shader uniforms and composite to screen
-    const dip = computeDiplopiaOffsetDeg(state.focusDistM || 3.8);
     uniforms.uTime.value = elapsed;
     uniforms.uGlassesOn.value = state.glassesOn ? 1.0 : 0.0;
     uniforms.uEyelidClose.value = state.eyelidClose || 0.0;
+    uniforms.uEyelidLight.value = state.eyelidLight ?? 0.35;
     uniforms.uFatigue.value = state.fatigue || 0.0;
-    uniforms.uOcclusion.value = state.occlusionLevel || 0.0;
-    uniforms.uMlnIntensity.value = state.mlnIntensity || 0.0;
-    uniforms.uDiplopiaDeg.value.set(dip.dxDeg, dip.dyDeg);
-    uniforms.uMlnOffsetUV.value.set(mlnDegX / 62.0, mlnDegY / 62.0);
+    uniforms.uOcclOD.value = state.occlOD || 0.0;
+    uniforms.uFocusEffort.value = state.focusStrength || 0.0;
+    uniforms.uCompareNormal.value = isNormal ? 1.0 : 0.0;
+    uniforms.uMlnOffsetUV.value.set(mln.dxDeg / 62.0, mln.dyDeg / 62.0);
+    uniforms.uMlnVelUV.value = THREE.MathUtils.clamp(Math.abs(mln.velDegS) / 900.0, 0.0, 0.015);
 
     renderer.setRenderTarget(prevTarget);
     renderer.render(quadScene, quadCamera);
@@ -194,7 +202,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     osCamera.updateProjectionMatrix();
 
     rtOD.setSize(bw, bh);
-    rtOS.setSize(bw, bh);
+    rtOS.setSize(Math.max(1, Math.floor(bw * 0.5)), Math.max(1, Math.floor(bh * 0.5)));
     uniforms.uAspect.value = newAspect;
     uniforms.uResolution.value.set(bw, bh);
   }

@@ -70,7 +70,8 @@ export function createControls(domElement, state, sceneApi) {
 
     if (chosen) {
       state.holding = chosen.id;
-      state.heldOffset = { x: 0.06, y: -0.05, z: 0.36 };
+      // Start centered in right eye's lower reading-distance zone (~36cm)
+      state.heldOffset = { x: 0.029, y: -0.065, z: 0.36 };
     }
   }
 
@@ -105,10 +106,12 @@ export function createControls(domElement, state, sceneApi) {
   }
 
   let latestCamera = null;
+  let focusToggle = false;
+  let wheelDeltaAccum = 0;
 
   const onCanvasClick = () => {
     if (document.pointerLockElement !== domElement && domElement.requestPointerLock) {
-      domElement.requestPointerLock();
+      Promise.resolve(domElement.requestPointerLock()).catch(() => {});
     }
   };
 
@@ -126,8 +129,18 @@ export function createControls(domElement, state, sceneApi) {
     angularAccum += Math.hypot(dx, dy) * sens;
   };
 
+  const onWheel = (e) => {
+    if (Math.abs(e.deltaY) < 0.01) return;
+    // Scroll up (<0) -> closer / lean forward (E); scroll down (>0) -> further / lean back (Q)
+    wheelDeltaAccum += Math.sign(-e.deltaY) * Math.min(1.5, Math.abs(e.deltaY) / 100);
+  };
+
   const onKeyDown = (e) => {
     keys.add(e.code);
+    if (e.code === 'Space') {
+      e.preventDefault();
+      state.focusing = true;
+    }
     if (e.repeat) return;
 
     switch (e.code) {
@@ -143,6 +156,14 @@ export function createControls(domElement, state, sceneApi) {
       case 'KeyZ':
         state.glassesOn = !state.glassesOn;
         break;
+      case 'KeyC':
+        focusToggle = !focusToggle;
+        state.focusing = focusToggle || keys.has('Space');
+        break;
+      case 'KeyV':
+        state.compareNormal = !state.compareNormal;
+        state.fatigue = 0.05;
+        break;
       case 'KeyM':
         state.muted = !state.muted;
         break;
@@ -156,13 +177,18 @@ export function createControls(domElement, state, sceneApi) {
 
   const onKeyUp = (e) => {
     keys.delete(e.code);
+    if (e.code === 'Space') {
+      state.focusing = focusToggle;
+    }
   };
 
   const onBlur = () => {
     keys.clear();
+    state.focusing = focusToggle;
   };
 
   domElement.addEventListener('click', onCanvasClick);
+  window.addEventListener('wheel', onWheel, { passive: true });
   document.addEventListener('pointerlockchange', onPointerLockChange);
   document.addEventListener('mousemove', onMouseMove);
   window.addEventListener('keydown', onKeyDown);
@@ -173,12 +199,10 @@ export function createControls(domElement, state, sceneApi) {
     latestCamera = camera;
     const step = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.1);
 
-    // Angular velocity tracker (rad/s) for velocity-coupled MLN burst
+    // Instantaneous angular velocity (rad/s): drops immediately to 0 the frame mouse movement stops
     const instVel = step > 1e-4 ? angularAccum / step : 0;
     angularAccum = 0;
-    const velAlpha = 1 - Math.exp(-14 * step);
-    state.gazeVel += (instVel - state.gazeVel) * velAlpha;
-    if (state.gazeVel < 1e-4) state.gazeVel = 0;
+    state.gazeVel = instVel < 0.04 ? 0 : instVel;
 
     const fwdInput =
       (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) -
@@ -188,17 +212,32 @@ export function createControls(domElement, state, sceneApi) {
       (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     const leanIn = keys.has('KeyE') ? 1 : 0;
     const leanOut = keys.has('KeyQ') ? 1 : 0;
+    const wheelStep = wheelDeltaAccum;
+    wheelDeltaAccum = 0;
 
     if (state.mode === 'seated' && state.holding) {
-      // Move held object in camera plane (X/Y) and depth (Z: 0.06m..0.65m)
+      // Prevent clipping through glasses (~4.2cm front plane) or bare cornea (~2.8cm)
+      const heldItem = sceneApi.pickables.find((p) => p.id === state.holding);
+      const halfDepth = heldItem?.halfDepth || 0.025;
+      const minZ = (state.glassesOn ? 0.044 : 0.028) + halfDepth;
+
       const xySpeed = 0.42;
       const zSpeed = 0.45;
       state.heldOffset.x = clamp(state.heldOffset.x + strafeInput * xySpeed * step, -0.22, 0.22);
       state.heldOffset.y = clamp(state.heldOffset.y + fwdInput * xySpeed * step, -0.18, 0.16);
-      state.heldOffset.z = clamp(state.heldOffset.z - (leanIn - leanOut) * zSpeed * step, 0.06, 0.65);
+      const zDelta = (leanIn - leanOut) * zSpeed * step + wheelStep * 0.032;
+      state.heldOffset.z = clamp(state.heldOffset.z - zDelta, minZ, 0.65);
+
+      // Pulling object closer (E or scroll up) guides it to center of right eye's lower reading-distance section
+      if ((leanIn > 0 || wheelStep > 0) && strafeInput === 0 && fwdInput === 0) {
+        const pullAlpha = 1 - Math.exp(-(leanIn > 0 ? 7.0 * step : 0.25));
+        const targetReadY = -0.18 * state.heldOffset.z;
+        state.heldOffset.x += (0.029 - state.heldOffset.x) * pullAlpha;
+        state.heldOffset.y += (targetReadY - state.heldOffset.y) * pullAlpha;
+      }
     } else {
-      // Lean control via E (forward) / Q (back)
-      const leanDelta = (leanIn - leanOut) * 1.5 * step;
+      // Lean control via E/Q or mouse scroll wheel
+      const leanDelta = (leanIn - leanOut) * 1.5 * step + wheelStep * 0.14;
       if (leanDelta !== 0) {
         state.lean = clamp(state.lean + leanDelta, -0.25, 1.0);
       }
@@ -255,6 +294,7 @@ export function createControls(domElement, state, sceneApi) {
 
   function dispose() {
     domElement.removeEventListener('click', onCanvasClick);
+    window.removeEventListener('wheel', onWheel);
     document.removeEventListener('pointerlockchange', onPointerLockChange);
     document.removeEventListener('mousemove', onMouseMove);
     window.removeEventListener('keydown', onKeyDown);

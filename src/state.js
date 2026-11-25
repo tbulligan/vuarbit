@@ -13,6 +13,14 @@ export function smoothstep(edge0, edge1, x) {
 }
 
 /**
+ * Reserve-depletion -> tipping-point crash curve:
+ * Compensatory reserve masks symptoms up to ~58% fatigue, then decompensates sharply toward 100%.
+ */
+export function computeDecompensation(fatigue) {
+  return smoothstep(0.58, 0.96, clamp(fatigue || 0, 0, 1));
+}
+
+/**
  * Create initial simulation state.
  */
 export function createSimState() {
@@ -23,11 +31,15 @@ export function createSimState() {
     eyelidClose: 0,
     lean: 0,
     holding: null,
-    heldOffset: { x: 0.06, y: -0.05, z: 0.36 },
+    heldOffset: { x: 0.029, y: -0.06, z: 0.36 },
     occlOD: 0,
     occlOS: 0,
     occlusionLevel: 0,
-    fatigue: 0.1,
+    eyelidLight: 0.35,
+    fatigue: 0.08,
+    focusing: false,
+    focusStrength: 0,
+    compareNormal: false,
     mlnIntensity: 0,
     gazeVel: 0,
     activeZone: 'distance',
@@ -57,14 +69,56 @@ export function computeOcclusionFromDistance(distMeters) {
 
 /**
  * Compute diplopic angular offset (degrees) of amblyopic OS image relative to OD.
- * OS ghost shifts LEFT (negative dxDeg) and UP (positive dyDeg), increasing at near:
- * ~(-5.71, +2.86) at 0.10m, ~(-2.86, +1.43) at 0.40m, ~(-0.95, +0.29) at 3.00m.
+ * Matches lived metric offsets (kept in sync with vision.frag.glsl):
+ *  - 0.10m: ~1.0cm left (-5.71 deg), ~0.5cm up (+2.86 deg)
+ *  - 0.40m: ~2.0cm left (-2.86 deg), ~1.0cm up (+1.43 deg)
+ *  - 3.00m and beyond: ~5.0cm left (-0.95 deg), ~1.5cm up (+0.29 deg)
  */
 export function computeDiplopiaOffsetDeg(distMeters) {
-  const d = Math.max(0.05, Number.isFinite(distMeters) ? distMeters : 3.8);
+  const d = clamp(Number.isFinite(distMeters) ? distMeters : 3.0, 0.05, 3.0);
   const dxDeg = -(0.552 + 1.2535 / (d + 0.143));
   const dyDeg = 0.0295 + 0.8316 / (d + 0.1938);
   return { dxDeg, dyDeg };
+}
+
+/**
+ * Compute instantaneous MLN eye-oscillation angle (degrees) and angular velocity (deg/s).
+ * Unoccluded: organic video-derived waveform + instantaneous 5.5 Hz gaze-shift burst while mouse moves.
+ * Occluded (asymmetric monocular): blends into mechanical horizontal Point A (-2.5 deg) -> Point B (+2.5 deg) jerk.
+ */
+export function computeMlnAngleDeg(wave, elapsed, freqHz, occlusionLevel, mlnScale, gazeSpike) {
+  const f = freqHz > 0 ? freqHz : 5.5;
+  const occl = clamp(occlusionLevel || 0, 0, 1);
+  const mechMix = smoothstep(0.12, 0.78, occl);
+  const phase = (((elapsed * f) % 1.0) + 1.0) % 1.0;
+  const slowFrac = 0.84;
+
+  let mechDegX;
+  let mechVelX;
+  if (phase < slowFrac) {
+    const t = phase / slowFrac;
+    mechDegX = -2.5 + 5.0 * (0.55 * t + 0.45 * t * t);
+    mechVelX = (5.0 * (0.55 + 0.9 * t) * f) / slowFrac;
+  } else {
+    const t = (phase - slowFrac) / (1.0 - slowFrac);
+    const snap = t * t * (3.0 - 2.0 * t);
+    mechDegX = 2.5 - 5.0 * snap;
+    mechVelX = (-5.0 * 6.0 * t * (1.0 - t) * f) / (1.0 - slowFrac);
+  }
+
+  // Gaze-shift jerk beat active ONLY while mouse/camera is moving (zero tail once stopped)
+  const gazeBurst = (gazeSpike || 0) * mechDegX * 0.58;
+  const gazeVelX = (gazeSpike || 0) * mechVelX * 0.58;
+
+  const scale = clamp(mlnScale || 0, 0, 1.35);
+  const organicX = (wave?.dxDeg || 0) * scale;
+  const organicY = (wave?.dyDeg || 0) * scale;
+
+  const dxDeg = organicX * (1.0 - mechMix) + mechDegX * scale * mechMix + gazeBurst;
+  const dyDeg = organicY * (1.0 - mechMix * 0.88);
+  const velDegS = (mechVelX * scale * mechMix) + gazeVelX + (wave?.vxDegS || 0) * scale * (1.0 - mechMix);
+
+  return { dxDeg, dyDeg, velDegS };
 }
 
 /**
@@ -87,32 +141,49 @@ export function updateSimState(state, dt) {
 
   state.occlOD = clamp(state.occlOD || 0, 0, 1);
   state.occlOS = clamp(state.occlOS || 0, 0, 1);
-  state.occlusionLevel = clamp(Math.max(state.occlOD, state.occlOS), 0, 1);
+  // MLN Patching Paradox: triggered by asymmetric monocular occlusion (one eye occluded, NOT both)
+  state.occlusionLevel = clamp(Math.abs(state.occlOD - state.occlOS), 0, 1);
 
-  // Central visual fatigue dynamics
-  if (state.eyesClosed) {
-    const recovAlpha = 1 - Math.exp(-0.14 * step);
-    state.fatigue = clamp(state.fatigue + (0.05 - state.fatigue) * recovAlpha, 0, 1);
-  } else {
-    let rate = 0.008;
-    if (state.focusDistM < 0.7) rate += 0.015;
-    if (state.occlusionLevel > 0.05) rate += 0.035 * state.occlusionLevel;
-    if (!state.glassesOn) rate += 0.02;
-    state.fatigue = clamp(state.fatigue + rate * step, 0, 1);
-  }
-
-  // Manifest-latent nystagmus intensity driven by occlusion + fatigue + visual effort
-  state.mlnIntensity = clamp(
-    state.occlusionLevel * 0.95 + state.fatigue * 0.28 + (state.eyesClosed ? 0 : 0.03),
+  // Cortical focus suppression (C toggle / Space hold): holds steady on reserve, then crashes past tipping point
+  const wantsFocus = Boolean(state.focusing) && !state.eyesClosed && !state.compareNormal;
+  const decomp = computeDecompensation(state.fatigue);
+  const fatigueBreakdown = 1.0 - 0.78 * decomp;
+  const targetFocusStrength = wantsFocus ? fatigueBreakdown : 0;
+  const focusAlpha = 1 - Math.exp(-8 * step);
+  state.focusStrength = clamp(
+    (state.focusStrength || 0) + (targetFocusStrength - (state.focusStrength || 0)) * focusAlpha,
     0,
     1
   );
 
+  // Two-speed central visual fatigue dynamics (gradual reserve drain, 2.4x faster during Focus)
+  if (state.eyesClosed) {
+    const recovAlpha = 1 - Math.exp(-0.14 * step);
+    state.fatigue = clamp(state.fatigue + (0.05 - state.fatigue) * recovAlpha, 0, 1);
+  } else if (!state.compareNormal) {
+    let rate = 0.0012;
+    if (state.focusDistM > 0 && state.focusDistM < 0.7) rate += 0.0018;
+    if (state.occlusionLevel > 0.05) rate += 0.006 * state.occlusionLevel;
+    if (!state.glassesOn) rate += 0.003;
+    if (wantsFocus) {
+      rate = rate * 2.4 + 0.0035;
+    }
+    state.fatigue = clamp(state.fatigue + rate * step, 0, 1);
+  }
+
+  // MLN intensity: low damped baseline while reserve holds; rises sharply on decompensation crash or monocular occlusion
+  const postDecomp = computeDecompensation(state.fatigue);
+  const unocclDrive = (0.035 + 0.34 * postDecomp) * (state.eyesClosed ? 0.35 : 1.0) * (1 - 0.55 * state.focusStrength);
+  state.mlnIntensity = clamp(state.occlusionLevel * 0.95 + unocclDrive, 0, 1);
+
   if (state.eyelidClose > 0.8) {
     state.activeZone = 'closed';
+    state.focusDistM = 0;
+  } else if (state.compareNormal) {
+    state.activeZone = 'normal';
   } else if (!state.glassesOn) {
     state.activeZone = 'uncorrected';
-  } else if (state.pitch < -0.22 || state.focusDistM < 0.7) {
+  } else if (state.pitch < -0.22 || (state.focusDistM > 0 && state.focusDistM < 0.7)) {
     state.activeZone = 'near';
   } else {
     state.activeZone = 'distance';

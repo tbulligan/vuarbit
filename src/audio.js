@@ -1,6 +1,8 @@
+import { computeDecompensation } from './state.js';
+
 const FREQ_E7 = 2637.02;
 const FREQ_C9 = 8372.02;
-const MAX_TOTAL_GAIN = 0.035;
+const MAX_TOTAL_GAIN = 0.028;
 
 /**
  * Web Audio API dual-tone tinnitus synthesizer (E7 + C9), modulated by fatigue and eye rest.
@@ -64,11 +66,12 @@ export function createTinnitusAudio() {
     if (!started || !ctx || !masterGain) return;
 
     const fatigue = Math.max(0, Math.min(1, state.fatigue || 0));
-    const restScale = state.eyesClosed ? 0.4 : 1.0;
-    const rawLevel = (0.004 + 0.030 * fatigue) * restScale;
-    const targetGain = state.muted ? 0 : Math.min(MAX_TOTAL_GAIN, rawLevel);
+    const decomp = computeDecompensation(fatigue);
+    // Very subtle whisper while compensatory reserve holds, surging sharply past tipping point; no instant drop on eye close
+    const rawLevel = 0.00045 + 0.0018 * fatigue + 0.025 * decomp * decomp;
+    const targetGain = state.muted || state.compareNormal ? 0 : Math.min(MAX_TOTAL_GAIN, rawLevel);
 
-    masterGain.gain.setTargetAtTime(targetGain, ctx.currentTime, 0.14);
+    masterGain.gain.setTargetAtTime(targetGain, ctx.currentTime, 0.24);
   }
 
   function dispose() {

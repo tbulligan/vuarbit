@@ -1,16 +1,22 @@
 # AGENTS.md — Vuarbit Architecture & Guardrails
 
+## Session Workflow Rules
+
+1. **Model & Swarm Check**: At the start of each request, verify whether the current model/swarm selection fits the task; if not, stop immediately and tell the user what to change.
+2. **Clarify Before Editing**: Check prompt clarity and completeness before acting; ask concise clarifying questions first if anything is ambiguous or has conflicting interpretations.
+3. **Commit Often, Review Milestones**: Commit small verified milestones frequently; run `/ponytail-review` before pushing or after multi-file architectural changes.
+
 ## Module Ownership & Contracts
 
 - `src/state.js` (pure ES module, zero DOM/Three.js imports):
-  - `createSimState()`, `updateSimState(state, dt)`, `computeOcclusionFromDistance(distMeters)`, `computeDiplopiaOffsetDeg(distMeters)`.
+  - `createSimState()`, `updateSimState(state, dt)`, `computeOcclusionFromDistance(distMeters)`, `computeDiplopiaOffsetDeg(distMeters)`, `computeMlnAngleDeg(...)`, `computeDecompensation(fatigue)`.
 - `src/scene.js`:
   - `createClassroomScene()` -> `{ scene, deskPos, seatPose, standPose, pickables, updateScene(dt, state, camera) }`.
 - `src/controls.js`:
   - `createControls(domElement, state, sceneApi)` -> `{ update(dt, camera), dispose() }`.
 - `src/optics.js` & `src/shaders/vision.frag.glsl`:
   - `createOpticsRenderer(renderer, scene, waveformData)` -> `{ odCamera, render(dt, state), resize(w, h), dispose() }`.
-  - Dual `WebGLRenderTarget`s (OD `+0.029 m`, OS `-0.029 m`) with `THREE.DepthTexture` (`near = 0.04`, `far = 30.0`), MLN oscillopsia perturbation restored post-render.
+  - Dual `WebGLRenderTarget`s (OD `+0.029 m` full-res, OS `-0.029 m` half-res parallel) with `THREE.DepthTexture` (`near = 0.02`, `far = 30.0`), 5.5 Hz MLN oscillopsia perturbation restored post-render.
 - `src/audio.js`:
   - `createTinnitusAudio()` -> `{ start(), update(state), dispose() }`.
 - `src/hud.js`:

@@ -71,6 +71,85 @@ function createTerrazzoTexture() {
   );
 }
 
+function drawHandwrittenLine(ctx, text, x, y, opts = {}) {
+  const {
+    font = 'italic 44px "Segoe Print", "Bradley Hand", "Chalkboard SE", Georgia, cursive',
+    color = '#f2f3ec',
+    chalk = false,
+    seedInit = 1337,
+    jitterY = 1.8,
+    slant = -0.10,
+  } = opts;
+
+  ctx.save();
+  ctx.font = font;
+  ctx.fillStyle = color;
+  ctx.textBaseline = 'alphabetic';
+
+  let s = seedInit >>> 0;
+  const rand = () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296 - 0.5;
+  };
+
+  let cx = x;
+  let driftY = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    const w = ctx.measureText(ch).width;
+    if (ch !== ' ') {
+      driftY = driftY * 0.65 + rand() * jitterY;
+      const rot = slant + rand() * 0.085;
+      ctx.save();
+      ctx.translate(cx, y + driftY);
+      ctx.rotate(rot);
+      if (chalk) {
+        ctx.globalAlpha = 0.88 + rand() * 0.16;
+        ctx.fillText(ch, 0, 0);
+        // Subtle second chalk grain pass for dusty hand-drawn texture
+        ctx.globalAlpha = 0.28;
+        ctx.fillText(ch, 1.4, -0.9);
+      } else {
+        ctx.globalAlpha = 0.94 + rand() * 0.08;
+        ctx.fillText(ch, 0, 0);
+      }
+      ctx.restore();
+    }
+    cx += w * (0.97 + rand() * 0.07);
+  }
+  ctx.restore();
+}
+
+function drawWobblyLine(ctx, x1, y1, x2, y2, color, width = 3, seedInit = 77) {
+  let s = seedInit >>> 0;
+  const rand = () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296 - 0.5;
+  };
+  const steps = 10;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  for (let i = 1; i <= steps; i += 1) {
+    const t = i / steps;
+    const j = i < steps ? rand() * 4.5 : 0;
+    ctx.lineTo(x1 + (x2 - x1) * t + j * 0.3, y1 + (y2 - y1) * t + j);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawRadical(ctx, x, y, width, height, color, lineWidth = 4, seed = 88) {
+  // Authentic hand-drawn Italian school square-root sign √ with horizontal overbar
+  drawWobblyLine(ctx, x, y - height * 0.35, x + 10, y - height * 0.42, color, lineWidth, seed);
+  drawWobblyLine(ctx, x + 10, y - height * 0.42, x + 20, y + 2, color, lineWidth, seed + 1);
+  drawWobblyLine(ctx, x + 20, y + 2, x + 36, y - height, color, lineWidth, seed + 2);
+  drawWobblyLine(ctx, x + 36, y - height, x + 36 + width, y - height, color, lineWidth, seed + 3);
+}
+
 function createBlackboardTexture() {
   return makeCanvasTexture(2048, 1024, (ctx, w, h) => {
     const grad = ctx.createLinearGradient(0, 0, w, h);
@@ -90,79 +169,129 @@ function createBlackboardTexture() {
       ctx.fill();
     }
 
-    ctx.fillStyle = '#f2f3ec';
-    ctx.textBaseline = 'top';
+    const chalkFont = (size, weight = '') =>
+      `${weight} italic ${size}px "Segoe Print", "Bradley Hand", "Chalkboard SE", Georgia, cursive`.trim();
 
-    ctx.font = 'bold 74px Georgia, serif';
-    ctx.fillText('EQUAZIONI DI 1° GRADO', 90, 74);
+    // 1994 Italian 2ª Media (12yo) math lesson: Proporzioni, Frazioni, Teorema di Pitagora
+    drawHandwrittenLine(ctx, '25 novembre 1994', 1480, 92, {
+      font: chalkFont(40),
+      color: 'rgba(242, 243, 236, 0.85)',
+      chalk: true,
+      seedInit: 99,
+      jitterY: 2.0,
+    });
 
-    ctx.strokeStyle = 'rgba(242, 243, 236, 0.65)';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(90, 166);
-    ctx.lineTo(1060, 166);
-    ctx.stroke();
+    drawHandwrittenLine(ctx, 'Aritmetica: Proporzioni', 95, 134, {
+      font: chalkFont(74, 'bold'),
+      color: '#f2f3ec',
+      chalk: true,
+      seedInit: 101,
+      jitterY: 3.2,
+      slant: -0.05,
+    });
+    drawWobblyLine(ctx, 92, 158, 1020, 162, 'rgba(242, 243, 236, 0.68)', 4.5, 102);
 
-    ctx.font = '68px "Courier New", monospace';
-    ctx.fillText('2x + 5 = 13', 110, 230);
-    ctx.fillStyle = 'rgba(242, 243, 236, 0.85)';
-    ctx.font = '56px "Courier New", monospace';
-    ctx.fillText('2x = 13 - 5   =>   x = 4', 150, 320);
+    drawHandwrittenLine(ctx, '12 : x = 4 : 7', 115, 275, {
+      font: chalkFont(68),
+      color: '#f2f3ec',
+      chalk: true,
+      seedInit: 201,
+      jitterY: 2.8,
+    });
+    drawHandwrittenLine(ctx, 'x = (12 × 7) : 4 = 21', 145, 362, {
+      font: chalkFont(56),
+      color: 'rgba(242, 243, 236, 0.90)',
+      chalk: true,
+      seedInit: 202,
+      jitterY: 2.5,
+    });
 
-    ctx.fillStyle = '#f6e7a6';
-    ctx.font = '66px "Courier New", monospace';
-    ctx.fillText('(3/4)x - 2 = 7', 110, 445);
-    ctx.fillStyle = 'rgba(246, 231, 166, 0.85)';
-    ctx.font = '54px "Courier New", monospace';
-    ctx.fillText('(3/4)x = 9   =>   x = 12', 150, 535);
+    // Stacked fractions expression (2ª Media Aritmetica)
+    drawHandwrittenLine(ctx, '3', 135, 495, { font: chalkFont(54), color: '#f6e7a6', chalk: true, seedInit: 301 });
+    drawWobblyLine(ctx, 120, 514, 182, 514, '#f6e7a6', 4, 302);
+    drawHandwrittenLine(ctx, '4', 135, 574, { font: chalkFont(54), color: '#f6e7a6', chalk: true, seedInit: 303 });
 
-    // Right side geometry & Pythagoras
-    ctx.fillStyle = '#f2f3ec';
-    ctx.font = '68px Georgia, serif';
-    ctx.fillText('a² + b² = c²', 1240, 260);
+    drawHandwrittenLine(ctx, '+', 205, 535, { font: chalkFont(56), color: '#f6e7a6', chalk: true, seedInit: 304 });
 
-    ctx.strokeStyle = '#f2f3ec';
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    ctx.moveTo(1290, 610);
-    ctx.lineTo(1290, 410);
-    ctx.lineTo(1590, 610);
-    ctx.closePath();
-    ctx.stroke();
+    drawHandwrittenLine(ctx, '1', 268, 495, { font: chalkFont(54), color: '#f6e7a6', chalk: true, seedInit: 305 });
+    drawWobblyLine(ctx, 254, 514, 316, 514, '#f6e7a6', 4, 306);
+    drawHandwrittenLine(ctx, '2', 268, 574, { font: chalkFont(54), color: '#f6e7a6', chalk: true, seedInit: 307 });
 
-    // Right angle mark
-    ctx.lineWidth = 4;
-    ctx.strokeRect(1290, 578, 32, 32);
+    drawHandwrittenLine(ctx, '×', 340, 535, { font: chalkFont(56), color: '#f6e7a6', chalk: true, seedInit: 308 });
 
-    ctx.font = '44px Georgia, serif';
-    ctx.fillText('a', 1245, 495);
-    ctx.fillText('b', 1435, 628);
-    ctx.fillText('c', 1455, 470);
+    drawHandwrittenLine(ctx, '2', 404, 495, { font: chalkFont(54), color: '#f6e7a6', chalk: true, seedInit: 309 });
+    drawWobblyLine(ctx, 390, 514, 452, 514, '#f6e7a6', 4, 310);
+    drawHandwrittenLine(ctx, '3', 404, 574, { font: chalkFont(54), color: '#f6e7a6', chalk: true, seedInit: 311 });
 
-    // Fine bottom homework line to test acuity & bifocal vs distance clarity
-    ctx.fillStyle = 'rgba(242, 243, 236, 0.92)';
-    ctx.font = '42px Georgia, serif';
-    ctx.fillText('Compiti: pag. 84 n. 12, 15, 18', 95, 895);
+    drawHandwrittenLine(ctx, '=', 485, 535, { font: chalkFont(56), color: '#f6e7a6', chalk: true, seedInit: 312 });
+
+    drawHandwrittenLine(ctx, '13', 545, 495, { font: chalkFont(54), color: '#f6e7a6', chalk: true, seedInit: 313 });
+    drawWobblyLine(ctx, 540, 514, 622, 514, '#f6e7a6', 4, 314);
+    drawHandwrittenLine(ctx, '12', 545, 574, { font: chalkFont(54), color: '#f6e7a6', chalk: true, seedInit: 315 });
+
+    // Right side: 2ª Media Geometria — Teorema di Pitagora with authentic radical sign
+    drawHandwrittenLine(ctx, 'Teorema di Pitagora', 1170, 232, {
+      font: chalkFont(60, 'bold'),
+      color: '#f2f3ec',
+      chalk: true,
+      seedInit: 400,
+      jitterY: 2.6,
+    });
+    drawHandwrittenLine(ctx, 'i =', 1175, 336, { font: chalkFont(58), color: '#f2f3ec', chalk: true, seedInit: 401 });
+    drawRadical(ctx, 1265, 338, 285, 62, '#f2f3ec', 5, 402);
+    drawHandwrittenLine(ctx, 'c₁² + c₂²', 1310, 336, { font: chalkFont(56), color: '#f2f3ec', chalk: true, seedInit: 406 });
+
+    drawWobblyLine(ctx, 1260, 680, 1260, 460, '#f2f3ec', 6, 410);
+    drawWobblyLine(ctx, 1260, 460, 1580, 680, '#f2f3ec', 6, 411);
+    drawWobblyLine(ctx, 1580, 680, 1260, 680, '#f2f3ec', 6, 412);
+    drawWobblyLine(ctx, 1260, 644, 1296, 644, '#f2f3ec', 4, 413);
+    drawWobblyLine(ctx, 1296, 644, 1296, 680, '#f2f3ec', 4, 414);
+
+    drawHandwrittenLine(ctx, 'c₁', 1192, 585, { font: chalkFont(48), chalk: true, seedInit: 420 });
+    drawHandwrittenLine(ctx, 'c₂', 1408, 738, { font: chalkFont(48), chalk: true, seedInit: 421 });
+    drawHandwrittenLine(ctx, 'i', 1445, 545, { font: chalkFont(48), chalk: true, seedInit: 422 });
+
+    // Fine bottom homework line to test distance acuity
+    drawHandwrittenLine(ctx, 'Compiti: pag. 84 n. 12, 15, 18', 98, 932, {
+      font: chalkFont(44),
+      color: 'rgba(242, 243, 236, 0.92)',
+      chalk: true,
+      seedInit: 501,
+      jitterY: 2.2,
+    });
   });
 }
 
 function createWorkbookTexture() {
-  return makeCanvasTexture(2048, 1024, (ctx, w, h) => {
-    ctx.fillStyle = '#f8f6ee';
+  // Workbook pages are 39.0 cm x 27.5 cm -> 1950 x 1375 px = exact 50 px/cm -> 25 px = exact 0.5 cm square!
+  return makeCanvasTexture(1950, 1375, (ctx, w, h) => {
+    // Matte cream paper so classroom daylight never blows out grid or pencil marks
+    ctx.fillStyle = '#e7e3d6';
     ctx.fillRect(0, 0, w, h);
 
+    // Subtle paper fiber grain
+    let pSeed = 9182;
+    const pRand = () => {
+      pSeed = (pSeed * 1664525 + 1013904223) >>> 0;
+      return pSeed / 4294967296;
+    };
+    ctx.fillStyle = 'rgba(120, 110, 94, 0.035)';
+    for (let i = 0; i < 1400; i += 1) {
+      ctx.fillRect(pRand() * w, pRand() * h, 4, 2);
+    }
+
     // Center spine shadow
-    const spine = ctx.createLinearGradient(w * 0.47, 0, w * 0.53, 0);
+    const spine = ctx.createLinearGradient(w * 0.465, 0, w * 0.535, 0);
     spine.addColorStop(0, 'rgba(0,0,0,0)');
-    spine.addColorStop(0.5, 'rgba(55,48,38,0.22)');
+    spine.addColorStop(0.5, 'rgba(42,36,28,0.28)');
     spine.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = spine;
-    ctx.fillRect(w * 0.47, 0, w * 0.06, h);
+    ctx.fillRect(w * 0.465, 0, w * 0.07, h);
 
-    // 5mm quadretti grid
-    const step = 28;
-    ctx.strokeStyle = 'rgba(110, 165, 215, 0.42)';
-    ctx.lineWidth = 1.5;
+    // Subtle low-vision 0.5 cm x 0.5 cm dark-green guide squares (25 px): guide without overwhelming pencil writing
+    const step = 25;
+    ctx.strokeStyle = 'rgba(42, 108, 66, 0.34)';
+    ctx.lineWidth = 1.25;
     for (let x = 0; x <= w; x += step) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
@@ -176,55 +305,122 @@ function createWorkbookTexture() {
       ctx.stroke();
     }
 
-    // Red vertical margin lines on both pages
-    ctx.strokeStyle = 'rgba(205, 72, 72, 0.65)';
-    ctx.lineWidth = 3;
+    // Soft green vertical margin guides
+    ctx.strokeStyle = 'rgba(34, 92, 54, 0.48)';
+    ctx.lineWidth = 2.0;
     ctx.beginPath();
-    ctx.moveTo(160, 0);
-    ctx.lineTo(160, h);
-    ctx.moveTo(w * 0.5 + 150, 0);
-    ctx.lineTo(w * 0.5 + 150, h);
+    ctx.moveTo(150, 0);
+    ctx.lineTo(150, h);
+    ctx.moveTo(975 + 125, 0);
+    ctx.lineTo(975 + 125, h);
     ctx.stroke();
 
-    // Left page crisp blue-pen notes
-    ctx.fillStyle = '#1f3f88';
-    ctx.font = 'italic 36px Georgia, serif';
-    ctx.fillText('Matematica - Equazioni', 200, 96);
-    ctx.fillStyle = '#243a6e';
-    ctx.font = '34px "Courier New", monospace';
-    ctx.fillText('1) 2x + 5 = 13', 200, 195);
-    ctx.fillText('   2x = 13 - 5 = 8', 200, 251);
-    ctx.fillText('   x = 8 / 2 = 4', 200, 307);
+    const pencilFont = (size, weight = '') =>
+      `${weight} italic ${size}px "Segoe Script", "Bradley Hand", "Chalkboard SE", Georgia, cursive`.trim();
 
-    ctx.fillText('2) (3/4)x - 2 = 7', 200, 419);
-    ctx.fillText('   3x - 8 = 28', 200, 475);
-    ctx.fillText('   3x = 36  =>  x = 12', 200, 531);
+    // Crisp graphite pencil handwriting (clear 2-square letter height for Near Bifocal legibility)
+    const drawPencilText = (txt, x, y, size, seedInit, bold = false) => {
+      drawHandwrittenLine(ctx, txt, x, y, {
+        font: pencilFont(size, bold ? 'bold' : ''),
+        color: '#20242b',
+        chalk: true,
+        seedInit,
+        jitterY: 1.8,
+        slant: -0.08,
+      });
+    };
 
-    // Right page fraction & geometry work
-    const rx = w * 0.5 + 190;
-    ctx.fillStyle = '#9b2929';
-    ctx.font = 'bold 34px Georgia, serif';
-    ctx.fillText('Verifica di geometria', rx, 96);
+    // Left page: 1994 2ª Media Aritmetica — Proporzioni & Frazioni
+    drawPencilText('25/11/1994', 690, 82, 34, 599);
+    drawPencilText('Aritmetica - Proporzioni', 175, 148, 52, 601, true);
+    drawWobblyLine(ctx, 175, 162, 740, 164, '#252a32', 3.4, 602);
 
-    ctx.fillStyle = '#1f3f88';
-    ctx.font = '34px "Courier New", monospace';
-    ctx.fillText('3) a² + b² = c²', rx, 195);
-    ctx.fillText('   a = 6 cm,  b = 8 cm', rx, 251);
-    ctx.fillText('   c = sqrt(36 + 64) = 10 cm', rx, 307);
+    const leftLines = [
+      ['Es. 1)  12 : x = 4 : 7', 272],
+      ['  x = (12 × 7) : 4 = 84 : 4 = 21', 348],
+      ['Es. 2)  15 : 5 = x : 4', 472],
+      ['  x = (15 × 4) : 5 = 60 : 5 = 12', 548],
+      ['Es. 3)  Espressione con frazioni:', 696],
+    ];
+    leftLines.forEach(([txt, ly], idx) => {
+      drawPencilText(txt, 178, ly, 44, 700 + idx * 17);
+    });
 
-    // Fraction notation
-    ctx.fillText('4) 5/6 + 1/3 = (5 + 2)/6 = 7/6', rx, 419);
-    ctx.fillText('   (2/5)x + 4 = 10  =>  x = 15', rx, 475);
+    // Stacked fractions written by hand in graphite pencil on left page
+    drawPencilText('3', 218, 795, 42, 740);
+    drawWobblyLine(ctx, 204, 810, 258, 810, '#20242b', 3.2, 741);
+    drawPencilText('4', 218, 856, 42, 742);
 
-    ctx.fillStyle = '#2e5d34';
-    ctx.font = '28px Georgia, serif';
-    ctx.fillText('Compiti: pag. 84 n. 12, 15, 18', rx, 620);
+    drawPencilText('+', 274, 826, 44, 743);
 
-    // Small page numbers at bottom corners
-    ctx.fillStyle = '#3c4352';
-    ctx.font = '24px Georgia, serif';
-    ctx.fillText('14', 76, h - 46);
-    ctx.fillText('15', w - 104, h - 46);
+    drawPencilText('1', 326, 795, 42, 744);
+    drawWobblyLine(ctx, 312, 810, 366, 810, '#20242b', 3.2, 745);
+    drawPencilText('2', 326, 856, 42, 746);
+
+    drawPencilText('×', 382, 826, 44, 747);
+
+    drawPencilText('2', 436, 795, 42, 748);
+    drawWobblyLine(ctx, 422, 810, 476, 810, '#20242b', 3.2, 749);
+    drawPencilText('3', 436, 856, 42, 750);
+
+    drawPencilText('=', 502, 826, 44, 751);
+
+    drawPencilText('9 + 4', 554, 795, 42, 752);
+    drawWobblyLine(ctx, 548, 810, 668, 810, '#20242b', 3.2, 753);
+    drawPencilText('12', 584, 856, 42, 754);
+
+    drawPencilText('=', 692, 826, 44, 755);
+
+    drawPencilText('13', 744, 795, 42, 756);
+    drawWobblyLine(ctx, 738, 810, 804, 810, '#20242b', 3.2, 757);
+    drawPencilText('12', 744, 856, 42, 758);
+
+    // Hand-drawn pencil box around 13/12
+    drawWobblyLine(ctx, 728, 754, 816, 754, '#20242b', 2.8, 760);
+    drawWobblyLine(ctx, 816, 754, 816, 872, '#20242b', 2.8, 761);
+    drawWobblyLine(ctx, 816, 872, 728, 872, '#20242b', 2.8, 762);
+    drawWobblyLine(ctx, 728, 872, 728, 754, '#20242b', 2.8, 763);
+
+    // Right page: 1994 2ª Media Geometria — Dati / Richiesta / Svolgimento (Teorema di Pitagora)
+    const rx = 975 + 150;
+    drawPencilText('Geometria - Pitagora', rx, 148, 50, 801, true);
+    drawWobblyLine(ctx, rx, 162, rx + 510, 164, '#252a32', 3.4, 802);
+
+    drawPencilText('Dati:  c₁ = 6 cm,  c₂ = 8 cm', rx, 248, 42, 900);
+    drawPencilText('Richiesta:  i = ?   2p = ?   A = ?', rx, 322, 40, 901);
+    drawPencilText('Svolgimento:', rx, 422, 42, 902, true);
+
+    // Real hand-drawn radical signs: i = √(6² + 8²) = √100 = 10 cm
+    drawPencilText('i =', rx, 518, 44, 903);
+    drawRadical(ctx, rx + 72, 520, 210, 48, '#20242b', 3.5, 904);
+    drawPencilText('6² + 8²', rx + 114, 518, 42, 908);
+    drawPencilText('=', rx + 332, 518, 44, 909);
+    drawRadical(ctx, rx + 372, 520, 128, 48, '#20242b', 3.5, 910);
+    drawPencilText('100', rx + 414, 518, 42, 914);
+    drawPencilText('= 10 cm', rx + 542, 518, 42, 915);
+
+    drawPencilText('2p = 6 + 8 + 10 = 24 cm', rx, 616, 42, 916);
+    drawPencilText('A = (6 × 8) : 2 = 24 cm²', rx, 692, 42, 917);
+
+    // Hand-drawn graphite triangle + pencil shading hatch marks
+    drawWobblyLine(ctx, rx + 85, 1100, rx + 85, 800, '#20242b', 4.5, 950);
+    drawWobblyLine(ctx, rx + 85, 800, rx + 485, 1100, '#20242b', 4.5, 951);
+    drawWobblyLine(ctx, rx + 485, 1100, rx + 85, 1100, '#20242b', 4.5, 952);
+    drawWobblyLine(ctx, rx + 85, 1050, rx + 135, 1050, '#20242b', 3.0, 953);
+    drawWobblyLine(ctx, rx + 135, 1050, rx + 135, 1100, '#20242b', 3.0, 954);
+    for (let hIdx = 0; hIdx < 6; hIdx += 1) {
+      const hx = rx + 105 + hIdx * 42;
+      drawWobblyLine(ctx, hx, 1094, hx + 25, 1066, 'rgba(36, 40, 48, 0.30)', 2.0, 955 + hIdx);
+    }
+    drawPencilText('c₁ = 6', rx - 22, 960, 34, 960);
+    drawPencilText('c₂ = 8', rx + 220, 1152, 34, 961);
+    drawPencilText('i = 10', rx + 295, 915, 34, 962);
+
+    drawPencilText('Compiti: pag. 84 n. 12, 15, 18', rx, 1265, 34, 980);
+
+    // Small pencil page numbers
+    drawPencilText('14', 60, h - 28, 30, 990);
+    drawPencilText('15', w - 95, h - 28, 30, 991);
   });
 }
 
@@ -358,74 +554,58 @@ function createCorkboardTexture() {
   });
 }
 
-function buildPairedDeskAndChairs(frameColorHex) {
+function buildDeskRowGroup(seats, frameMat, sharedMats, sharedGeos) {
   const group = new THREE.Group();
+  const seatWidth = 0.66;
+  const totalWidth = seats * seatWidth;
+  const { topMat, woodEdgeMat, plyMat } = sharedMats;
+  const { legGeo, seatGeo, backGeo, cLegGeo, uprightGeo } = sharedGeos;
 
-  const frameMat = new THREE.MeshStandardMaterial({
-    color: frameColorHex,
-    roughness: 0.48,
-    metalness: 0.35,
-  });
-  const topMat = new THREE.MeshStandardMaterial({
-    color: '#d9c5a0',
-    roughness: 0.65,
-  });
-  const woodEdgeMat = new THREE.MeshStandardMaterial({
-    color: '#9e784c',
-    roughness: 0.7,
-  });
-  const plyMat = new THREE.MeshStandardMaterial({
-    color: '#cfa86e',
-    roughness: 0.62,
-  });
-
-  // Paired desktop: 1.32m wide (2 x 0.66m), 0.54m deep, top surface at Y = 0.73m
-  const deskTop = new THREE.Mesh(new THREE.BoxGeometry(1.32, 0.025, 0.54), topMat);
+  // Desktop: seats * 0.66m wide, 0.54m deep, top surface at Y = 0.73m
+  const deskTop = new THREE.Mesh(new THREE.BoxGeometry(totalWidth, 0.025, 0.54), topMat);
   deskTop.position.set(0, 0.7175, 0);
   deskTop.castShadow = true;
   deskTop.receiveShadow = true;
   group.add(deskTop);
 
   // Under-desk book shelf
-  const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.24, 0.015, 0.36), woodEdgeMat);
+  const shelf = new THREE.Mesh(new THREE.BoxGeometry(totalWidth - 0.08, 0.015, 0.36), woodEdgeMat);
   shelf.position.set(0, 0.58, -0.02);
   group.add(shelf);
 
-  // Tubular metal desk legs (4 outer + 2 center)
-  const legGeo = new THREE.CylinderGeometry(0.014, 0.014, 0.71, 8);
-  const legPositions = [
-    [-0.62, 0.355, -0.23],
-    [0.62, 0.355, -0.23],
-    [-0.62, 0.355, 0.23],
-    [0.62, 0.355, 0.23],
-    [0, 0.355, -0.23],
-    [0, 0.355, 0.23],
-  ];
-  for (const [lx, ly, lz] of legPositions) {
-    const leg = new THREE.Mesh(legGeo, frameMat);
-    leg.position.set(lx, ly, lz);
-    leg.castShadow = true;
-    group.add(leg);
+  // Tubular metal desk legs (no shadow casting on thin tubes for high FPS)
+  const legXs = [];
+  for (let i = 0; i <= seats; i += 1) {
+    const rawX = -totalWidth / 2 + i * seatWidth;
+    const inset = i === 0 ? 0.04 : i === seats ? -0.04 : 0;
+    legXs.push(rawX + inset);
+  }
+  for (const lx of legXs) {
+    for (const lz of [-0.23, 0.23]) {
+      const leg = new THREE.Mesh(legGeo, frameMat);
+      leg.position.set(lx, 0.355, lz);
+      group.add(leg);
+    }
   }
 
-  // Two plywood + tubular steel chairs behind desk (at +Z facing -Z)
-  for (const cx of [-0.33, 0.33]) {
+  // Plywood + tubular steel chairs behind desk (at +Z facing -Z)
+  for (let s = 0; s < seats; s += 1) {
+    const cx = -totalWidth / 2 + (s + 0.5) * seatWidth;
     const chair = new THREE.Group();
     chair.position.set(cx, 0, 0.42);
 
-    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.018, 0.37), plyMat);
+    const seat = new THREE.Mesh(seatGeo, plyMat);
     seat.position.set(0, 0.44, 0);
     seat.castShadow = true;
     seat.receiveShadow = true;
     chair.add(seat);
 
-    const back = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.19, 0.016), plyMat);
+    const back = new THREE.Mesh(backGeo, plyMat);
     back.position.set(0, 0.72, 0.175);
     back.rotation.x = 0.08;
     back.castShadow = true;
     chair.add(back);
 
-    const cLegGeo = new THREE.CylinderGeometry(0.011, 0.011, 0.44, 7);
     for (const [xOff, zOff] of [
       [-0.17, -0.16],
       [0.17, -0.16],
@@ -437,7 +617,6 @@ function buildPairedDeskAndChairs(frameColorHex) {
       chair.add(cl);
     }
 
-    const uprightGeo = new THREE.CylinderGeometry(0.011, 0.011, 0.36, 7);
     for (const xOff of [-0.15, 0.15]) {
       const up = new THREE.Mesh(uprightGeo, frameMat);
       up.position.set(xOff, 0.62, 0.17);
@@ -451,42 +630,56 @@ function buildPairedDeskAndChairs(frameColorHex) {
 }
 
 function createStylizedPerson(shirtColor, pantsColor, hairColor, seated = false) {
+  // Local forward is -Z (matches desk/chair orientation)
   const group = new THREE.Group();
   const skinMat = new THREE.MeshStandardMaterial({ color: '#e1b594', roughness: 0.72 });
   const shirtMat = new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.8 });
   const pantsMat = new THREE.MeshStandardMaterial({ color: pantsColor, roughness: 0.85 });
   const hairMat = new THREE.MeshStandardMaterial({ color: hairColor, roughness: 0.88 });
+  const eyeMat = new THREE.MeshStandardMaterial({ color: '#241e1a', roughness: 0.5 });
 
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.46, 0.20), shirtMat);
-  torso.position.set(0, seated ? 0.69 : 1.15, 0);
+  // Torso bottom aligns cleanly with top of legs (0.88 standing, 0.46 seated)
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.48, 0.20), shirtMat);
+  torso.position.set(0, seated ? 0.70 : 1.12, 0);
   torso.castShadow = true;
   group.add(torso);
 
   const headPivot = new THREE.Group();
-  headPivot.position.set(0, seated ? 0.96 : 1.44, 0);
+  headPivot.position.set(0, seated ? 0.96 : 1.40, 0);
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.105, 14, 12), skinMat);
   head.position.set(0, 0.09, 0);
   head.castShadow = true;
   headPivot.add(head);
 
+  // Subtle face orientation cues on -Z (front)
+  const eyeGeo = new THREE.SphereGeometry(0.011, 8, 6);
+  const lEye = new THREE.Mesh(eyeGeo, eyeMat);
+  lEye.position.set(-0.036, 0.102, -0.098);
+  const rEye = new THREE.Mesh(eyeGeo, eyeMat);
+  rEye.position.set(0.036, 0.102, -0.098);
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.028, 0.02), skinMat);
+  nose.position.set(0, 0.082, -0.104);
+  headPivot.add(lEye, rEye, nose);
+
+  // Hair cap tilted backward (+Z) so front face (-Z) remains open
   const hair = new THREE.Mesh(
-    new THREE.SphereGeometry(0.11, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.58),
+    new THREE.SphereGeometry(0.11, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.62),
     hairMat
   );
-  hair.position.set(0, 0.10, -0.01);
-  hair.rotation.x = -0.18;
+  hair.position.set(0, 0.098, 0.014);
+  hair.rotation.x = 0.28;
   headPivot.add(hair);
   group.add(headPivot);
 
   const leftArm = new THREE.Group();
-  leftArm.position.set(-0.21, seated ? 0.88 : 1.34, 0);
+  leftArm.position.set(-0.21, seated ? 0.88 : 1.32, 0);
   const leftLimb = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.34, 0.085), shirtMat);
   leftLimb.position.set(0, -0.15, 0);
   leftArm.add(leftLimb);
   group.add(leftArm);
 
   const rightArm = new THREE.Group();
-  rightArm.position.set(0.21, seated ? 0.88 : 1.34, 0);
+  rightArm.position.set(0.21, seated ? 0.88 : 1.32, 0);
   const rightLimb = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.34, 0.085), shirtMat);
   rightLimb.position.set(0, -0.15, 0);
   rightArm.add(rightLimb);
@@ -520,16 +713,26 @@ function createStylizedPerson(shirtColor, pantsColor, hairColor, seated = false)
 
 function createPickablePencil() {
   const group = new THREE.Group();
+  const barrelTex = makeCanvasTexture(512, 128, (ctx, w, h) => {
+    ctx.fillStyle = '#e0a629';
+    ctx.fillRect(0, 0, w, h);
+    // Subtle yellow-lacquer facet stripes & crisp printed HB 2 stamp
+    ctx.fillStyle = '#cc901d';
+    for (let y = 0; y < h; y += 22) ctx.fillRect(0, y, w, 4);
+    ctx.fillStyle = '#1f2126';
+    ctx.font = 'bold 28px Georgia, serif';
+    ctx.fillText('HB  2  ·  GRAFITE  ·  ITALIA', 74, 74);
+  });
   const body = new THREE.Mesh(
     new THREE.CylinderGeometry(0.0042, 0.0042, 0.15, 6),
-    new THREE.MeshStandardMaterial({ color: '#e2aa2e', roughness: 0.5 })
+    new THREE.MeshStandardMaterial({ map: barrelTex, roughness: 0.48 })
   );
   body.rotation.z = Math.PI / 2;
   group.add(body);
 
   const woodCone = new THREE.Mesh(
     new THREE.ConeGeometry(0.0042, 0.018, 6),
-    new THREE.MeshStandardMaterial({ color: '#e4c298', roughness: 0.75 })
+    new THREE.MeshStandardMaterial({ color: '#deb98b', roughness: 0.78 })
   );
   woodCone.rotation.z = -Math.PI / 2;
   woodCone.position.set(0.084, 0, 0);
@@ -567,17 +770,78 @@ function createPickablePencil() {
 
 function createPickableEraser() {
   const group = new THREE.Group();
-  const redHalf = new THREE.Mesh(
-    new THREE.BoxGeometry(0.032, 0.012, 0.022),
-    new THREE.MeshStandardMaterial({ color: '#c84b4b', roughness: 0.85 })
+  const eraserTex = makeCanvasTexture(512, 256, (ctx, w, h) => {
+    ctx.fillStyle = '#c84b4b';
+    ctx.fillRect(0, 0, w * 0.62, h);
+    ctx.fillStyle = '#36659e';
+    ctx.fillRect(w * 0.62, 0, w * 0.38, h);
+    // Matte rubber speckles
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    for (let i = 0; i < 400; i += 1) {
+      ctx.fillRect((i * 73) % w, (i * 41) % h, 3, 3);
+    }
+    ctx.fillStyle = '#f4efe4';
+    ctx.font = 'bold 34px Georgia, serif';
+    ctx.fillText('MATITA', 56, 138);
+    ctx.font = 'bold 26px Georgia, serif';
+    ctx.fillText('PENNA', w * 0.66, 136);
+    ctx.strokeStyle = 'rgba(244,239,228,0.6)';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(18, 22, w - 36, h - 44);
+  });
+  const block = new THREE.Mesh(
+    new THREE.BoxGeometry(0.052, 0.013, 0.024),
+    new THREE.MeshStandardMaterial({ map: eraserTex, roughness: 0.88 })
   );
-  redHalf.position.set(-0.012, 0, 0);
-  const blueHalf = new THREE.Mesh(
-    new THREE.BoxGeometry(0.02, 0.012, 0.022),
-    new THREE.MeshStandardMaterial({ color: '#396aa6', roughness: 0.85 })
-  );
-  blueHalf.position.set(0.014, 0, 0);
-  group.add(redHalf, blueHalf);
+  group.add(block);
+  group.traverse((obj) => {
+    if (obj.isMesh) obj.castShadow = true;
+  });
+  return group;
+}
+
+function createPickablePencilCase() {
+  // Classic 1990s woven fabric zippered astuccio (~18cm x 4.2cm x 6.8cm) with canvas weave & stitching detail
+  const group = new THREE.Group();
+  const fabricTex = makeCanvasTexture(512, 256, (ctx, w, h) => {
+    ctx.fillStyle = '#254268';
+    ctx.fillRect(0, 0, w, h);
+    // Woven canvas grid
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    for (let x = 0; x < w; x += 6) ctx.fillRect(x, 0, 2, h);
+    ctx.fillStyle = 'rgba(10,16,28,0.12)';
+    for (let y = 0; y < h; y += 6) ctx.fillRect(0, y, w, 2);
+    // Red athletic center band + dashed white contrast stitching
+    ctx.fillStyle = '#bf4438';
+    ctx.fillRect(0, h * 0.44, w, h * 0.22);
+    ctx.strokeStyle = '#e7e2d3';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([10, 7]);
+    ctx.beginPath();
+    ctx.moveTo(0, h * 0.44);
+    ctx.lineTo(w, h * 0.44);
+    ctx.moveTo(0, h * 0.66);
+    ctx.lineTo(w, h * 0.66);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Sewn woven label patch
+    ctx.fillStyle = '#e8e2d0';
+    ctx.fillRect(w * 0.34, h * 0.14, w * 0.32, h * 0.20);
+    ctx.fillStyle = '#254268';
+    ctx.font = 'bold 26px Georgia, serif';
+    ctx.fillText('ASTUCCIO', w * 0.37, h * 0.28);
+  });
+  const fabricMat = new THREE.MeshStandardMaterial({ map: fabricTex, roughness: 0.9 });
+  const zipMat = new THREE.MeshStandardMaterial({ color: '#d0b055', metalness: 0.65, roughness: 0.32 });
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 0.068), fabricMat);
+  const zipper = new THREE.Mesh(new THREE.BoxGeometry(0.168, 0.005, 0.009), zipMat);
+  zipper.position.set(0, 0.021, 0);
+  const pullTab = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.006, 0.008), zipMat);
+  pullTab.position.set(0.082, 0.023, 0.006);
+  pullTab.rotation.y = 0.4;
+
+  group.add(body, zipper, pullTab);
   group.traverse((obj) => {
     if (obj.isMesh) obj.castShadow = true;
   });
@@ -591,14 +855,14 @@ export function createClassroomScene() {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#c7ddf0');
 
-  // Lighting: bright left-window daylight + warm indoor fluorescent fill
-  const hemiLight = new THREE.HemisphereLight('#f5f7fc', '#b6986d', 0.85);
+  // Bright natural Italian classroom daylight + warm fill (matte desktops & cream paper prevent clipping)
+  const hemiLight = new THREE.HemisphereLight('#f5f7fc', '#ad926f', 0.86);
   scene.add(hemiLight);
 
-  const sunLight = new THREE.DirectionalLight('#fff8ea', 2.05);
+  const sunLight = new THREE.DirectionalLight('#fff8eb', 1.72);
   sunLight.position.set(-7.5, 4.4, -1.0);
   sunLight.castShadow = true;
-  sunLight.shadow.mapSize.set(2048, 2048);
+  sunLight.shadow.mapSize.set(1024, 1024);
   sunLight.shadow.camera.near = 1;
   sunLight.shadow.camera.far = 18;
   sunLight.shadow.camera.left = -5.5;
@@ -608,7 +872,7 @@ export function createClassroomScene() {
   sunLight.shadow.bias = -0.0005;
   scene.add(sunLight);
 
-  const ceilingFill = new THREE.PointLight('#f2f6ff', 14, 16, 1.4);
+  const ceilingFill = new THREE.PointLight('#f2f6ff', 10.5, 16, 1.4);
   ceilingFill.position.set(0, 3.0, -0.5);
   scene.add(ceilingFill);
 
@@ -816,9 +1080,10 @@ export function createClassroomScene() {
   clockGroup.add(hourHand, minHandPivot);
   scene.add(clockGroup);
 
-  // Front-right wooden classroom door with yellow trim & round porthole
+  // Classroom door on right wall near front-right corner (as per reference photo)
   const doorGroup = new THREE.Group();
-  doorGroup.position.set(3.0, 1.05, -4.12);
+  doorGroup.position.set(3.77, 1.05, -3.10);
+  doorGroup.rotation.y = -Math.PI / 2;
   const yellowTrimMat = new THREE.MeshStandardMaterial({ color: '#d8a62a', roughness: 0.55 });
   const doorWoodMat = new THREE.MeshStandardMaterial({ color: '#8f6038', roughness: 0.68 });
   const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(1.06, 2.14, 0.06), yellowTrimMat);
@@ -839,12 +1104,12 @@ export function createClassroomScene() {
   doorGroup.add(doorFrame, addFocusMesh(doorLeaf), portholeRing, portholeGlass, doorHandle);
   scene.add(doorGroup);
 
-  // Italy physical wall map & wooden cabinet on right wall
+  // Italy physical wall map & wooden cabinet on right wall (clear of door)
   const italyMap = new THREE.Mesh(
     new THREE.BoxGeometry(0.025, 1.15, 0.88),
     new THREE.MeshStandardMaterial({ map: createItalyMapTexture(), roughness: 0.8 })
   );
-  italyMap.position.set(3.77, 1.88, -1.65);
+  italyMap.position.set(3.77, 1.88, -1.05);
   scene.add(addFocusMesh(italyMap));
 
   const cabinet = new THREE.Mesh(
@@ -873,17 +1138,39 @@ export function createClassroomScene() {
   );
   cattedraFront.position.set(0, 0.47, 0.32);
   const cattedraPedestal = new THREE.Mesh(
-    new THREE.BoxGeometry(0.42, 0.72, 0.64),
+    new THREE.BoxGeometry(0.42, 0.74, 0.64),
     new THREE.MeshStandardMaterial({ color: '#997348', roughness: 0.72 })
   );
-  cattedraPedestal.position.set(0.44, 0.36, 0);
+  cattedraPedestal.position.set(0.44, 0.37, 0);
+  cattedraPedestal.castShadow = true;
+
+  // Left-side support legs & stretcher so the cattedra stands solidly on both sides
+  const cattedraLegMat = new THREE.MeshStandardMaterial({ color: '#5c4b3c', roughness: 0.55, metalness: 0.25 });
+  const cattedraLegGeo = new THREE.BoxGeometry(0.045, 0.74, 0.045);
+  const cLegFront = new THREE.Mesh(cattedraLegGeo, cattedraLegMat);
+  cLegFront.position.set(-0.63, 0.37, 0.30);
+  cLegFront.castShadow = true;
+  const cLegBack = new THREE.Mesh(cattedraLegGeo, cattedraLegMat);
+  cLegBack.position.set(-0.63, 0.37, -0.30);
+  cLegBack.castShadow = true;
+  const cLeftRail = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.04, 0.60), cattedraLegMat);
+  cLeftRail.position.set(-0.63, 0.18, 0);
+
   const register = new THREE.Mesh(
     new THREE.BoxGeometry(0.32, 0.035, 0.24),
     new THREE.MeshStandardMaterial({ color: '#1d4c8a', roughness: 0.6 })
   );
   register.position.set(-0.22, 0.798, 0.04);
   register.rotation.y = 0.08;
-  cattedraGroup.add(addFocusMesh(cattedraTop), cattedraFront, cattedraPedestal, register);
+  cattedraGroup.add(
+    addFocusMesh(cattedraTop),
+    cattedraFront,
+    cattedraPedestal,
+    cLegFront,
+    cLegBack,
+    cLeftRail,
+    register
+  );
 
   const teacherChair = new THREE.Mesh(
     new THREE.BoxGeometry(0.44, 0.45, 0.44),
@@ -894,87 +1181,114 @@ export function createClassroomScene() {
   scene.add(cattedraGroup);
   colliders.push({ minX: 0.14, maxX: 1.56, minZ: -3.55, maxZ: -2.56 });
 
+  // Standing teacher near blackboard, angled toward class (+Z) while gesturing
   const teacher = createStylizedPerson('#3e6259', '#323842', '#4c382c', false);
-  teacher.group.position.set(-0.05, 0, -3.15);
-  teacher.group.rotation.y = 0.25;
+  teacher.group.position.set(-0.05, 0, -3.05);
+  teacher.group.rotation.y = Math.PI - 0.28;
   scene.add(addFocusMesh(teacher.group));
-  colliders.push({ minX: -0.35, maxX: 0.25, minZ: -3.45, maxZ: -2.85 });
+  colliders.push({ minX: -0.35, maxX: 0.25, minZ: -3.35, maxZ: -2.75 });
 
-  // 3 rows x 2 columns paired tubular red/blue Italian school desks
-  const rowsZ = [-1.1, 0.55, 2.2];
-  const colsX = [-2.0, 1.35];
-  const colors = ['#b43c3c', '#356099'];
+  // 4 rows deep: left column 4x2 (window side, Vuarbit sits row 1), right column 4x3 (shared materials/geometries for FPS)
+  const rowsZ = [-1.45, -0.05, 1.35, 2.75];
+  const deskColumns = [
+    { x: -2.25, seats: 2 },
+    { x: 1.45, seats: 3 },
+  ];
+  const frameMats = [
+    new THREE.MeshStandardMaterial({ color: '#b43c3c', roughness: 0.48, metalness: 0.35 }),
+    new THREE.MeshStandardMaterial({ color: '#356099', roughness: 0.48, metalness: 0.35 }),
+  ];
+  const sharedDeskMats = {
+    topMat: new THREE.MeshStandardMaterial({ color: '#cbc8be', roughness: 0.86 }),
+    woodEdgeMat: new THREE.MeshStandardMaterial({ color: '#9e784c', roughness: 0.7 }),
+    plyMat: new THREE.MeshStandardMaterial({ color: '#cfa86e', roughness: 0.62 }),
+  };
+  const sharedDeskGeos = {
+    legGeo: new THREE.CylinderGeometry(0.014, 0.014, 0.71, 6),
+    seatGeo: new THREE.BoxGeometry(0.38, 0.018, 0.37),
+    backGeo: new THREE.BoxGeometry(0.38, 0.19, 0.016),
+    cLegGeo: new THREE.CylinderGeometry(0.011, 0.011, 0.44, 6),
+    uprightGeo: new THREE.CylinderGeometry(0.011, 0.011, 0.36, 6),
+  };
 
   for (let r = 0; r < rowsZ.length; r += 1) {
-    for (let c = 0; c < colsX.length; c += 1) {
-      const pair = buildPairedDeskAndChairs(colors[(r + c) % 2]);
-      pair.position.set(colsX[c], 0, rowsZ[r]);
-      scene.add(addFocusMesh(pair));
-      // Desk + chairs combined AABB collider
+    for (let c = 0; c < deskColumns.length; c += 1) {
+      const colSpec = deskColumns[c];
+      const rowGroup = buildDeskRowGroup(colSpec.seats, frameMats[(r + c) % 2], sharedDeskMats, sharedDeskGeos);
+      rowGroup.position.set(colSpec.x, 0, rowsZ[r]);
+      scene.add(addFocusMesh(rowGroup));
+      const halfW = (colSpec.seats * 0.66) / 2 + 0.02;
       colliders.push({
-        minX: colsX[c] - 0.68,
-        maxX: colsX[c] + 0.68,
+        minX: colSpec.x - halfW,
+        maxX: colSpec.x + halfW,
         minZ: rowsZ[r] - 0.30,
         maxZ: rowsZ[r] + 0.64,
       });
     }
   }
 
-  // 1 classmate in LEFT chair of Vuarbit's paired desk (Row 1, Left col: X = -2.0, Z = -1.1)
+  // 1 classmate in LEFT chair of Vuarbit's Row 1 paired desk (X = -2.25 - 0.33 = -2.58, Z = -1.45 + 0.42 = -1.03)
   const classmate = createStylizedPerson('#4b739c', '#353e4a', '#2c231c', true);
-  classmate.group.position.set(-2.33, 0, -0.68);
+  classmate.group.position.set(-2.58, 0, -1.03);
   scene.add(addFocusMesh(classmate.group));
 
-  // Classmate's closed notebook
+  // Classmate's closed notebook on left half of desk
   const mateBook = new THREE.Mesh(
     new THREE.BoxGeometry(0.22, 0.015, 0.28),
     new THREE.MeshStandardMaterial({ color: '#396ba6', roughness: 0.7 })
   );
-  mateBook.position.set(-2.33, 0.738, -1.0);
+  mateBook.position.set(-2.58, 0.738, -1.36);
   scene.add(mateBook);
 
-  // Vuarbit's desk (RIGHT half of Row 1 Left paired desk)
-  const deskPos = new THREE.Vector3(-1.67, 0.73, -1.02);
+  // Vuarbit's desk (RIGHT half of Row 1 Left 4x2 column: X = -2.25 + 0.33 = -1.92)
+  const deskPos = new THREE.Vector3(-1.92, 0.73, -1.37);
   const seatPose = {
-    position: new THREE.Vector3(-1.67, 1.08, -0.72),
+    position: new THREE.Vector3(-1.92, 1.06, -1.05),
     yaw: 0.0,
-    pitch: 0.04,
+    pitch: 0.02,
   };
   const standPose = {
-    position: new THREE.Vector3(-0.82, 1.40, -0.20),
-    yaw: 0.12,
+    position: new THREE.Vector3(-0.78, 1.40, -0.45),
+    yaw: 0.14,
     pitch: 0.0,
   };
 
-  // Fixed open Italian 5mm quadretti math workbook on Vuarbit's desk
+  // Fixed open Italian 0.5cm dark-green quadretti math workbook on Vuarbit's desk
   const workbookGroup = new THREE.Group();
-  workbookGroup.position.set(-1.67, 0.734, -0.97);
+  workbookGroup.position.set(-1.92, 0.734, -1.30);
   const cover = new THREE.Mesh(
     new THREE.BoxGeometry(0.41, 0.006, 0.29),
     new THREE.MeshStandardMaterial({ color: '#b43232', roughness: 0.72 })
   );
   const pages = new THREE.Mesh(
     new THREE.BoxGeometry(0.39, 0.008, 0.275),
-    new THREE.MeshStandardMaterial({ map: createWorkbookTexture(), roughness: 0.82 })
+    new THREE.MeshStandardMaterial({ map: createWorkbookTexture(), roughness: 0.94 })
   );
   pages.position.set(0, 0.004, 0);
   workbookGroup.add(cover, addFocusMesh(pages));
   scene.add(workbookGroup);
 
-  // Pickable pencil & eraser on Vuarbit's desk
+  // Pickable pencil, eraser, and zippered pencil case (top-left of workbook) on Vuarbit's desk
   const pencilMesh = createPickablePencil();
-  const pencilRestPos = new THREE.Vector3(-1.41, 0.736, -0.94);
+  const pencilRestPos = new THREE.Vector3(-1.66, 0.736, -1.30);
   const pencilRestQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 1.25, 0));
   pencilMesh.position.copy(pencilRestPos);
   pencilMesh.quaternion.copy(pencilRestQuat);
   scene.add(addFocusMesh(pencilMesh));
 
   const eraserMesh = createPickableEraser();
-  const eraserRestPos = new THREE.Vector3(-1.43, 0.737, -1.08);
+  const eraserRestPos = new THREE.Vector3(-1.67, 0.737, -1.43);
   const eraserRestQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.35, 0));
   eraserMesh.position.copy(eraserRestPos);
   eraserMesh.quaternion.copy(eraserRestQuat);
   scene.add(addFocusMesh(eraserMesh));
+
+  const pencilCaseMesh = createPickablePencilCase();
+  const pencilCaseRestPos = new THREE.Vector3(-2.06, 0.751, -1.56);
+  const pencilCaseRestQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.16, 0));
+  pencilCaseMesh.position.copy(pencilCaseRestPos);
+  pencilCaseMesh.quaternion.copy(pencilCaseRestQuat);
+  scene.add(addFocusMesh(pencilCaseMesh));
 
   const pickables = [
     {
@@ -983,7 +1297,9 @@ export function createClassroomScene() {
       mesh: pencilMesh,
       restPosition: pencilRestPos.clone(),
       restQuaternion: pencilRestQuat.clone(),
-      occluderRadius: 0.012,
+      occluderRadius: 0.015,
+      halfDepth: 0.022,
+      halfHeight: 0.014,
     },
     {
       id: 'eraser',
@@ -991,7 +1307,19 @@ export function createClassroomScene() {
       mesh: eraserMesh,
       restPosition: eraserRestPos.clone(),
       restQuaternion: eraserRestQuat.clone(),
-      occluderRadius: 0.016,
+      occluderRadius: 0.020,
+      halfDepth: 0.022,
+      halfHeight: 0.015,
+    },
+    {
+      id: 'pencilcase',
+      name: 'Pencil Case',
+      mesh: pencilCaseMesh,
+      restPosition: pencilCaseRestPos.clone(),
+      restQuaternion: pencilCaseRestQuat.clone(),
+      occluderRadius: 0.044,
+      halfDepth: 0.044,
+      halfHeight: 0.032,
     },
   ];
 
@@ -999,6 +1327,7 @@ export function createClassroomScene() {
   let simTime = 0;
   const raycaster = new THREE.Raycaster();
   const forward = new THREE.Vector3();
+  const windowLightDir = new THREE.Vector3(-1, 0.25, 0).normalize();
   const eyeOD = new THREE.Vector3();
   const eyeOS = new THREE.Vector3();
   const localEyeOD = new THREE.Vector3(0.029, 0, 0);
@@ -1008,23 +1337,24 @@ export function createClassroomScene() {
   const toTarget = new THREE.Vector3();
   const nearestDeskPt = new THREE.Vector3();
   const heldTiltQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.35, 0.45, -0.55));
-  const deskBounds = { minX: -2.66, maxX: -1.34, y: 0.73, minZ: -1.37, maxZ: -0.83 };
+  const deskBounds = { minX: -2.91, maxX: -1.59, y: 0.73, minZ: -1.72, maxZ: -1.18 };
 
   function updateScene(dt, state, camera) {
     simTime += Math.min(dt || 0, 0.1);
 
-    // Animate teacher (subtle breathing, head turn, gesturing arm)
+    // Animate standing teacher (facing class, gesturing toward blackboard/pupils)
     teacher.torso.scale.y = 1 + Math.sin(simTime * 2.1) * 0.015;
-    teacher.headPivot.rotation.y = Math.sin(simTime * 0.7) * 0.28;
-    teacher.rightArm.rotation.x = -0.85 + Math.sin(simTime * 2.4) * 0.26;
-    teacher.rightArm.rotation.z = 0.18 + Math.cos(simTime * 1.6) * 0.12;
-    teacher.leftArm.rotation.x = -0.2 + Math.sin(simTime * 1.1) * 0.08;
+    teacher.headPivot.rotation.y = Math.sin(simTime * 0.7) * 0.24;
+    teacher.rightArm.rotation.x = 0.78 + Math.sin(simTime * 2.4) * 0.24;
+    teacher.rightArm.rotation.z = 0.22 + Math.cos(simTime * 1.6) * 0.12;
+    teacher.leftArm.rotation.x = 0.22 + Math.sin(simTime * 1.1) * 0.08;
 
-    // Animate classmate (subtle writing & breathing)
+    // Animate seated deskmate facing -Z (head tilted down toward notebook, arms forward on desk)
     classmate.torso.scale.y = 1 + Math.sin(simTime * 2.6 + 1.0) * 0.014;
-    classmate.headPivot.rotation.x = 0.34 + Math.sin(simTime * 1.4) * 0.04;
-    classmate.rightArm.rotation.x = -0.75 + Math.sin(simTime * 5.2) * 0.07;
+    classmate.headPivot.rotation.x = -0.28 + Math.sin(simTime * 1.4) * 0.04;
+    classmate.rightArm.rotation.x = 0.78 + Math.sin(simTime * 5.2) * 0.07;
     classmate.rightArm.rotation.y = Math.cos(simTime * 4.1) * 0.05;
+    classmate.leftArm.rotation.x = 0.62;
 
     // Subtle analog clock minute hand drift
     minHandPivot.rotation.z = -simTime * 0.02;
@@ -1033,7 +1363,12 @@ export function createClassroomScene() {
     camera.updateMatrixWorld(true);
     camera.getWorldDirection(forward);
 
-    // Move held pickable into camera-relative space via state.heldOffset
+    // Gaze-dependent light reaching closed eyelids (bright toward sunny left windows & ceiling lights)
+    const winAlign = Math.max(0, forward.dot(windowLightDir));
+    const ceilAlign = Math.max(0, forward.y);
+    state.eyelidLight = Math.min(1, Math.max(0.08, 0.12 + winAlign * 0.78 + ceilAlign * 0.32));
+
+    // Move held pickable into camera-relative space via state.heldOffset (prevent clipping through desk)
     let heldEntry = null;
     if (state.holding) {
       heldEntry = pickables.find((p) => p.id === state.holding) || null;
@@ -1041,6 +1376,20 @@ export function createClassroomScene() {
         const off = state.heldOffset;
         localHeld.set(off.x, off.y, -off.z);
         heldWorldPos.copy(localHeld).applyMatrix4(camera.matrixWorld);
+        const overDesk =
+          heldWorldPos.x >= deskBounds.minX - 0.06 &&
+          heldWorldPos.x <= deskBounds.maxX + 0.06 &&
+          heldWorldPos.z >= deskBounds.minZ - 0.06 &&
+          heldWorldPos.z <= deskBounds.maxZ + 0.06;
+        if (overDesk) {
+          const minDeskY = deskBounds.y + (heldEntry.halfHeight || 0.02) + 0.012;
+          if (heldWorldPos.y < minDeskY) {
+            heldWorldPos.y = minDeskY;
+            // Sync clamped desktop height back into camera-local heldOffset.y so lifting with W has zero lag
+            localHeld.copy(heldWorldPos).applyMatrix4(camera.matrixWorldInverse);
+            off.y = Math.max(-0.18, Math.min(0.16, localHeld.y));
+          }
+        }
         heldEntry.mesh.position.copy(heldWorldPos);
         heldEntry.mesh.quaternion.copy(camera.quaternion).multiply(heldTiltQuat);
         heldEntry.mesh.updateMatrixWorld(true);
@@ -1054,19 +1403,21 @@ export function createClassroomScene() {
     let occlOD = 0;
     let occlOS = 0;
 
-    // 1. Held object monocular/binocular occlusion when within eye view cone
+    // 1. Held object monocular occlusion: narrow per-eye pupillary axis cylinder (< 3.8cm lateral offset)
+    //    so holding in front of OD occludes OD only (MLN = 100%), while centering between eyes occludes both (MLN = 0%)
     if (heldEntry) {
       const r = heldEntry.occluderRadius;
-      toTarget.copy(heldWorldPos).sub(eyeOD);
-      const distOD = toTarget.length();
-      if (distOD > 1e-4 && toTarget.dot(forward) / distOD > 0.35) {
-        occlOD = Math.max(occlOD, computeOcclusionFromDistance(Math.max(0.01, distOD - r)));
-      }
-      toTarget.copy(heldWorldPos).sub(eyeOS);
-      const distOS = toTarget.length();
-      if (distOS > 1e-4 && toTarget.dot(forward) / distOS > 0.35) {
-        occlOS = Math.max(occlOS, computeOcclusionFromDistance(Math.max(0.01, distOS - r)));
-      }
+      const evalEyeOccl = (eyePos) => {
+        toTarget.copy(heldWorldPos).sub(eyePos);
+        const depthAlongRay = toTarget.dot(forward);
+        if (depthAlongRay <= 0.01) return 0;
+        const distSq = toTarget.lengthSq();
+        const lateralDist = Math.sqrt(Math.max(0, distSq - depthAlongRay * depthAlongRay));
+        if (lateralDist > 0.038) return 0;
+        return computeOcclusionFromDistance(Math.max(0.01, Math.sqrt(distSq) - r));
+      };
+      occlOD = Math.max(occlOD, evalEyeOccl(eyeOD));
+      occlOS = Math.max(occlOS, evalEyeOccl(eyeOS));
     }
 
     // 2. Desk surface occlusion when leaning close while seated
@@ -1090,13 +1441,17 @@ export function createClassroomScene() {
     state.occlOD = occlOD;
     state.occlOS = occlOS;
 
-    // 3. Center-ray focus distance
+    // 3. Center-ray focus distance (0 when eyelids closed)
+    if (state.eyelidClose > 0.8) {
+      state.focusDistM = 0;
+      return;
+    }
     raycaster.set(camera.position, forward);
-    raycaster.near = 0.04;
+    raycaster.near = 0.02;
     raycaster.far = 20.0;
     const hits = raycaster.intersectObjects(focusTargets, true);
     if (hits.length > 0) {
-      state.focusDistM = Math.min(20.0, Math.max(0.06, hits[0].distance));
+      state.focusDistM = Math.min(20.0, Math.max(0.04, hits[0].distance));
     } else {
       state.focusDistM = 3.8;
     }
