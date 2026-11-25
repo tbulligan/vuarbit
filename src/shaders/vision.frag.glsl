@@ -44,18 +44,6 @@ vec3 hash32(vec2 p) {
   return fract((p3.xxy + p3.yxx) * p3.zyx);
 }
 
-// Smooth non-grid value noise for organic multi-scale phosphene wisps (zero square grid)
-float vnoise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  float a = hash12(i);
-  float b = hash12(i + vec2(1.0, 0.0));
-  float c = hash12(i + vec2(0.0, 1.0));
-  float d = hash12(i + vec2(1.0, 1.0));
-  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
-
 float sdCircle(vec2 p, vec2 c, float r) {
   return length(p - c) - r;
 }
@@ -76,37 +64,62 @@ vec2 computePerPixelDiplopiaDeg(float distMeters) {
   return vec2(dx, dy);
 }
 
-// Subtle non-grid organic multi-scale pulsing wisps & faint retinal speckles (preserves warm eyelid translucency)
-vec3 computeOrganicPhosphenes(vec2 p, float t, float closed, float decomp) {
-  // Rotated non-axis-aligned domains eliminate any square-grid artifact
-  mat2 rotA = mat2(0.80, -0.60, 0.60, 0.80);
-  mat2 rotB = mat2(0.45,  0.89, -0.89, 0.45);
+// Spontaneous photopsia / phosphene flashes: asynchronous brief (60-200ms) sparks & small soft irregular patches
+vec3 computeFlashPhosphenes(vec2 p, float t, float closed, float decomp) {
+  vec3 acc = vec3(0.0);
+  float halfW = uAspect * 0.48;
+  const int SLOTS = 10;
 
-  vec2 q1 = rotA * (p * 5.5) + vec2(t * 0.24, -t * 0.18);
-  vec2 q2 = rotB * (p * 14.0) + vec2(-t * 0.55, t * 0.41);
-  vec2 q3 = rotA * (p * 34.0) + vec2(sin(t * 1.3) * 1.4, cos(t * 1.1) * 1.4);
+  for (int k = 0; k < SLOTS; k++) {
+    float fk = float(k);
+    bool isSpark = (k < 6);
 
-  // Organic flowing wisp field + soft rapidly-pulsing retinal speckle layer
-  float warp = vnoise(q1 * 0.85) * 1.6;
-  float wisp = vnoise(q1 + vec2(warp, -warp * 0.7));
-  float pulse = 0.5 + 0.5 * sin(t * 2.6 + wisp * 6.28318);
-  float speck = smoothstep(0.62, 0.94, vnoise(q2 + vec2(0.0, t * 0.7)) * 0.65 + vnoise(q3 + vec2(t * 1.8, 0.0)) * 0.55);
+    // Asynchronous cadence per slot: sparks pop briefly (60-130ms), soft patches flash slightly longer (120-200ms)
+    float period = isSpark ? (0.85 + hash12(vec2(fk, 1.7)) * 1.15) : (1.35 + hash12(vec2(fk, 2.9)) * 1.55);
+    float phaseOff = hash12(vec2(fk, 4.1)) * period;
+    float timeShifted = t + phaseOff;
+    float cycle = floor(timeShifted / period);
+    float age = timeShifted - cycle * period;
 
-  float field = smoothstep(0.42, 0.88, wisp * 0.75 + pulse * 0.25) * 0.55 + speck * 0.65;
+    // Sharp-onset, fast-exponential-decay flash envelope: peaks in ~22-40ms, fades by ~100-200ms
+    float peakT = isSpark ? 0.024 : 0.042;
+    float u = age / peakT;
+    float env = (u > 0.0 && u < 7.0) ? (u * exp(1.0 - u)) : 0.0;
 
-  // Natural dark-light retinal hue shift (deep violet/indigo, cyan-emerald, warm amber-magenta)
-  vec3 hA = vec3(0.42, 0.16, 0.86);
-  vec3 hB = vec3(0.14, 0.76, 0.68);
-  vec3 hC = vec3(0.92, 0.48, 0.22);
-  vec3 organicCol = mix(hA, hB, vnoise(q2 * 0.35 + vec2(t * 0.2, 0.0)));
-  organicCol = mix(organicCol, hC, smoothstep(0.55, 0.90, speck) * 0.55);
+    // Gate open-eye flashes to be sparser than closed-eye flashes
+    float fireRoll = hash12(vec2(fk * 11.3, cycle * 3.7));
+    float fireChance = mix(0.28 + decomp * 0.22, 0.82, closed);
+    if (env < 0.004 || fireRoll > fireChance) continue;
 
-  float luma = dot(organicCol, vec3(0.299, 0.587, 0.114));
-  vec3 tinted = mix(vec3(luma), organicCol, mix(0.25, 0.88, closed));
+    // Random non-grid position across full FOV per flash event
+    vec2 pos = vec2(
+      (hash12(vec2(cycle * 7.1 + fk, 13.3)) * 2.0 - 1.0) * halfW,
+      (hash12(vec2(cycle * 5.3 + fk, 29.7)) * 2.0 - 1.0) * 0.46
+    );
+    vec2 d = p - pos;
 
-  // Ultra-subtle when open so sharp vision stays clean; gentle luminous organic layer behind closed eyelids
-  float amp = mix(0.015 + decomp * 0.014, 0.115 + decomp * 0.03, closed);
-  return tinted * field * amp;
+    // Slight random organic elongation so flash patches aren't rigid circles
+    float ang = hash12(vec2(cycle + fk, 41.1)) * 6.28318;
+    float ca = cos(ang);
+    float sa = sin(ang);
+    vec2 dr = vec2(ca * d.x - sa * d.y, (sa * d.x + ca * d.y) * (isSpark ? 1.15 : 1.55));
+
+    float rad = isSpark
+      ? (0.007 + 0.013 * hash12(vec2(cycle, fk + 5.1)))
+      : (0.032 + 0.048 * hash12(vec2(cycle, fk + 8.3)));
+    float shape = exp(-dot(dr, dr) / max(1e-5, rad * rad));
+
+    // Luminous photopsia color: mix of bright white-hot core and saturated peripheral tint
+    vec3 raw = hash32(vec2(cycle * 9.7 + fk, fk * 3.1));
+    vec3 vivid = smoothstep(0.12, 0.86, raw);
+    vec3 flashTint = mix(vec3(0.96, 0.98, 1.0), vivid, mix(0.32, 0.78, closed));
+    float amp = isSpark
+      ? mix(0.08 + decomp * 0.05, 0.44, closed)
+      : mix(0.03 + decomp * 0.025, 0.22, closed);
+
+    acc += flashTint * shape * env * amp;
+  }
+  return acc;
 }
 
 // Realism OD sampling: sharp focal peak + 8-tap CoC defocus + directional astigmatic streaks, halos, coma & veiling glare
@@ -159,33 +172,33 @@ vec3 sampleOD(
   );
   col = mix(col, astGhost, mix(0.13, 0.06, focusEffort));
 
-  // Astigmatism & corneal HOAs on bright light sources: directional light streaks, spherical halos & asymmetric coma tail
+  // Daytime constricted-pupil astigmatism & corneal HOAs: restrained directional streaks, subtle halo & coma on bright sources only
   if (hoaStrength > 0.01) {
     vec3 flare = vec3(0.0);
-    // 1. Elongated bi-directional astigmatic starburst streaks along 123-deg meridian
+    // 1. Directional astigmatic light streaks along 123-deg meridian
     for (int s = 1; s <= 3; s++) {
-      float rad = float(s) * 0.017;
-      float w = 0.14 / float(s);
+      float rad = float(s) * 0.012;
+      float w = 0.10 / float(s);
       vec2 dA = astDir * rad * invAspect;
       vec3 cPos = texture2D(tColorOD, clamp(baseUv + dA, vec2(0.001), vec2(0.999))).rgb;
       vec3 cNeg = texture2D(tColorOD, clamp(baseUv - dA, vec2(0.001), vec2(0.999))).rgb;
-      float bPos = pow(smoothstep(0.70, 1.0, dot(cPos, vec3(0.299, 0.587, 0.114))), 1.5);
-      float bNeg = pow(smoothstep(0.70, 1.0, dot(cNeg, vec3(0.299, 0.587, 0.114))), 1.5);
+      float bPos = pow(smoothstep(0.78, 1.0, dot(cPos, vec3(0.299, 0.587, 0.114))), 1.6);
+      float bNeg = pow(smoothstep(0.78, 1.0, dot(cNeg, vec3(0.299, 0.587, 0.114))), 1.6);
       flare += (cPos * bPos + cNeg * bNeg) * w;
     }
-    // 2. Spherical-aberration halo ring + asymmetric coma tail
+    // 2. Subtle spherical-aberration halo + asymmetric coma tail
     vec2 comaAxis = normalize(astDir + vec2(0.28, -0.46));
     for (int j = 0; j < 4; j++) {
       float fj = float(j);
       float ang = fj * 1.5707963 + angleSeed * 0.5;
-      vec2 haloOff = vec2(cos(ang), sin(ang)) * 0.032 * invAspect;
+      vec2 haloOff = vec2(cos(ang), sin(ang)) * 0.025 * invAspect;
       vec3 hc = texture2D(tColorOD, clamp(baseUv + haloOff, vec2(0.001), vec2(0.999))).rgb;
-      float hb = pow(smoothstep(0.72, 1.0, dot(hc, vec3(0.299, 0.587, 0.114))), 1.6);
-      flare += hc * hb * 0.095;
+      float hb = pow(smoothstep(0.80, 1.0, dot(hc, vec3(0.299, 0.587, 0.114))), 1.7);
+      flare += hc * hb * 0.065;
     }
-    vec3 comaCol = texture2D(tColorOD, clamp(baseUv + comaAxis * 0.024 * invAspect, vec2(0.001), vec2(0.999))).rgb;
-    float comaB = pow(smoothstep(0.72, 1.0, dot(comaCol, vec3(0.299, 0.587, 0.114))), 1.4);
-    flare += comaCol * comaB * 0.16;
+    vec3 comaCol = texture2D(tColorOD, clamp(baseUv + comaAxis * 0.019 * invAspect, vec2(0.001), vec2(0.999))).rgb;
+    float comaB = pow(smoothstep(0.78, 1.0, dot(comaCol, vec3(0.299, 0.587, 0.114))), 1.5);
+    flare += comaCol * comaB * 0.12;
 
     col += flare * hoaStrength;
   }
@@ -295,7 +308,7 @@ void main() {
 
     vec2 astDirOD = vec2(cos(radians(123.0)), sin(radians(123.0)));
     float astBlurOD = mix(0.009, 0.0012, inLens) + decomp * 0.0014;
-    float hoaOD = mix(0.85, 0.58 + decomp * 0.35, inLens);
+    float hoaOD = mix(0.55, 0.34 + decomp * 0.24, inLens);
     float chromaOD = inLens * clamp(rLen * 0.0055, 0.0, 0.0036);
 
     vec3 colOD = sampleOD(
@@ -314,22 +327,22 @@ void main() {
 
     float depthOS = linearizeDepth(texture2D(tDepthOS, uvOS).x);
     float cocOS = max(0.0, abs(1.0 / max(depthOS, 0.02) - 1.0 / targetFocus) - dofTolerance);
-    float isoBlurOS = mix(aphakicBlur * 1.1, 0.0042 + clamp(cocOS * 0.007, 0.0, 0.026), inLens);
+    float isoBlurOS = mix(aphakicBlur * 1.05, 0.0028 + clamp(cocOS * 0.0065, 0.0, 0.024), inLens);
     vec3 colOS = sampleOS(uvOS, isoBlurOS, uMlnVelUV, noiseAngle + 1.57);
 
     float lumaOS = dot(colOS, vec3(0.299, 0.587, 0.114));
-    colOS = mix(colOS, vec3(lumaOS), 0.15) * 0.97;
+    colOS = mix(colOS, vec3(lumaOS), 0.08) * 0.99;
 
     // Binocular rivalry: solid near foreground objects in OD stay opaque & corporeal
     float odNearSolid = smoothstep(0.95, 0.55, depthOD) * smoothstep(0.08, 0.25, depthOS - depthOD);
-    // Unfocused mode shows clearly obvious OS double image (0.50); Focus (C/Space) suppresses it strongly (~0.11)
-    float baseOsBlend = mix(0.50, 0.64, clamp(uOcclOD, 0.0, 1.0));
-    float suppressedOsBlend = baseOsBlend * (1.0 - 0.78 * clamp(uFocusEffort, 0.0, 1.0));
+    // Unfocused state shows strong obvious OS ghost (0.58); Focus (C/Space) suppresses it strongly (~0.10)
+    float baseOsBlend = mix(0.58, 0.68, clamp(uOcclOD, 0.0, 1.0));
+    float suppressedOsBlend = baseOsBlend * (1.0 - 0.82 * clamp(uFocusEffort, 0.0, 1.0));
     float osBlend = mix(suppressedOsBlend, 0.05, odNearSolid);
     col = mix(colOD, colOS, osBlend);
 
     // Subtle intraocular veiling glare when looking toward bright sunny windows
-    float veil = smoothstep(0.42, 0.95, uEyelidLight) * (0.045 + decomp * 0.04);
+    float veil = smoothstep(0.45, 0.96, uEyelidLight) * (0.028 + decomp * 0.03);
     col += vec3(0.98, 0.96, 0.90) * veil;
 
     // Subtle dark ring scotoma shadow just outside the high-plus rim
@@ -363,8 +376,8 @@ void main() {
     col = mix(col, innerLid, clamp(closedMask * uEyelidClose, 0.0, 1.0));
   }
 
-  // Subtle non-grid organic multi-scale pulsing wisps/speckles (preserves warm eyelid translucency)
-  col += computeOrganicPhosphenes(p + uMlnOffsetUV * 0.6, uTime, uEyelidClose, decomp);
+  // Asynchronous brief photopsia flashes (sparks + small soft irregular patches; preserves eyelid shade)
+  col += computeFlashPhosphenes(p + uMlnOffsetUV * 0.5, uTime, uEyelidClose, decomp);
 
   // Ever-present CRT-static snow across full FOV (open AND closed)
   vec2 staticCoord = floor(px * 0.75);
