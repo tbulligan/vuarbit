@@ -373,14 +373,6 @@ void main() {
   // Plentiful tiny ultra-quick photopsia flashes (2 rotated non-grid scales; preserves eyelid translucency)
   col += computeFlashPhosphenes(px + uMlnOffsetUV * uResolution * 0.35, uTime, uEyelidClose, decomp);
 
-  // Ever-present CRT-static snow across full FOV (open AND closed)
-  vec2 staticCoord = floor(px * 0.75);
-  vec3 snow = hash32(staticCoord + fract(uTime * 31.7) * 251.0);
-  float snowMono = dot(snow, vec3(0.333));
-  vec3 unsatSnow = mix(vec3(snowMono), snow, 0.35) - 0.5;
-  float staticAmp = mix(0.040, 0.068, uEyelidClose) + decomp * 0.030;
-  col += unsatSnow * staticAmp;
-
   // Full-FOV drifting vitreous floaters across entire screen (inside AND outside glasses frames)
   float speckVis = mix(1.0, 0.25, uEyelidClose);
   float speckShadow = 0.0;

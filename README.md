@@ -12,7 +12,7 @@ First-person WebGL2 visual & auditory simulation of childhood bilateral aphakia,
 - **Per-Pixel Diplopia & Binocular Rivalry**: Dominant OD paired with amblyopic OS (`VOS 0.15`) shifted up and left at exact per-pixel metric offsets (`~1 cm L / 0.5 cm U @ 0.1 m`, `~2 cm L / 1 cm U @ 0.4 m`, `~5 cm L / 1.5 cm U @ 3 m+`), while solid foreground near objects stay corporeal.
 - **Manifest Latent Nystagmus (MLN) at ~5.5 Hz**: Video-derived waveform when unoccluded + instant gaze-shift burst while moving the mouse (stops immediately when gaze stops), shifting into a mechanical Point A → Point B sawtooth jerk when **one** eye is asymmetrically occluded (`<= 0.25 m`, not both eyes) with velocity-coupled motion smear.
 - **Conscious Focus Effort (`C` / `Space`) & Two-Speed Fatigue**: Active cortical concentration partially suppresses diplopia and unoccluded MLN, while accelerating central fatigue `2.4x` (and breaking down near exhaustion).
-- **Full-FOV Floaters, CRT Static & Flashing Phosphenes**: Persistent unsaturated CRT-static snow and drifting vitreous floaters across the full field of view, plus warm gaze-dependent closed eyelids with diffuse bright glare and asynchronous brief (`60–200 ms`) photopsia flashes/sparks.
+- **Full-FOV Floaters & Flashing Phosphenes**: Drifting vitreous floaters across the full field of view, plus warm gaze-dependent closed eyelids with diffuse bright glare and plentiful rapid (`35–95 ms`) non-grid photopsia flashes.
 - **Tinnitus**: Continuous `E7` (`2637.02 Hz`) + `C9` (`8372.02 Hz`) dual sine tone rising gently with fatigue (closing eyes yields no instant drop; loudness eases only as fatigue recovers).
 
 ## Controls
