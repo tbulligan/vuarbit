@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { clamp, computeHeldRestOffset, computeMaxYaw } from './state.js';
+import { clamp, computeHeldRestOffset, computeMaxYaw, updateHeldRotation } from './state.js';
 
 /**
  * Pointer-lock mouse look, standing collision movement, seating toggle,
@@ -23,6 +23,8 @@ export function createControls(domElement, state, sceneApi) {
   state.pitch = sceneApi.standPose.pitch;
 
   function placeBackHeldObject() {
+    state.heldRot.yaw = 0;
+    state.heldRot.pitch = 0;
     if (!state.holding) return;
     const item = sceneApi.pickables.find((p) => p.id === state.holding);
     if (item) {
@@ -72,6 +74,8 @@ export function createControls(domElement, state, sceneApi) {
       state.holding = chosen.id;
       // Start centered in dominant right eye's lower bifocal reading sweet spot (~21cm)
       state.heldOffset = computeHeldRestOffset(0.21, state.glassesOn);
+      state.heldRot.yaw = 0;
+      state.heldRot.pitch = 0;
     }
   }
 
@@ -115,6 +119,7 @@ export function createControls(domElement, state, sceneApi) {
   let latestCamera = null;
   let focusToggle = false;
   let wheelDeltaAccum = 0;
+  let rmbDown = false;
 
   const onCanvasClick = () => {
     if (document.pointerLockElement !== domElement && domElement.requestPointerLock) {
@@ -122,15 +127,38 @@ export function createControls(domElement, state, sceneApi) {
     }
   };
 
+  const onMouseDown = (e) => {
+    if (e.button === 2) {
+      rmbDown = true;
+    }
+  };
+
+  const onMouseUp = (e) => {
+    if (e.button === 2) {
+      rmbDown = false;
+    }
+  };
+
+  const onContextMenu = (e) => {
+    e.preventDefault();
+  };
+
   const onPointerLockChange = () => {
     state.pointerLocked = document.pointerLockElement === domElement;
+    if (!state.pointerLocked) {
+      rmbDown = false;
+    }
   };
 
   const onMouseMove = (e) => {
     if (!state.pointerLocked) return;
-    const sens = 0.0021;
     const dx = e.movementX || 0;
     const dy = e.movementY || 0;
+    if (state.holding && rmbDown) {
+      updateHeldRotation(state.heldRot, dx, dy);
+      return;
+    }
+    const sens = 0.0021;
     state.yaw -= dx * sens;
     state.pitch = clamp(state.pitch - dy * sens, -1.48, state.mode === 'seated' ? 1.15 : 1.45);
 
@@ -205,10 +233,14 @@ export function createControls(domElement, state, sceneApi) {
 
   const onBlur = () => {
     keys.clear();
+    rmbDown = false;
     state.focusing = focusToggle;
   };
 
   domElement.addEventListener('click', onCanvasClick);
+  domElement.addEventListener('mousedown', onMouseDown);
+  window.addEventListener('mouseup', onMouseUp);
+  domElement.addEventListener('contextmenu', onContextMenu);
   window.addEventListener('wheel', onWheel, { passive: true });
   document.addEventListener('pointerlockchange', onPointerLockChange);
   document.addEventListener('mousemove', onMouseMove);
@@ -328,6 +360,9 @@ export function createControls(domElement, state, sceneApi) {
 
   function dispose() {
     domElement.removeEventListener('click', onCanvasClick);
+    domElement.removeEventListener('mousedown', onMouseDown);
+    window.removeEventListener('mouseup', onMouseUp);
+    domElement.removeEventListener('contextmenu', onContextMenu);
     window.removeEventListener('wheel', onWheel);
     document.removeEventListener('pointerlockchange', onPointerLockChange);
     document.removeEventListener('mousemove', onMouseMove);

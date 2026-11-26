@@ -61,6 +61,28 @@ export function computeMaxYaw(mode, lean) {
 }
 
 /**
+ * Update held-object inspection rotation from mouse deltas.
+ * Ignores non-finite inputs, wraps yaw into [-PI, PI], and clamps pitch to [-1.45, 1.45].
+ */
+export function updateHeldRotation(heldRot, dx, dy, sensitivity = 0.0075) {
+  if (!heldRot || typeof heldRot !== 'object') return heldRot;
+  const sens = Number.isFinite(sensitivity) ? sensitivity : 0.0075;
+  const safeDx = Number.isFinite(dx) ? dx : 0;
+  const safeDy = Number.isFinite(dy) ? dy : 0;
+
+  let yaw = (Number.isFinite(heldRot.yaw) ? heldRot.yaw : 0) + safeDx * sens;
+  const twoPi = Math.PI * 2;
+  if (yaw > Math.PI || yaw < -Math.PI) {
+    yaw = ((((yaw + Math.PI) % twoPi) + twoPi) % twoPi) - Math.PI;
+  }
+
+  const basePitch = Number.isFinite(heldRot.pitch) ? heldRot.pitch : 0;
+  heldRot.yaw = yaw;
+  heldRot.pitch = clamp(basePitch + safeDy * sens, -1.45, 1.45);
+  return heldRot;
+}
+
+/**
  * Create initial simulation state.
  */
 export function createSimState() {
@@ -72,6 +94,7 @@ export function createSimState() {
     lean: 0,
     holding: null,
     heldOffset: computeHeldRestOffset(0.21, true),
+    heldRot: { yaw: 0, pitch: 0 },
     occlOD: 0,
     occlOS: 0,
     occlusionLevel: 0,

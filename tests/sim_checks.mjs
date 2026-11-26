@@ -9,6 +9,7 @@ import {
   computeHeldRestOffset,
   computeMaxYaw,
   computeDecompensation,
+  updateHeldRotation,
   updateSimState,
 } from '../src/state.js';
 
@@ -219,6 +220,42 @@ assert.ok(stRelaxed.eyelidClose > 0.99, `eyelidClose should approach 1, got ${st
 assert.equal(stRelaxed.activeZone, 'closed');
 assert.equal(stRelaxed.focusDistM, 0, 'focusDistM must be 0 when eyes are closed');
 assert.ok(stRelaxed.fatigue < 0.8 && stRelaxed.fatigue >= 0.05, `fatigue should recover toward 0.05 when closed, got ${stRelaxed.fatigue}`);
+
+// 6. Validate src/state.js: heldRot and updateHeldRotation
+const stHeld = createSimState();
+assert.deepEqual(stHeld.heldRot, { yaw: 0, pitch: 0 }, 'initial heldRot must be { yaw: 0, pitch: 0 }');
+
+const returnedRot = updateHeldRotation(stHeld.heldRot, 100, -50);
+assert.equal(returnedRot, stHeld.heldRot, 'updateHeldRotation must mutate and return heldRot');
+assert.ok(Math.abs(stHeld.heldRot.yaw - 0.75) < 1e-9, `expected yaw 0.75, got ${stHeld.heldRot.yaw}`);
+assert.ok(Math.abs(stHeld.heldRot.pitch - (-0.375)) < 1e-9, `expected pitch -0.375, got ${stHeld.heldRot.pitch}`);
+
+// Pitch clamp [-1.45, 1.45]
+updateHeldRotation(stHeld.heldRot, 0, 1000);
+assert.equal(stHeld.heldRot.pitch, 1.45, 'pitch must clamp to +1.45');
+updateHeldRotation(stHeld.heldRot, 0, -1000);
+assert.equal(stHeld.heldRot.pitch, -1.45, 'pitch must clamp to -1.45');
+
+// Yaw wrap [-Math.PI, Math.PI]
+stHeld.heldRot.yaw = Math.PI - 0.1;
+updateHeldRotation(stHeld.heldRot, 100, 0); // +0.75 -> wraps past +PI
+assert.ok(stHeld.heldRot.yaw >= -Math.PI && stHeld.heldRot.yaw <= Math.PI, `wrapped yaw out of range: ${stHeld.heldRot.yaw}`);
+assert.ok(Math.abs(stHeld.heldRot.yaw - (Math.PI - 0.1 + 0.75 - Math.PI * 2)) < 1e-9);
+
+stHeld.heldRot.yaw = -Math.PI + 0.1;
+updateHeldRotation(stHeld.heldRot, -100, 0); // -0.75 -> wraps past -PI
+assert.ok(stHeld.heldRot.yaw >= -Math.PI && stHeld.heldRot.yaw <= Math.PI, `wrapped yaw out of range: ${stHeld.heldRot.yaw}`);
+assert.ok(Math.abs(stHeld.heldRot.yaw - (-Math.PI + 0.1 - 0.75 + Math.PI * 2)) < 1e-9);
+
+// Non-finite input safety
+const snapYaw = stHeld.heldRot.yaw;
+const snapPitch = stHeld.heldRot.pitch;
+updateHeldRotation(stHeld.heldRot, NaN, Infinity);
+assert.equal(stHeld.heldRot.yaw, snapYaw, 'non-finite dx must be ignored');
+assert.equal(stHeld.heldRot.pitch, snapPitch, 'non-finite dy must be ignored');
+updateHeldRotation(stHeld.heldRot, -Infinity, NaN, NaN);
+assert.equal(stHeld.heldRot.yaw, snapYaw, 'non-finite dx/sensitivity must leave yaw finite and unchanged');
+assert.equal(stHeld.heldRot.pitch, snapPitch, 'non-finite dy/sensitivity must leave pitch finite and unchanged');
 
 console.log(
   `sim_checks.mjs PASSED: waveform=${wf.waveform.samples_x_deg.length} samples @ ${wf.waveform.sample_rate_hz} Hz (MLN p2p=${wf.phases.mln_occluded.peak_to_peak_deg} deg, SPV=${wf.phases.mln_occluded.slow_phase_velocity_deg_s} deg/s, exo=${wf.exotropia_estimate_deg} deg); all state/MLN/diplopia assertions green.`
