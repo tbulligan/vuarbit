@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { computeOcclusionFromDistance, TIME_OF_DAY_PRESETS } from './state.js';
 import { createStylizedPerson, populateClassmates } from './scene/classmates.js';
 import { createUpgradedPickables, populateClassroomProps } from './scene/props.js';
@@ -650,30 +651,64 @@ function buildDeskRowGroup(seats, frameMat, sharedMats, sharedGeos) {
 /**
  * Build procedural mid-1990s Italian middle-school classroom scene.
  */
-export function createClassroomScene() {
+export function createClassroomScene(renderer = null) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#c7ddf0');
+  scene.background = new THREE.Color('#b8d8f4');
 
-  // Cool-neutral natural Italian classroom daylight + balanced fill (prevents yellow cast without washing out)
-  const hemiLight = new THREE.HemisphereLight('#eef4ff', '#9c9286', 0.84);
+  // Lightweight one-time room IBL for realistic metal/glass reflections across all lighting states
+  let envRT = null;
+  if (renderer) {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const roomEnv = new RoomEnvironment();
+    envRT = pmrem.fromScene(roomEnv, 0.04);
+    scene.environment = envRT.texture;
+    scene.environmentIntensity = 0.42;
+    roomEnv.dispose();
+    pmrem.dispose();
+  }
+
+  // Indirect outdoor + fluorescent room bounce (blended dynamically in updateScene)
+  const hemiLight = new THREE.HemisphereLight('#d9eaff', '#b59d7a', 1.3);
   scene.add(hemiLight);
 
-  const sunLight = new THREE.DirectionalLight('#fffdf8', 1.66);
-  sunLight.position.set(-7.5, 4.4, -1.0);
+  // Sun / moon directional light entering strictly through the 3 left window openings
+  const sunLight = new THREE.DirectionalLight('#fff2dc', 3.6);
+  sunLight.position.set(-7.5, 4.3, -1.0);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.set(2048, 2048);
   sunLight.shadow.camera.near = 1;
-  sunLight.shadow.camera.far = 18;
-  sunLight.shadow.camera.left = -5.5;
-  sunLight.shadow.camera.right = 5.5;
-  sunLight.shadow.camera.top = 5.5;
-  sunLight.shadow.camera.bottom = -5.5;
-  sunLight.shadow.bias = -0.0005;
+  sunLight.shadow.camera.far = 22;
+  sunLight.shadow.camera.left = -6.2;
+  sunLight.shadow.camera.right = 6.2;
+  sunLight.shadow.camera.top = 6.2;
+  sunLight.shadow.camera.bottom = -6.2;
+  sunLight.shadow.bias = -0.0004;
+  sunLight.shadow.normalBias = 0.015;
   scene.add(sunLight);
 
-  const ceilingFill = new THREE.PointLight('#f4f7ff', 10.5, 16, 1.4);
-  ceilingFill.position.set(0, 3.0, -0.5);
-  scene.add(ceilingFill);
+  // Overhead fluorescent primary flux sitting inside the room (angled gently from front fixture so leaning doesn't black out workbook)
+  // shortcut: one orthographic overhead caster + 6 unshadowed fixture pools instead of 6 shadow maps, upgrade if per-tube dual shadows are needed
+  const ceilLight = new THREE.DirectionalLight('#f4f7ff', 0.95);
+  ceilLight.position.set(0.05, 3.10, -0.35);
+  ceilLight.castShadow = true;
+  ceilLight.shadow.mapSize.set(1024, 1024);
+  ceilLight.shadow.camera.near = 0.05;
+  ceilLight.shadow.camera.far = 4.5;
+  ceilLight.shadow.camera.left = -5.0;
+  ceilLight.shadow.camera.right = 5.0;
+  ceilLight.shadow.camera.top = 5.0;
+  ceilLight.shadow.camera.bottom = -5.0;
+  ceilLight.shadow.bias = -0.0005;
+  ceilLight.shadow.normalBias = 0.015;
+  scene.add(ceilLight);
+
+  // Diffuse skylight portal fill pouring from the left window bays (creates natural bright-left -> softer-right gradient)
+  const windowLights = [-1.45, 1.45].map((wz) => {
+    const wl = new THREE.PointLight('#cfe4ff', 3.6, 11, 1.5);
+    wl.position.set(-3.35, 2.0, wz);
+    scene.add(wl);
+    return wl;
+  });
 
   const colliders = [];
   const focusTargets = [];
@@ -695,27 +730,30 @@ export function createClassroomScene() {
   scene.add(addFocusMesh(floor));
 
   const ceiling = new THREE.Mesh(
-    new THREE.PlaneGeometry(7.6, 8.4),
-    new THREE.MeshStandardMaterial({ color: '#ecebe6', roughness: 0.9 })
+    new THREE.PlaneGeometry(7.8, 8.6),
+    new THREE.MeshStandardMaterial({ color: '#ecebe6', roughness: 0.9, shadowSide: THREE.DoubleSide })
   );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.set(0, 3.2, 0.025);
+  ceiling.castShadow = true;
   scene.add(ceiling);
 
-  // Wall materials: ochre/mustard lower (#d49234, h=1.25m), off-white upper (#eceae4)
-  const lowerWallMat = new THREE.MeshStandardMaterial({ color: '#d49234', roughness: 0.85 });
-  const upperWallMat = new THREE.MeshStandardMaterial({ color: '#eceae4', roughness: 0.9 });
+  // Wall materials: ochre/mustard lower (#d49234, h=1.25m), off-white upper (#eceae4); DoubleSide shadows block external sun
+  const lowerWallMat = new THREE.MeshStandardMaterial({ color: '#d49234', roughness: 0.85, shadowSide: THREE.DoubleSide });
+  const upperWallMat = new THREE.MeshStandardMaterial({ color: '#eceae4', roughness: 0.9, shadowSide: THREE.DoubleSide });
   const trimMat = new THREE.MeshStandardMaterial({ color: '#9c6e2c', roughness: 0.7 });
 
-  function addSolidWall(width, cx, cy, cz, rotY) {
+  function addSolidWall(width, cx, cy, cz, rotY, castShadow = false) {
     const low = new THREE.Mesh(new THREE.PlaneGeometry(width, 1.25), lowerWallMat);
     low.position.set(cx, 0.625, cz);
     low.rotation.y = rotY;
+    low.castShadow = castShadow;
     low.receiveShadow = true;
 
     const up = new THREE.Mesh(new THREE.PlaneGeometry(width, 1.95), upperWallMat);
     up.position.set(cx, 1.25 + 0.975, cz);
     up.rotation.y = rotY;
+    up.castShadow = castShadow;
     up.receiveShadow = true;
 
     const dado = new THREE.Mesh(new THREE.BoxGeometry(width, 0.04, 0.03), trimMat);
@@ -725,21 +763,24 @@ export function createClassroomScene() {
     scene.add(addFocusMesh(low), addFocusMesh(up), dado);
   }
 
-  // Front wall (Z = -4.15), Back wall (Z = +4.2), Right wall (X = +3.8)
-  addSolidWall(7.6, 0, 0, -4.15, 0);
-  addSolidWall(7.6, 0, 0, 4.2, Math.PI);
-  addSolidWall(8.4, 3.8, 0, 0.025, -Math.PI / 2);
+  // Front wall (Z = -4.15) & Back wall (Z = +4.2) block oblique sunlight; Right wall (X = +3.8) receives window sun patches
+  addSolidWall(7.6, 0, 0, -4.15, 0, true);
+  addSolidWall(7.6, 0, 0, 4.2, Math.PI, true);
+  addSolidWall(8.4, 3.8, 0, 0.025, -Math.PI / 2, false);
 
-  // Left wall (X = -3.8) with 3 tall aluminum windows + bright sky & venetian blinds
-  const leftLow = new THREE.Mesh(new THREE.PlaneGeometry(8.4, 1.05), lowerWallMat);
-  leftLow.position.set(-3.8, 0.525, 0.025);
+  // Left wall (X = -3.8) with 3 tall aluminum windows + HDR sky gradient & shadow-casting venetian blinds
+  const leftLow = new THREE.Mesh(new THREE.PlaneGeometry(8.5, 1.08), lowerWallMat);
+  leftLow.position.set(-3.8, 0.53, 0.025);
   leftLow.rotation.y = Math.PI / 2;
+  leftLow.castShadow = true;
   leftLow.receiveShadow = true;
   scene.add(addFocusMesh(leftLow));
 
-  const leftTop = new THREE.Mesh(new THREE.PlaneGeometry(8.4, 0.35), upperWallMat);
-  leftTop.position.set(-3.8, 3.025, 0.025);
+  const leftTop = new THREE.Mesh(new THREE.PlaneGeometry(8.5, 0.40), upperWallMat);
+  leftTop.position.set(-3.8, 3.04, 0.025);
   leftTop.rotation.y = Math.PI / 2;
+  leftTop.castShadow = true;
+  leftTop.receiveShadow = true;
   scene.add(addFocusMesh(leftTop));
 
   const pillarZ = [-3.6, -1.25, 1.25, 3.65];
@@ -747,42 +788,78 @@ export function createClassroomScene() {
   for (let i = 0; i < pillarZ.length; i += 1) {
     const pil = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.8, pillarWidths[i]), upperWallMat);
     pil.position.set(-3.8, 1.95, pillarZ[i]);
+    pil.castShadow = true;
+    pil.receiveShadow = true;
     scene.add(addFocusMesh(pil));
   }
 
-  // Exterior daylight sky backdrop outside left windows (NOT in focusTargets so raycast hits blinds/room)
+  // Exterior HDR sky gradient outside left windows (NOT in focusTargets so raycast hits blinds/room)
+  const skyCanvas = document.createElement('canvas');
+  skyCanvas.width = 4;
+  skyCanvas.height = 128;
+  const skyCtx = skyCanvas.getContext('2d');
+  const skyTex = new THREE.CanvasTexture(skyCanvas);
+  skyTex.colorSpace = THREE.SRGBColorSpace;
+  const paintSkyGradient = (topHex, horizonHex) => {
+    const grad = skyCtx.createLinearGradient(0, 0, 0, skyCanvas.height);
+    grad.addColorStop(0.0, topHex);
+    grad.addColorStop(0.68, horizonHex);
+    grad.addColorStop(1.0, horizonHex);
+    skyCtx.fillStyle = grad;
+    skyCtx.fillRect(0, 0, skyCanvas.width, skyCanvas.height);
+    skyTex.needsUpdate = true;
+  };
+  paintSkyGradient('#5ca0e6', '#e8f3ff');
+
   const skyPlane = new THREE.Mesh(
     new THREE.PlaneGeometry(12, 6),
-    new THREE.MeshBasicMaterial({ color: '#eef7ff' })
+    new THREE.MeshBasicMaterial({ map: skyTex, color: new THREE.Color(2.5, 2.5, 2.5) })
   );
   skyPlane.position.set(-5.6, 2.2, 0);
   skyPlane.rotation.y = Math.PI / 2;
   scene.add(skyPlane);
 
-  // 3 aluminum windows with venetian blinds
+  // 3 aluminum windows with shadow-casting mullions/blinds & subtle reflective glass panes
   const aluMat = new THREE.MeshStandardMaterial({ color: '#b5bcc4', metalness: 0.55, roughness: 0.35 });
   const blindMat = new THREE.MeshStandardMaterial({ color: '#ded9cc', roughness: 0.65 });
+  const glassMat = new THREE.MeshStandardMaterial({
+    color: '#d8e8f2',
+    roughness: 0.08,
+    metalness: 0.12,
+    transparent: true,
+    opacity: 0.06,
+    depthWrite: false,
+  });
   const winCentersZ = [-2.42, 0.0, 2.45];
   for (const wz of winCentersZ) {
     const wWidth = 1.5;
     const frameGroup = new THREE.Group();
     frameGroup.position.set(-3.8, 1.95, wz);
 
+    const glass = new THREE.Mesh(new THREE.PlaneGeometry(wWidth, 1.8), glassMat);
+    glass.position.set(0.01, 0, 0);
+    glass.rotation.y = Math.PI / 2;
+    frameGroup.add(glass);
+
     const sill = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.04, wWidth + 0.14), aluMat);
     sill.position.set(0.05, -0.9, 0);
+    sill.castShadow = true;
+    sill.receiveShadow = true;
     frameGroup.add(sill);
 
     for (const zOff of [-wWidth / 2, 0, wWidth / 2]) {
       const mullion = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.8, 0.045), aluMat);
       mullion.position.set(0, 0, zOff);
+      mullion.castShadow = true;
       frameGroup.add(mullion);
     }
 
-    // Venetian blind slats (high-contrast bright/dark horizontal pattern)
+    // Venetian blind slats (high-contrast bright/dark horizontal pattern + crisp sun stripes)
     for (let sy = 0.2; sy <= 0.84; sy += 0.065) {
       const slat = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.004, wWidth - 0.08), blindMat);
       slat.position.set(0.06, sy, 0);
       slat.rotation.z = 0.25;
+      slat.castShadow = true;
       frameGroup.add(addFocusMesh(slat));
     }
 
@@ -792,25 +869,30 @@ export function createClassroomScene() {
       new THREE.MeshStandardMaterial({ color: '#dad6cb', roughness: 0.55, metalness: 0.2 })
     );
     rad.position.set(0.14, -1.42, 0);
+    rad.receiveShadow = true;
     frameGroup.add(addFocusMesh(rad));
     scene.add(frameGroup);
   }
 
-  // Twin-tube 1990s fluorescent ceiling fixtures (emissive toggled cleanly by lightsOn)
+  // Twin-tube 1990s fluorescent ceiling fixtures + localized fixture light pools (toggled cleanly by lightsOn)
   const lampTubeMat = new THREE.MeshStandardMaterial({
-    color: '#c8cdd2',
-    emissive: '#fbfdff',
-    emissiveIntensity: 1.35,
+    color: '#b8bec4',
+    emissive: '#f5f9ff',
+    emissiveIntensity: 2.6,
     roughness: 0.35,
   });
   const lampBodyMat = new THREE.MeshStandardMaterial({ color: '#d8dad7', roughness: 0.5 });
+  const tubeLights = [];
   for (const lx of [-1.75, 1.75]) {
     for (const lz of [-2.0, 0.35, 2.5]) {
       const body = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.07, 1.25), lampBodyMat);
       body.position.set(lx, 3.16, lz);
       const tubes = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.03, 1.18), lampTubeMat);
       tubes.position.set(lx, 3.12, lz);
-      scene.add(body, tubes);
+      const pool = new THREE.PointLight('#f3f7ff', 1.15, 7.5, 2);
+      pool.position.set(lx, 2.74, lz);
+      scene.add(body, tubes, pool);
+      tubeLights.push(pool);
     }
   }
 
@@ -1046,11 +1128,13 @@ export function createClassroomScene() {
     new THREE.BoxGeometry(0.41, 0.006, 0.29),
     new THREE.MeshStandardMaterial({ color: '#b43232', roughness: 0.72 })
   );
+  cover.receiveShadow = true;
   const pages = new THREE.Mesh(
     new THREE.BoxGeometry(0.39, 0.008, 0.275),
     new THREE.MeshStandardMaterial({ map: createWorkbookTexture(), roughness: 0.94 })
   );
   pages.position.set(0, 0.004, 0);
+  pages.receiveShadow = true;
   workbookGroup.add(cover, addFocusMesh(pages));
   scene.add(workbookGroup);
 
@@ -1077,6 +1161,9 @@ export function createClassroomScene() {
   let heldLiftY = 0;
   let lastTimeOfDay = null;
   let lastLightsOn = null;
+  let lastSkyTod = 'sunny';
+  const artHemiSky = new THREE.Color('#eef3fa');
+  const artHemiGround = new THREE.Color('#8f806b');
   const raycaster = new THREE.Raycaster();
   const forward = new THREE.Vector3();
   const windowLightDir = new THREE.Vector3(-1, 0.25, 0).normalize();
@@ -1122,16 +1209,36 @@ export function createClassroomScene() {
       lastTimeOfDay = todId;
       lastLightsOn = lightsOn;
       scene.background.set(todPreset.skyBg);
-      skyPlane.material.color.set(todPreset.skyPlane);
-      const indoorBounce = lightsOn ? (1.0 - todPreset.outdoorLux) * 0.12 : 0.0;
-      hemiLight.color.set(todPreset.hemiSky);
-      hemiLight.groundColor.set(todPreset.hemiGround);
-      hemiLight.intensity = todPreset.hemiInt + indoorBounce;
+      if (todId !== lastSkyTod) {
+        lastSkyTod = todId;
+        paintSkyGradient(todPreset.skyTop, todPreset.skyPlane);
+      }
+      skyPlane.material.color.setScalar(todPreset.skyGain);
+
+      // Blend outdoor sky/ground bounce with warm-neutral fluorescent room bounce so Night+ON is never midnight-blue
+      const artHemiInt = lightsOn ? 0.48 : 0.0;
+      const totalHemiInt = todPreset.hemiInt + artHemiInt;
+      const artFrac = totalHemiInt > 0 ? artHemiInt / totalHemiInt : 0.0;
+      hemiLight.color.set(todPreset.hemiSky).lerp(artHemiSky, artFrac);
+      hemiLight.groundColor.set(todPreset.hemiGround).lerp(artHemiGround, artFrac);
+      hemiLight.intensity = totalHemiInt;
+
       sunLight.color.set(todPreset.sunColor);
       sunLight.intensity = todPreset.sunInt;
       sunLight.position.set(todPreset.sunPos[0], todPreset.sunPos[1], todPreset.sunPos[2]);
-      ceilingFill.intensity = lightsOn ? 10.5 : 0.0;
-      lampTubeMat.emissiveIntensity = lightsOn ? 1.35 : 0.0;
+
+      for (const wl of windowLights) {
+        wl.color.set(todPreset.winColor);
+        wl.intensity = todPreset.winInt;
+      }
+
+      ceilLight.intensity = lightsOn ? 0.95 : 0.0;
+      for (const tl of tubeLights) {
+        tl.intensity = lightsOn ? 1.05 : 0.0;
+      }
+      lampTubeMat.emissiveIntensity = lightsOn ? 2.6 : 0.0;
+      glassMat.opacity = lightsOn ? 0.06 + (1.0 - todPreset.outdoorLux) * 0.14 : 0.05;
+      scene.environmentIntensity = 0.03 + todPreset.outdoorLux * 0.24 + (lightsOn ? 0.18 : 0.0);
     }
 
     // Gaze-dependent light reaching closed eyelids (scaled by actual outdoor & ceiling flux)
@@ -1252,6 +1359,11 @@ export function createClassroomScene() {
     }
   }
 
+  function dispose() {
+    envRT?.dispose();
+    skyTex.dispose();
+  }
+
   return {
     scene,
     deskPos,
@@ -1260,5 +1372,6 @@ export function createClassroomScene() {
     pickables,
     colliders,
     updateScene,
+    dispose,
   };
 }

@@ -9,6 +9,8 @@ import {
   QUALITY_PRESETS,
   TIME_OF_DAY_PRESETS,
   LENS_PROFILES,
+  FRAME_SHAPES,
+  FRAME_COLORS,
   getPersonaById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
@@ -18,6 +20,7 @@ import {
   formatSnellenAcuity,
   hasSuppressionMechanics,
   computeAmbientLight,
+  computeAdaptedExposure,
   cycleTimeOfDay,
 } from './personas.js';
 
@@ -27,6 +30,8 @@ export {
   QUALITY_PRESETS,
   TIME_OF_DAY_PRESETS,
   LENS_PROFILES,
+  FRAME_SHAPES,
+  FRAME_COLORS,
   getPersonaById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
@@ -36,6 +41,7 @@ export {
   formatSnellenAcuity,
   hasSuppressionMechanics,
   computeAmbientLight,
+  computeAdaptedExposure,
   cycleTimeOfDay,
 };
 

@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { computeMlnAngleDeg, computeMlnFreqScale } from './state.js';
-import { QUALITY_PRESETS, createDefaultVisualSettings, computeAcuityBlurUV } from './personas.js';
+import {
+  QUALITY_PRESETS,
+  createDefaultVisualSettings,
+  computeAcuityBlurUV,
+  computeAdaptedExposure,
+} from './personas.js';
 import visionFrag from './shaders/vision.frag.glsl?raw';
 
 const EYE_HALF_IPD_M = 0.029;
@@ -10,6 +15,8 @@ const OD_FOV_DEG = 62;
 const TARGET_MLN_FREQ_HZ = 5.5; // 5-6 beats/sec clinical MLN beat rate
 const CVD_TYPE_MAP = { none: 0, deutan: 1, protan: 2, tritan: 3 };
 const LENS_PROFILE_MAP = { none: 0, aphakic_bifocal: 1, single_vision: 2, bifocal: 3, progressive: 4 };
+const FRAME_SHAPE_MAP = { auto: 0, round: 1, rect: 2, rounded_rect: 3, semi_rimless: 4, rimless: 5 };
+const FRAME_COLOR_MAP = { auto: 0, amber: 1, charcoal: 2, tortoise: 3, titanium: 4, gold: 5, navy: 6, burgundy: 7 };
 const DEFAULT_SETTINGS = createDefaultVisualSettings();
 
 const FULLSCREEN_VERT = /* glsl */ `
@@ -148,6 +155,8 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uExposure: { value: renderer.toneMappingExposure || 1.0 },
     uResolution: { value: new THREE.Vector2(initW, initH) },
     uLensProfile: { value: 1.0 },
+    uFrameShape: { value: 0.0 },
+    uFrameColor: { value: 0.0 },
     uLensPowerD: { value: 13.0 },
     uNearAddD: { value: 4.0 },
     uLensCylD: { value: 0.0 },
@@ -209,6 +218,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
   let elapsed = 0;
   let mlnElapsed = 0;
   let shadowFrame = 0;
+  let adaptedExposure = computeAdaptedExposure(1.0);
 
   function render(dt, state) {
     elapsed += dt;
@@ -346,11 +356,15 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uniforms.uOcclOD.value = domIsOS ? (state.occlOS || 0.0) : (state.occlOD || 0.0);
     uniforms.uFocusEffort.value = state.focusStrength || 0.0;
     uniforms.uCompareNormal.value = isNormal ? 1.0 : 0.0;
-    uniforms.uExposure.value = renderer.toneMappingExposure || 1.0;
+    const targetExposure = computeAdaptedExposure(state.ambientLight ?? 1.0);
+    adaptedExposure += (targetExposure - adaptedExposure) * (1 - Math.exp(-5.0 * Math.min(dt || 0, 0.1)));
+    uniforms.uExposure.value = (renderer.toneMappingExposure || 1.0) * adaptedExposure;
     uniforms.uMlnOffsetUV.value.set(mln.dxDeg / 62.0, mln.dyDeg / 62.0);
     uniforms.uMlnVelUV.value = THREE.MathUtils.clamp(Math.abs(effVelDegS) / 900.0, 0.0, 0.015);
 
     uniforms.uLensProfile.value = lensProfileCode;
+    uniforms.uFrameShape.value = FRAME_SHAPE_MAP[s.frameShape] ?? 0;
+    uniforms.uFrameColor.value = FRAME_COLOR_MAP[s.frameColor] ?? 0;
     uniforms.uLensPowerD.value = s.lensPowerD ?? 13.0;
     uniforms.uNearAddD.value = s.nearAddD ?? 4.0;
     uniforms.uLensCylD.value = lensCylD;

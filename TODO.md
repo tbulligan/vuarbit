@@ -13,12 +13,16 @@
   - [x] SoTA linear-HDR clinical conditions (0–100% calibrated through end-stage): Crabb (2013) glaucoma, retinal-locked Wet AMD, cataracts, Diabetic Retinopathy, Retinitis Pigmentosa, ocular albinism, Machado (2009) CVD (`Protan`/`Deutan`/`Tritan`).
   - [x] Environment lighting presets: Time of Day (`T`: Sunny / Overcast / Dusk / Night) + Ceiling Lights (`L`: ON / OFF) driving RP nyctalopia, pupil-dilated DoF/CoC & HOA streaks, mesopic contrast loss (Glaucoma/AMD/DR), albinism/cataract glare, and low-lux scotopic rod shift.
   - [x] Lightweight graphics DPR quality preset (`High 1.75x` / `Balanced 1.25x` / `Performance 1.0x`).
-  - [ ] Optional Frame customization dropdown (shape & color) in Optics Details for users representing their own eyewear.
+  - [x] Optional Frame customization dropdown (shape & color) in Optics Details for users representing their own eyewear.
 
-## P3 — Second Scene: 2026 Work Desk (Pseudophakic IOL + 3 Pairs of Glasses)
-- Scene switcher (`1994 Classroom` ↔ `2026 Work Desk`) paired with a `Vuarbit 2026 (IOL)` persona to contrast childhood `+13 D` aphakia against adult IOL vision.
-- Modern work desk scene (monitors/laptop, code/text documents, smartphone, desk lamp, window daylight).
-- Pseudophakic IOL optical profile (no high-plus magnification/ring scotoma, fixed IOL focal plane, mild IOL halos/dysphotopsia) + cycle keybind across 3 task-specific glasses (distance, computer/intermediate, near reading).
+## P3 — Second Scene: Car Passenger (Outdoor / Night & Daylight Motion)
+- Scene switcher architecture (`1994 Classroom` ↔ `Car Passenger`) + seated cabin camera (dashboard, windshield, side mirror/window) with head look & posture lean.
+- Looping outdoor road environment (`T` Time of Day: bright sun glare, overcast, dusk, night oncoming headlights, streetlights, taillights, wet-road speculars, passing road signs/trees/cars).
+- Unlocks clinical optics impossible indoors: aphakic `+13 D` ring scotoma ("jack-in-the-box" passing objects), astigmatism/cataract headlight starbursts & disability glare, RP nyctalopia, glaucoma/RP peripheral field loss in motion, and traffic-depth diplopia.
 
-## P4 — Input & Display Expansion
+## P4 — Third Scene: 2026 Open Office (Work Desk + Pseudophakic IOL)
+- Compact open office (~10×10 m bay) combining near/intermediate/distance depths: work desk (dual monitors/laptop, smartphone, printed docs, desk lamp), coworkers, whiteboard, glass meeting room, and tall daylight windows.
+- `Vuarbit 2026 (IOL)` persona + pseudophakic IOL optical profile (removes `+13 D` magnification/ring scotoma, adds fixed focal plane & mild IOL halos/dysphotopsia — also testable in P3 night traffic) + 3-glasses cycle keybind (distance, intermediate/monitor, near reading).
+
+## P5 — Input & Display Expansion
 - Mobile touch controls and WebXR / stereo VR headset dual-eye rendering mode.

@@ -17,53 +17,69 @@ export const TIME_OF_DAY_PRESETS = Object.freeze({
   sunny: Object.freeze({
     id: 'sunny',
     label: 'Sunny Morning',
-    skyBg: '#c7ddf0',
-    skyPlane: '#eef7ff',
-    hemiSky: '#eef4ff',
-    hemiGround: '#9c9286',
-    hemiInt: 0.84,
-    sunColor: '#fffdf8',
-    sunInt: 1.66,
-    sunPos: Object.freeze([-7.5, 4.4, -1.0]),
+    skyBg: '#b8d8f4',
+    skyTop: '#5ca0e6',
+    skyPlane: '#e8f3ff',
+    skyGain: 2.5,
+    hemiSky: '#d9eaff',
+    hemiGround: '#b59d7a',
+    hemiInt: 0.62,
+    sunColor: '#fff2dc',
+    sunInt: 3.6,
+    sunPos: Object.freeze([-7.5, 4.3, -1.0]),
+    winColor: '#cfe4ff',
+    winInt: 3.6,
     outdoorLux: 1.0,
   }),
   overcast: Object.freeze({
     id: 'overcast',
     label: 'Overcast',
     skyBg: '#8e9aa6',
-    skyPlane: '#aebac4',
-    hemiSky: '#c8d2dc',
-    hemiGround: '#726e68',
+    skyTop: '#7f8c99',
+    skyPlane: '#b8c5d1',
+    skyGain: 1.35,
+    hemiSky: '#bcc9d6',
+    hemiGround: '#7a756c',
     hemiInt: 0.44,
-    sunColor: '#dce4ee',
-    sunInt: 0.22,
+    sunColor: '#d8e4f0',
+    sunInt: 0.30,
     sunPos: Object.freeze([-6.5, 5.2, -0.5]),
+    winColor: '#c6d4e2',
+    winInt: 2.5,
     outdoorLux: 0.45,
   }),
   dusk: Object.freeze({
     id: 'dusk',
     label: 'Dusk',
     skyBg: '#271e35',
-    skyPlane: '#5c342e',
-    hemiSky: '#6d5066',
-    hemiGround: '#2f2622',
-    hemiInt: 0.085,
-    sunColor: '#ff8a4c',
-    sunInt: 0.18,
-    sunPos: Object.freeze([-9.0, 1.1, 1.6]),
+    skyTop: '#1d1b38',
+    skyPlane: '#c45e3d',
+    skyGain: 0.95,
+    hemiSky: '#684860',
+    hemiGround: '#3d281f',
+    hemiInt: 0.14,
+    sunColor: '#ff7b3b',
+    sunInt: 1.45,
+    sunPos: Object.freeze([-9.0, 1.35, 1.4]),
+    winColor: '#8f5d72',
+    winInt: 0.60,
     outdoorLux: 0.14,
   }),
   night: Object.freeze({
     id: 'night',
     label: 'Night',
     skyBg: '#040710',
-    skyPlane: '#070c1a',
-    hemiSky: '#182442',
-    hemiGround: '#0e1015',
-    hemiInt: 0.022,
-    sunColor: '#6d8ac4',
-    sunInt: 0.028,
-    sunPos: Object.freeze([-7.5, 4.8, 2.2]),
+    skyTop: '#03060f',
+    skyPlane: '#0b1429',
+    skyGain: 0.55,
+    hemiSky: '#152344',
+    hemiGround: '#0a0c12',
+    hemiInt: 0.035,
+    sunColor: '#7ea2e0',
+    sunInt: 0.14,
+    sunPos: Object.freeze([-7.5, 4.6, 2.0]),
+    winColor: '#203666',
+    winInt: 0.10,
     outdoorLux: 0.02,
   }),
 });
@@ -77,8 +93,16 @@ export function cycleTimeOfDay(current) {
 
 export function computeAmbientLight(timeOfDay, lightsOn) {
   const preset = TIME_OF_DAY_PRESETS[timeOfDay] || TIME_OF_DAY_PRESETS.sunny;
-  const artLux = lightsOn ? 0.48 : 0.0;
-  return clamp(preset.outdoorLux * 0.68 + artLux, 0.03, 1.0);
+  const artLux = lightsOn ? 0.52 : 0.0;
+  return clamp(preset.outdoorLux * 0.78 + artLux, 0.03, 1.0);
+}
+
+/**
+ * Physiological eye/retinal light adaptation multiplier for tone mapping exposure.
+ */
+export function computeAdaptedExposure(ambientLight) {
+  const a = clamp(Number.isFinite(ambientLight) ? ambientLight : 1.0, 0.03, 1.0);
+  return 1.34 - 0.48 * Math.pow(a, 0.7);
 }
 
 export const LENS_PROFILES = Object.freeze([
@@ -89,8 +113,30 @@ export const LENS_PROFILES = Object.freeze([
   'none',
 ]);
 
+export const FRAME_SHAPES = Object.freeze([
+  'auto',
+  'round',
+  'rect',
+  'rounded_rect',
+  'semi_rimless',
+  'rimless',
+]);
+
+export const FRAME_COLORS = Object.freeze([
+  'auto',
+  'amber',
+  'charcoal',
+  'tortoise',
+  'titanium',
+  'gold',
+  'navy',
+  'burgundy',
+]);
+
 export const SETTING_SPECS = Object.freeze({
   lensProfile: Object.freeze({ type: 'enum', values: LENS_PROFILES, default: 'aphakic_bifocal' }),
+  frameShape: Object.freeze({ type: 'enum', values: FRAME_SHAPES, default: 'auto' }),
+  frameColor: Object.freeze({ type: 'enum', values: FRAME_COLORS, default: 'auto' }),
   lensPowerD: Object.freeze({ type: 'number', min: -12.0, max: 18.0, step: 0.25, default: 13.0 }),
   nearAddD: Object.freeze({ type: 'number', min: 0.0, max: 5.0, step: 0.25, default: 4.0 }),
   lensCylD: Object.freeze({ type: 'number', min: 0.0, max: 5.0, step: 0.25, default: 0.0 }),

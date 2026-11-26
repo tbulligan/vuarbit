@@ -5,6 +5,8 @@ import {
   SETTING_SPECS,
   QUALITY_PRESETS,
   TIME_OF_DAY_PRESETS,
+  FRAME_SHAPES,
+  FRAME_COLORS,
   getPersonaById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
@@ -14,6 +16,7 @@ import {
   formatSnellenAcuity,
   hasSuppressionMechanics,
   computeAmbientLight,
+  computeAdaptedExposure,
   cycleTimeOfDay,
   createSimState,
   computeOcclusionFromDistance,
@@ -502,12 +505,26 @@ assert.equal(cycleTimeOfDay('night'), 'sunny');
 assert.equal(cycleTimeOfDay('invalid'), 'sunny');
 const luxSunnyOn = computeAmbientLight('sunny', true);
 const luxSunnyOff = computeAmbientLight('sunny', false);
+const luxNightOn = computeAmbientLight('night', true);
 const luxDuskOff = computeAmbientLight('dusk', false);
 const luxNightOff = computeAmbientLight('night', false);
 assert.ok(
-  luxSunnyOn === 1.0 && luxSunnyOn > luxSunnyOff && luxSunnyOff > luxDuskOff && luxDuskOff > luxNightOff && luxNightOff > 0,
-  `ambient light must decrease monotonically from sunny+on to night+off (${luxSunnyOn}, ${luxSunnyOff}, ${luxDuskOff}, ${luxNightOff})`
+  luxSunnyOn === 1.0 && luxSunnyOn > luxSunnyOff && luxSunnyOff > luxNightOn && luxNightOn > luxDuskOff && luxDuskOff > luxNightOff && luxNightOff > 0,
+  `ambient light must decrease monotonically from sunny+on -> sunny+off -> night+on -> dusk+off -> night+off (${luxSunnyOn}, ${luxSunnyOff}, ${luxNightOn}, ${luxDuskOff}, ${luxNightOff})`
 );
+
+// Retinal light adaptation exposure: lower in bright sun, higher in dim rooms, finite on bad input
+const expSunny = computeAdaptedExposure(luxSunnyOn);
+const expNightOn = computeAdaptedExposure(luxNightOn);
+const expNightOff = computeAdaptedExposure(luxNightOff);
+assert.ok(expSunny < expNightOn && expNightOn < expNightOff, `adapted exposure must rise as light drops (${expSunny}, ${expNightOn}, ${expNightOff})`);
+assert.equal(computeAdaptedExposure(NaN), expSunny, 'non-finite ambient light must fall back cleanly');
+
+// Every Time-of-Day preset defines HDR sky & window portal fields
+for (const [id, p] of Object.entries(TIME_OF_DAY_PRESETS)) {
+  assert.ok(typeof p.skyTop === 'string' && p.skyGain > 0, `${id} preset must define skyTop and positive skyGain`);
+  assert.ok(typeof p.winColor === 'string' && p.winInt > 0, `${id} preset must define winColor and positive winInt`);
+}
 
 const stEnv = createSimState();
 assert.equal(stEnv.timeOfDay, 'sunny');
@@ -519,6 +536,26 @@ assert.equal(stEnv.ambientLight, luxNightOff);
 applyPersona(stEnv, 'retinitis_pigmentosa');
 assert.equal(stEnv.timeOfDay, 'night', 'switching preset must preserve room timeOfDay');
 assert.equal(stEnv.lightsOn, false, 'switching preset must preserve room lightsOn');
+
+// Frame customization (shape & color) enum validation and persona reset
+assert.ok(FRAME_SHAPES.includes('auto') && FRAME_SHAPES.includes('rimless'));
+assert.ok(FRAME_COLORS.includes('auto') && FRAME_COLORS.includes('gold'));
+const sanitizedFrame = sanitizeVisualSettings({ frameShape: 'rimless', frameColor: 'gold' });
+assert.equal(sanitizedFrame.frameShape, 'rimless');
+assert.equal(sanitizedFrame.frameColor, 'gold');
+const invalidFrame = sanitizeVisualSettings({ frameShape: 'hexagon', frameColor: 'neon_pink' });
+assert.equal(invalidFrame.frameShape, 'auto', 'invalid frameShape must fall back to auto');
+assert.equal(invalidFrame.frameColor, 'auto', 'invalid frameColor must fall back to auto');
+
+const stFrame = createSimState();
+assert.equal(stFrame.settings.frameShape, 'auto');
+assert.equal(stFrame.settings.frameColor, 'auto');
+assert.equal(updateVisualSetting(stFrame, 'frameShape', 'semi_rimless'), 'semi_rimless');
+assert.equal(updateVisualSetting(stFrame, 'frameColor', 'burgundy'), 'burgundy');
+assert.equal(stFrame.personaId, 'custom');
+applyPersona(stFrame, 'vuarbit_1994');
+assert.equal(stFrame.settings.frameShape, 'auto', 'applyPersona must restore auto frameShape');
+assert.equal(stFrame.settings.frameColor, 'auto', 'applyPersona must restore auto frameColor');
 
 // Bifocal nearAddD=0 stays distance even when looking down
 const stNoAdd = createSimState();

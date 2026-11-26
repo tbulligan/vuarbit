@@ -65,7 +65,7 @@ async function init() {
 
   const waveformData = await loadWaveform();
   const state = createSimState();
-  const sceneApi = createClassroomScene();
+  const sceneApi = createClassroomScene(renderer);
   const optics = createOpticsRenderer(renderer, sceneApi.scene, waveformData);
   const controls = createControls(canvas, state, sceneApi);
   const audio = createTinnitusAudio();
@@ -148,6 +148,7 @@ async function init() {
     window.removeEventListener('resize', onResize);
     controls.dispose();
     optics.dispose();
+    sceneApi.dispose?.();
     audio.dispose();
     settings.dispose();
     hud.dispose();

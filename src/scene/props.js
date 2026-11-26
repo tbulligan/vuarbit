@@ -284,7 +284,7 @@ export function createUpgradedPickables({ scene, addFocusMesh, makeCanvasTexture
     ctx.font = 'bold 74px Georgia, serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('SVUARBIT', w * 0.5, h * 0.54);
+    ctx.fillText('VUARBIT', w * 0.5, h * 0.54);
   });
   const zipperTeethTex = makeTex(512, 64, (ctx, w, h) => {
     ctx.fillStyle = '#1b2c46';
@@ -345,7 +345,7 @@ export function createUpgradedPickables({ scene, addFocusMesh, makeCanvasTexture
 
   pencilCaseGroup.add(caseBody, zipperStrip, slider, pullTab);
 
-  // Sewn "SVUARBIT" patches on both wide faces: bent onto the case ellipse (Yr 0.0211, Zr 0.0339), text reads along the zipper axis
+  // Sewn "VUARBIT" patches on both wide faces: bent onto the case ellipse (Yr 0.0211, Zr 0.0339), text reads along the zipper axis
   const labelMat = new THREE.MeshStandardMaterial({ map: labelTex, roughness: 0.85 });
   const labelGeo = new THREE.PlaneGeometry(0.075, 0.017, 1, 6);
   const labelPos = labelGeo.attributes.position;

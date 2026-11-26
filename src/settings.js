@@ -8,11 +8,31 @@ import {
 } from './personas.js';
 
 const LENS_PROFILE_OPTIONS = [
-  { value: 'aphakic_bifocal', label: 'Aphakic Bifocal (Round Amber)' },
-  { value: 'single_vision', label: 'Single-Vision (Black Rect)' },
-  { value: 'bifocal', label: 'Bifocal (Tortoise D-Seg)' },
-  { value: 'progressive', label: 'Progressive (Semi-Rimless)' },
+  { value: 'aphakic_bifocal', label: 'Aphakic Bifocal (+13/+17 D)' },
+  { value: 'single_vision', label: 'Single-Vision' },
+  { value: 'bifocal', label: 'Bifocal (D-Segment)' },
+  { value: 'progressive', label: 'Progressive (PAL)' },
   { value: 'none', label: 'None (No Glasses)' },
+];
+
+const FRAME_SHAPE_OPTIONS = [
+  { value: 'auto', label: 'Auto (Match Lens)' },
+  { value: 'round', label: 'Round' },
+  { value: 'rect', label: 'Rectangular' },
+  { value: 'rounded_rect', label: 'Rounded Rect' },
+  { value: 'semi_rimless', label: 'Semi-Rimless' },
+  { value: 'rimless', label: 'Rimless' },
+];
+
+const FRAME_COLOR_OPTIONS = [
+  { value: 'auto', label: 'Auto (Match Lens)' },
+  { value: 'amber', label: 'Amber Acetate' },
+  { value: 'charcoal', label: 'Matte Charcoal' },
+  { value: 'tortoise', label: 'Tortoiseshell' },
+  { value: 'titanium', label: 'Brushed Titanium' },
+  { value: 'gold', label: 'Satin Gold' },
+  { value: 'navy', label: 'Deep Navy' },
+  { value: 'burgundy', label: 'Burgundy' },
 ];
 
 const DOMINANT_EYE_OPTIONS = [
@@ -128,6 +148,8 @@ const PRIMARY_GROUPS = [
 
 const ADVANCED_CONTROLS = [
   { key: 'lensProfile', label: 'Glasses / Lens', kind: 'select', options: LENS_PROFILE_OPTIONS },
+  { key: 'frameShape', label: 'Frame Shape', kind: 'select', options: FRAME_SHAPE_OPTIONS },
+  { key: 'frameColor', label: 'Frame Color', kind: 'select', options: FRAME_COLOR_OPTIONS },
   { key: 'lensPowerD', label: 'Lens Power', kind: 'range', format: (v) => formatDiopter(v, 2) },
   { key: 'nearAddD', label: 'Near Add', kind: 'range', format: (v) => formatDiopter(v, 2) },
   { key: 'lensCylD', label: 'Glasses Cylinder', kind: 'range', format: (v) => formatDiopter(v, 2) },
@@ -476,7 +498,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
         }
       }
 
-      if (key === 'lensPowerD') {
+      if (key === 'lensPowerD' || key === 'frameShape' || key === 'frameColor') {
         setDisabled(ctrl, lensDisabled);
       } else if (key === 'nearAddD') {
         setDisabled(ctrl, addDisabled);

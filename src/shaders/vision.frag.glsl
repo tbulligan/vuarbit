@@ -19,6 +19,8 @@ uniform float uMlnVelUV;
 uniform float uExposure;
 uniform vec2 uResolution;
 uniform float uLensProfile;
+uniform float uFrameShape;
+uniform float uFrameColor;
 uniform float uLensPowerD;
 uniform float uNearAddD;
 uniform float uLensCylD;
@@ -225,10 +227,10 @@ vec3 sampleOD(
     col = mix(col, astGhost, 0.06 * (1.0 - heavyBlurMix));
   }
 
-  // Astigmatism & corneal HOAs (runs in linear HDR before ACES + sRGB; threshold adapts to room brightness so dim-room lamps streak/halo)
+  // Astigmatism & corneal HOAs (runs in linear HDR before ACES + sRGB; calibrated above matte paper so only lamps/windows/hotspots flare)
   if (hoaStrength > 0.01) {
-    float hoaLo = mix(0.22, 0.78, clamp(uAmbientLight, 0.0, 1.0));
-    float hoaHi = mix(0.62, 1.15, clamp(uAmbientLight, 0.0, 1.0));
+    float hoaLo = mix(0.35, 1.35, clamp(uAmbientLight, 0.0, 1.0));
+    float hoaHi = mix(0.95, 2.25, clamp(uAmbientLight, 0.0, 1.0));
     vec3 flare = vec3(0.0);
     // 1. Directional astigmatic light streaks along meridian
     for (int s = 1; s <= 3; s++) {
@@ -500,30 +502,33 @@ void main() {
   float powerRatio = clamp(abs(uLensPowerD) / 13.0, 0.35, 1.5);
   float addRatio = clamp(uNearAddD / 4.0, 0.0, 1.35);
 
-  // Distinct auto-matched frame geometry per lens type:
-  // 1: Aphakic Bifocal (thick round amber executive)
-  // 2: Single-Vision (sharp matte-black rectangular)
-  // 3: Bifocal (taller warm tortoiseshell rounded-rect + flat-top D-segment window)
-  // 4: Progressive (semi-rimless brushed-titanium top-bar + rimless lower glass edge)
-  vec2 cL = isAphakic > 0.5 ? vec2(-0.36, -0.01) : vec2(-0.38, -0.01);
-  vec2 cR = isAphakic > 0.5 ? vec2( 0.36, -0.01) : vec2( 0.38, -0.01);
-  float lensR = 0.49;
-  vec2 boxHalf = isModernBifocal > 0.5
-    ? vec2(0.36, 0.34)
-    : (isProgressive > 0.5 ? vec2(0.38, 0.31) : vec2(0.37, 0.26));
-  float boxRad = isModernBifocal > 0.5 ? 0.12 : (isProgressive > 0.5 ? 0.08 : 0.05);
+  // Resolve cosmetic frame shape & color (0 = Auto matched to lens profile; optics stay strictly tied to uLensProfile)
+  float effShape = uFrameShape > 0.5 ? uFrameShape : uLensProfile;
+  float effColor = uFrameColor > 0.5 ? uFrameColor : uLensProfile;
+  float shapeRound = step(0.5, effShape) * (1.0 - step(1.5, effShape));
+  float shapeRoundedRect = step(2.5, effShape) * (1.0 - step(3.5, effShape));
+  float shapeSemiRim = step(3.5, effShape) * (1.0 - step(4.5, effShape));
+  float shapeRimless = step(4.5, effShape);
 
-  float dL = isAphakic > 0.5 ? sdCircle(p, cL, lensR) : sdRoundedBox(p - cL, boxHalf, boxRad);
-  float dR = isAphakic > 0.5 ? sdCircle(p, cR, lensR) : sdRoundedBox(p - cR, boxHalf, boxRad);
+  vec2 cL = shapeRound > 0.5 ? vec2(-0.36, -0.01) : vec2(-0.38, -0.01);
+  vec2 cR = shapeRound > 0.5 ? vec2( 0.36, -0.01) : vec2( 0.38, -0.01);
+  float lensR = 0.49;
+  vec2 boxHalf = shapeRoundedRect > 0.5
+    ? vec2(0.36, 0.34)
+    : (shapeSemiRim > 0.5 ? vec2(0.38, 0.31) : (shapeRimless > 0.5 ? vec2(0.38, 0.30) : vec2(0.37, 0.26)));
+  float boxRad = shapeRoundedRect > 0.5 ? 0.12 : ((shapeSemiRim > 0.5 || shapeRimless > 0.5) ? 0.08 : 0.05);
+
+  float dL = shapeRound > 0.5 ? sdCircle(p, cL, lensR) : sdRoundedBox(p - cL, boxHalf, boxRad);
+  float dR = shapeRound > 0.5 ? sdCircle(p, cR, lensR) : sdRoundedBox(p - cR, boxHalf, boxRad);
   float dLenses = min(dL, dR);
 
-  float bridgeY = isAphakic > 0.5 ? 0.325 : (isModernBifocal > 0.5 ? 0.17 : 0.13);
-  float bridgeHalfW = isAphakic > 0.5 ? 0.048 : 0.040;
-  float bridgeR = isAphakic > 0.5 ? 0.016 : (isProgressive > 0.5 ? 0.008 : 0.012);
+  float bridgeY = shapeRound > 0.5 ? 0.325 : (shapeRoundedRect > 0.5 ? 0.17 : 0.13);
+  float bridgeHalfW = shapeRound > 0.5 ? 0.048 : 0.040;
+  float bridgeR = shapeRound > 0.5 ? 0.016 : ((shapeSemiRim > 0.5 || shapeRimless > 0.5) ? 0.008 : 0.012);
   float dBridge = sdSegment(p, vec2(-bridgeHalfW, bridgeY), vec2(bridgeHalfW, bridgeY)) - bridgeR;
-  float rimThickness = isAphakic > 0.5 ? 0.025 : (isModernBifocal > 0.5 ? 0.019 : (isProgressive > 0.5 ? 0.011 : 0.015));
+  float rimThickness = shapeRound > 0.5 ? 0.025 : (shapeRoundedRect > 0.5 ? 0.019 : (shapeSemiRim > 0.5 ? 0.011 : 0.015));
   float dRimFull = abs(dLenses) - rimThickness * 0.5;
-  float rimBand = min(dRimFull, dBridge);
+  float rimBand = shapeRimless > 0.5 ? dBridge : min(dRimFull, dBridge);
 
   float inLens = glassesOn * (1.0 - smoothstep(-0.004, 0.004, dLenses));
   // Dominant eye (OD or OS via uDomIsOS) + central binocular overlap vs non-dominant-only lens
@@ -531,10 +536,12 @@ void main() {
   float inRightLens = glassesOn * (1.0 - smoothstep(-0.012, 0.012, dR));
   float inDomLens = mix(inRightLens, inLeftLens, step(0.5, uDomIsOS));
   float inNonDomOnly = inLens * (1.0 - inDomLens);
-  // Semi-rimless Progressive shows metallic browline on upper half only, plus delicate lower glass-edge glint
+  // Semi-rimless keeps metallic browline on upper half + lower glass glint; Rimless shows slim bridge + full glass-edge glint
   float upperHalfMask = smoothstep(-0.04, 0.04, p.y);
-  float rimMask = glassesOn * (1.0 - smoothstep(-0.004, 0.004, rimBand)) * mix(1.0, max(upperHalfMask, 1.0 - smoothstep(-0.004, 0.004, dBridge)), isProgressive);
-  float glassEdgeGlint = glassesOn * isProgressive * (1.0 - upperHalfMask) * (1.0 - smoothstep(0.0, 0.007, abs(dLenses)));
+  float bridgeOnlyMask = 1.0 - smoothstep(-0.004, 0.004, dBridge);
+  float rimMask = glassesOn * (1.0 - smoothstep(-0.004, 0.004, rimBand)) * mix(1.0, max(upperHalfMask, bridgeOnlyMask), shapeSemiRim);
+  float glassEdgeBand = 1.0 - smoothstep(0.0, 0.007, abs(dLenses));
+  float glassEdgeGlint = glassesOn * max(shapeSemiRim * (1.0 - upperHalfMask), shapeRimless * 0.85) * glassEdgeBand;
 
   // Executive straight split (Aphakic) vs Flat-Top D-Segment (Modern Bifocal) vs Smooth Corridor (Progressive)
   float splitY = -0.02;
@@ -725,6 +732,8 @@ void main() {
     }
 
     if (hasLens > 0.5) {
+      float frameLight = mix(0.10, 1.0, smoothstep(0.03, 0.72, uAmbientLight));
+      float edgeLight = mix(0.18, 1.0, smoothstep(0.03, 0.65, uAmbientLight));
       // Dark ring scotoma dead-band transition just outside high-plus aphakic rim
       col *= (1.0 - scotomaBand * 0.28 * powerRatio);
 
@@ -732,24 +741,41 @@ void main() {
       float ledgeShade = isAphakic > 0.5
         ? mix(-0.06, 0.095, smoothstep(-0.003, 0.003, dSplit))
         : 0.11;
-      col += vec3(ledgeShade) * bifocalLine;
+      col += vec3(ledgeShade * edgeLight) * bifocalLine;
 
       // Delicate specular glass edge along lower half of semi-rimless progressive lens
-      col += vec3(0.11, 0.12, 0.14) * glassEdgeGlint;
+      col += vec3(0.11, 0.12, 0.14) * edgeLight * glassEdgeGlint;
 
-      // Distinct auto-matched frames: amber acetate (aphakic), matte charcoal (SV), warm tortoiseshell (D-seg bifocal), brushed silver (semi-rimless PAL)
+      // Custom or auto-matched frame finish: 1=amber, 2=charcoal, 3=tortoise, 4=titanium, 5=gold, 6=navy, 7=burgundy
       if (rimMask > 0.01) {
-        vec3 frameTint = isAphakic > 0.5
-          ? vec3(0.72, 0.40, 0.11)
-          : (isModernBifocal > 0.5
-              ? mix(vec3(0.30, 0.16, 0.07), vec3(0.56, 0.33, 0.13), 0.5 + 0.5 * sin(p.x * 42.0 + p.y * 36.0))
-              : (isProgressive > 0.5 ? vec3(0.58, 0.62, 0.68) : vec3(0.11, 0.12, 0.14)));
+        vec3 baseTint = vec3(0.11, 0.12, 0.14);
+        float isAcetateTrans = 0.0;
+        float isMetallic = 0.0;
+        if (effColor < 1.5) {
+          baseTint = vec3(0.72, 0.40, 0.11);
+          isAcetateTrans = 1.0;
+        } else if (effColor < 2.5) {
+          baseTint = vec3(0.11, 0.12, 0.14);
+        } else if (effColor < 3.5) {
+          baseTint = mix(vec3(0.30, 0.16, 0.07), vec3(0.56, 0.33, 0.13), 0.5 + 0.5 * sin(p.x * 42.0 + p.y * 36.0));
+        } else if (effColor < 4.5) {
+          baseTint = vec3(0.58, 0.62, 0.68);
+          isMetallic = 1.0;
+        } else if (effColor < 5.5) {
+          baseTint = vec3(0.76, 0.60, 0.26);
+          isMetallic = 1.0;
+        } else if (effColor < 6.5) {
+          baseTint = vec3(0.13, 0.20, 0.36);
+        } else {
+          baseTint = vec3(0.44, 0.11, 0.16);
+        }
+        vec3 frameTint = baseTint * frameLight;
         float rimBevel = smoothstep(0.0, 0.011, abs(dLenses));
-        vec3 rimCol = isAphakic > 0.5
+        vec3 rimCol = isAcetateTrans > 0.5
           ? mix(col * frameTint * 1.15 + frameTint * 0.24, frameTint * 0.85, 0.45)
           : mix(col * 0.14 + frameTint * 0.86, frameTint, 0.76);
-        rimCol += vec3(0.18, 0.17, 0.15) * (1.0 - rimBevel) * (isProgressive > 0.5 ? 0.55 : 0.35);
-        col = mix(col, rimCol, rimMask * mix(0.94, 0.88, isAphakic));
+        rimCol += vec3(0.18, 0.17, 0.15) * frameLight * (1.0 - rimBevel) * (isMetallic > 0.5 ? 0.55 : 0.35);
+        col = mix(col, rimCol, rimMask * mix(0.94, 0.88, isAcetateTrans));
       }
     }
 
