@@ -3,6 +3,30 @@
  * Zero DOM or Three.js dependencies so Node unit tests can import directly.
  */
 
+import {
+  PERSONAS,
+  SETTING_SPECS,
+  QUALITY_PRESETS,
+  getPersonaById,
+  createDefaultVisualSettings,
+  sanitizeVisualSettings,
+  applyPersona,
+  updateVisualSetting,
+  computeAcuityBlurUV,
+} from './personas.js';
+
+export {
+  PERSONAS,
+  SETTING_SPECS,
+  QUALITY_PRESETS,
+  getPersonaById,
+  createDefaultVisualSettings,
+  sanitizeVisualSettings,
+  applyPersona,
+  updateVisualSetting,
+  computeAcuityBlurUV,
+};
+
 export function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -39,11 +63,12 @@ export function computeMlnFreqScale(focusStrength, fatigue, occlusionLevel, gaze
  * of the dominant right eye's lower bifocal lens (or bare OD pupil when glasses off).
  * Converges gently toward OD's pupillary axis at very close range (<0.18m) for smooth monocular occlusion.
  */
-export function computeHeldRestOffset(zMeters, glassesOn) {
+export function computeHeldRestOffset(zMeters, glassesOn, dominantEye = 'OD') {
   const z = clamp(Number.isFinite(zMeters) ? zMeters : 0.22, 0.04, 0.65);
   const closeBlend = smoothstep(0.08, 0.18, z);
+  const xMag = 0.029 + (glassesOn ? 0.22 * z * closeBlend : 0);
   return {
-    x: 0.029 + (glassesOn ? 0.22 * z * closeBlend : 0),
+    x: dominantEye === 'OS' ? -xMag : xMag,
     y: glassesOn ? -0.21 * z * (0.35 + 0.65 * closeBlend) : 0,
     z,
   };
@@ -87,6 +112,10 @@ export function updateHeldRotation(heldRot, dx, dy, sensitivity = 0.0075) {
  */
 export function createSimState() {
   return {
+    personaId: 'vuarbit_1994',
+    settings: createDefaultVisualSettings(),
+    settingsOpen: false,
+    qualityPreset: 'high',
     mode: 'standing',
     glassesOn: true,
     eyesClosed: false,
@@ -136,8 +165,14 @@ export function computeOcclusionFromDistance(distMeters) {
  *  - Horizontal (left): -1.53 deg (~1.0cm / 2 workbook squares @ 0.375m seated triangle)
  *  - Vertical (up): +0.31 deg (~0.2cm @ 0.375m)
  */
-export function computeDiplopiaOffsetDeg(distMeters) {
+export function computeDiplopiaOffsetDeg(distMeters, settings) {
   void distMeters;
+  if (settings && typeof settings === 'object') {
+    return {
+      dxDeg: Number.isFinite(settings.diplopiaH) ? settings.diplopiaH : -1.53,
+      dyDeg: Number.isFinite(settings.diplopiaV) ? settings.diplopiaV : 0.31,
+    };
+  }
   return { dxDeg: -1.53, dyDeg: 0.31 };
 }
 
@@ -188,6 +223,18 @@ export function computeMlnAngleDeg(wave, elapsed, freqHz, occlusionLevel, mlnSca
  */
 export function updateSimState(state, dt) {
   const step = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.1);
+  const s = state.settings || createDefaultVisualSettings();
+  const isImpairmentFree =
+    s.lensProfile === 'none' &&
+    s.vodAcuity >= 0.95 &&
+    s.vosAcuity >= 0.95 &&
+    s.mlnScale <= 0 &&
+    Math.abs(s.diplopiaH) < 0.01 &&
+    Math.abs(s.diplopiaV) < 0.01 &&
+    s.glaucoma <= 0 &&
+    s.amd <= 0 &&
+    s.albinism <= 0 &&
+    s.cataract <= 0;
 
   // Smooth eyelid transition
   const targetClose = state.eyesClosed ? 1 : 0;
@@ -219,7 +266,7 @@ export function updateSimState(state, dt) {
   );
 
   // Two-speed central visual fatigue dynamics (gradual reserve drain, 2.4x faster during Focus)
-  if (state.eyesClosed) {
+  if (state.eyesClosed || isImpairmentFree) {
     const recovAlpha = 1 - Math.exp(-0.14 * step);
     state.fatigue = clamp(state.fatigue + (0.05 - state.fatigue) * recovAlpha, 0, 1);
   } else if (!state.compareNormal) {
@@ -236,16 +283,22 @@ export function updateSimState(state, dt) {
   // MLN intensity: noticeable unfocused baseline damped by Focus effort; rises sharply on decompensation or monocular occlusion
   const postDecomp = computeDecompensation(state.fatigue);
   const unocclDrive = (0.15 + 0.34 * postDecomp) * (state.eyesClosed ? 0.35 : 1.0) * (1 - 0.68 * state.focusStrength);
-  state.mlnIntensity = clamp(state.occlusionLevel * 0.95 + unocclDrive, 0, 1);
+  const mlnScale = clamp(s.mlnScale ?? 1, 0, 2);
+  const mlnDrive = (state.occlusionLevel * 0.95 + unocclDrive) * mlnScale;
+  const albinismDrive =
+    clamp(s.albinism || 0, 0, 1) * 0.42 * (state.eyesClosed ? 0.25 : 1.0) * (1 - 0.35 * state.focusStrength);
+  state.mlnIntensity = clamp(mlnDrive + albinismDrive, 0, 1);
 
   if (state.eyelidClose > 0.8) {
     state.activeZone = 'closed';
     state.focusDistM = 0;
   } else if (state.compareNormal) {
     state.activeZone = 'normal';
+  } else if (s.lensProfile === 'none') {
+    state.activeZone = 'emmetropic';
   } else if (!state.glassesOn) {
     state.activeZone = 'uncorrected';
-  } else if (state.pitch < -0.22 || (state.focusDistM > 0 && state.focusDistM < 0.7)) {
+  } else if (s.nearAddD > 0.25 && (state.pitch < -0.22 || (state.focusDistM > 0 && state.focusDistM < 0.7))) {
     state.activeZone = 'near';
   } else {
     state.activeZone = 'distance';
