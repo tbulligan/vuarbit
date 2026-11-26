@@ -335,7 +335,8 @@ vec3 applyLinearPathologies(vec3 linCol, vec2 uv, vec2 p, vec2 pFovea) {
     vec3 mutedFill = mix(fillCol, vec3(fillLuma * 0.75), 0.48 + 0.45 * uAmd);
     linCol = mix(linCol, mutedFill, scotomaMask * smoothstep(0.05, 0.45, uAmd));
     float coreDark = smoothstep(0.32, 0.96, uAmd) * coreMask;
-    linCol *= (1.0 - coreDark * 0.97);
+    linCol *= (1.0 - coreDark * 0.995);
+    linCol = mix(linCol, min(linCol, vec3(0.08)), coreDark);
   }
 
   // 4. Crabb (2013) Glaucoma: Bjerrum arcuate + peripheral perceptual filling-in; narrows past 70%, 100% = total blindness (NLP)
@@ -368,7 +369,7 @@ vec3 applyLinearPathologies(vec3 linCol, vec2 uv, vec2 p, vec2 pFovea) {
     float darkOuter = mix(0.62, 0.09, endStage);
     float outerDark = smoothstep(darkInner, darkOuter, r) * endStage;
     float totalBlind = smoothstep(0.92, 1.0, uGlaucoma);
-    linCol *= (1.0 - max(outerDark * 0.98, totalBlind));
+    linCol *= (1.0 - max(outerDark, totalBlind));
   }
 
   // 5. Diabetic Retinopathy: retinal-locked irregular hemorrhage blotches & patchy macular blur; 100% = dense vitreous hemorrhage
@@ -415,7 +416,7 @@ vec3 applyLinearPathologies(vec3 linCol, vec2 uv, vec2 p, vec2 pFovea) {
     float dimCollapse = (1.0 - smoothstep(0.015, 0.16, luma)) * rp * 0.24;
     linCol *= (1.0 - dimCollapse);
     float totalRpBlind = smoothstep(0.93, 1.0, rp);
-    linCol *= (1.0 - max(max(tunnelMask * 0.985, ringScotoma), totalRpBlind));
+    linCol *= (1.0 - max(max(tunnelMask, ringScotoma), totalRpBlind));
   }
 
   // 7. Machado (2009) CVD in linear RGB (explicit row-major dot products)
