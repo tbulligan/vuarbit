@@ -5,6 +5,9 @@ import {
   computeOcclusionFromDistance,
   computeDiplopiaOffsetDeg,
   computeMlnAngleDeg,
+  computeMlnFreqScale,
+  computeHeldRestOffset,
+  computeMaxYaw,
   computeDecompensation,
   updateSimState,
 } from '../src/state.js';
@@ -123,6 +126,29 @@ assert.ok(
   Math.abs(mlnGazeFocused.dxDeg) < Math.abs(mlnGazeUnfocused.dxDeg) * 0.55,
   'Focus effort must damp gaze-shift nystagmus'
 );
+
+// MLN frequency halves only when calmly focused; stays 1.0x when unfocused, fatigued, occluded, or moving gaze
+assert.equal(computeMlnFreqScale(1.0, 0.1, 0.0, 0.0), 0.5, 'calm Focus must halve MLN frequency');
+assert.equal(computeMlnFreqScale(0.0, 0.1, 0.0, 0.0), 1.0, 'unfocused MLN frequency must stay 1.0x');
+assert.equal(computeMlnFreqScale(1.0, 0.96, 0.0, 0.0), 1.0, 'fatigued MLN frequency must stay 1.0x');
+assert.equal(computeMlnFreqScale(1.0, 0.1, 0.5, 0.0), 1.0, 'occluded MLN frequency must stay 1.0x');
+assert.equal(computeMlnFreqScale(1.0, 0.1, 0.0, 0.5), 1.0, 'gaze-shift MLN frequency must stay 1.0x');
+
+// Posture neck constraints & lower-right-lens held alignment
+assert.equal(computeMaxYaw('standing', 0), Infinity, 'standing allows full 360 deg turn');
+assert.ok(computeMaxYaw('seated', 0) < Math.PI && computeMaxYaw('seated', 0) > 1.2, 'seated yaw must constrain neck/body');
+assert.ok(computeMaxYaw('seated', 1) < computeMaxYaw('seated', 0) * 0.5, 'deep lean must constrain neck yaw more tightly than upright');
+
+const heldGlasses = computeHeldRestOffset(0.21, true);
+assert.ok(heldGlasses.x > 0.065 && heldGlasses.y < -0.035, 'held object with glasses must center in lower right lens');
+const heldClose = computeHeldRestOffset(0.14, true);
+assert.ok(
+  Math.hypot(heldClose.x - 0.029, heldClose.y) < 0.055,
+  'held object pulled to 14cm must stay inside OD monocular occlusion cone'
+);
+const heldBare = computeHeldRestOffset(0.21, false);
+assert.equal(heldBare.x, 0.029, 'held object without glasses must align to bare OD pupil');
+assert.equal(heldBare.y, 0, 'held object without glasses must align to OD pupil height');
 
 // 5. Validate src/state.js: updateSimState (two-speed fatigue, Focus suppression, occlusion, closed eyes)
 const stRelaxed = createSimState();

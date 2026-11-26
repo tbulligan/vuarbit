@@ -15,6 +15,8 @@
 ## P3 — Richer Scene Fidelity (Classroom & Desk Assets)
 - Populate remaining classmates across the 4×2 + 4×3 desk grid.
 - Upgrade procedural or low-poly glTF models and props (open backpack, school bell, coat rack, higher-detail classroom & desk items).
+- Optional RMB drag to rotate held objects for close-up inspection.
+- Optional subtle player head/torso shadow caster on desk/floor.
 
 ## P4 — Input & Display Expansion
 - Mobile touch controls and WebXR / stereo VR headset dual-eye rendering mode.

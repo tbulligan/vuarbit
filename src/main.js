@@ -59,7 +59,7 @@ async function init() {
   renderer.shadowMap.autoUpdate = false;
   renderer.shadowMap.needsUpdate = true;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.02;
+  renderer.toneMappingExposure = 0.75; // calibrated for Narkowicz ACES curve in vision.frag.glsl
 
   const waveformData = await loadWaveform();
   const state = createSimState();

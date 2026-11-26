@@ -159,13 +159,20 @@ function createBlackboardTexture() {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, h);
 
-    // Subtle chalk dust smudge
-    for (let i = 0; i < 160; i += 1) {
-      const x = ((i * 193) % w);
-      const y = ((i * 97) % h);
-      ctx.fillStyle = 'rgba(235, 240, 232, 0.025)';
+    // Organic scattered chalk eraser smudges (deterministic PRNG avoids diagonal aliasing)
+    let cSeed = 4091994;
+    const cRand = () => {
+      cSeed = (cSeed * 1664525 + 1013904223) >>> 0;
+      return cSeed / 4294967296;
+    };
+    for (let i = 0; i < 120; i += 1) {
+      const x = cRand() * w;
+      const y = cRand() * h;
+      const rx = 55 + cRand() * 85;
+      const ry = 22 + cRand() * 34;
+      ctx.fillStyle = `rgba(235, 240, 232, ${(0.010 + cRand() * 0.016).toFixed(4)})`;
       ctx.beginPath();
-      ctx.ellipse(x, y, 90, 32, (i % 5) * 0.2, 0, Math.PI * 2);
+      ctx.ellipse(x, y, rx, ry, (cRand() - 0.5) * 0.7, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -1323,6 +1330,7 @@ export function createClassroomScene() {
 
   // Reusable scratch objects for zero-GC update loop
   let simTime = 0;
+  let heldLiftY = 0;
   const raycaster = new THREE.Raycaster();
   const forward = new THREE.Vector3();
   const windowLightDir = new THREE.Vector3(-1, 0.25, 0).normalize();
@@ -1333,7 +1341,6 @@ export function createClassroomScene() {
   const localHeld = new THREE.Vector3();
   const heldWorldPos = new THREE.Vector3();
   const toTarget = new THREE.Vector3();
-  const nearestDeskPt = new THREE.Vector3();
   const heldBox = new THREE.Box3();
   const heldTiltQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.35, 0.45, -0.55));
   const deskBounds = { minX: -2.91, maxX: -1.59, y: 0.73, minZ: -1.72, maxZ: -1.18 };
@@ -1367,7 +1374,7 @@ export function createClassroomScene() {
     const ceilAlign = Math.max(0, forward.y);
     state.eyelidLight = Math.min(1, Math.max(0.08, 0.12 + winAlign * 0.78 + ceilAlign * 0.32));
 
-    // Move held pickable into camera-relative space via state.heldOffset (prevent tilted tips clipping through desk/workbook)
+    // Move held pickable into camera-relative space; apply transient lift on desk collision so it returns smoothly when clear
     let heldEntry = null;
     if (state.holding) {
       heldEntry = pickables.find((p) => p.id === state.holding) || null;
@@ -1386,15 +1393,21 @@ export function createClassroomScene() {
           heldBox.max.z >= deskBounds.minZ &&
           heldBox.min.z <= deskBounds.maxZ;
         const minSurfaceY = deskBounds.y + 0.014; // clears y=0.73 desk and y=0.742 open workbook
-        if (overDesk && heldBox.min.y < minSurfaceY) {
-          heldWorldPos.y += minSurfaceY - heldBox.min.y;
+        const reqLift = overDesk && heldBox.min.y < minSurfaceY ? minSurfaceY - heldBox.min.y : 0;
+        if (reqLift >= heldLiftY) {
+          heldLiftY = reqLift;
+        } else {
+          heldLiftY += (reqLift - heldLiftY) * (1 - Math.exp(-12 * Math.min(dt || 0, 0.1)));
+          if (Math.abs(heldLiftY - reqLift) < 1e-4) heldLiftY = reqLift;
+        }
+        if (heldLiftY > 0) {
+          heldWorldPos.y += heldLiftY;
           heldEntry.mesh.position.copy(heldWorldPos);
           heldEntry.mesh.updateMatrixWorld(true);
-          // Sync clamped desktop height back into camera-local heldOffset.y so lifting with W has zero lag
-          localHeld.copy(heldWorldPos).applyMatrix4(camera.matrixWorldInverse);
-          off.y = Math.max(-0.18, Math.min(0.16, localHeld.y));
         }
       }
+    } else {
+      heldLiftY = 0;
     }
 
     // Eye world positions: OD (+0.029m right), OS (-0.029m left)
@@ -1404,47 +1417,56 @@ export function createClassroomScene() {
     let occlOD = 0;
     let occlOS = 0;
 
-    // 1. Held object monocular occlusion: narrow per-eye pupillary axis cylinder (< 3.8cm lateral offset)
-    //    so holding in front of OD occludes OD only (MLN = 100%), while centering between eyes occludes both (MLN = 0%)
+    // 1. Held object monocular occlusion: check per-eye proximity along each eye's sightline
+    //    (OD accepts lower-right-lens sightline up to 5.5cm while rejecting bilateral center overlap)
     if (heldEntry) {
       const r = heldEntry.occluderRadius;
-      const evalEyeOccl = (eyePos) => {
+      const evalHeldOccl = (eyePos, maxLat) => {
         toTarget.copy(heldWorldPos).sub(eyePos);
         const depthAlongRay = toTarget.dot(forward);
         if (depthAlongRay <= 0.01) return 0;
         const distSq = toTarget.lengthSq();
         const lateralDist = Math.sqrt(Math.max(0, distSq - depthAlongRay * depthAlongRay));
-        if (lateralDist > 0.038) return 0;
+        if (lateralDist > maxLat) return 0;
         return computeOcclusionFromDistance(Math.max(0.01, Math.sqrt(distSq) - r));
       };
-      occlOD = Math.max(occlOD, evalEyeOccl(eyeOD));
-      occlOS = Math.max(occlOS, evalEyeOccl(eyeOS));
+      occlOD = Math.max(occlOD, evalHeldOccl(eyeOD, 0.055));
+      occlOS = Math.max(occlOS, evalHeldOccl(eyeOS, 0.038));
     }
 
-    // 2. Desk surface occlusion when leaning close while seated
-    if (state.mode === 'seated') {
-      const evalDeskOccl = (eyePos) => {
-        nearestDeskPt.set(
-          Math.min(deskBounds.maxX, Math.max(deskBounds.minX, eyePos.x)),
-          deskBounds.y,
-          Math.min(deskBounds.maxZ, Math.max(deskBounds.minZ, eyePos.z))
-        );
-        const dist = eyePos.distanceTo(nearestDeskPt);
-        if (dist < 0.25 && (forward.y < -0.05 || dist < 0.18)) {
-          return computeOcclusionFromDistance(dist);
+    // 2. Per-eye surface occlusion (desk edge, workbook, props, walls, classmate) via short per-eye rays
+    //    Excludes currently held item (handled by evalHeldOccl) and skips when eyelids closed or in Normal Compare
+    if (state.eyelidClose <= 0.8 && !state.compareNormal) {
+      const envTargets = heldEntry ? focusTargets.filter((obj) => obj !== heldEntry.mesh) : focusTargets;
+      const evalEyeRayOccl = (eyePos) => {
+        raycaster.set(eyePos, forward);
+        raycaster.near = 0.01;
+        raycaster.far = 0.25;
+        const eyeHits = raycaster.intersectObjects(envTargets, true);
+        if (eyeHits.length > 0) {
+          return computeOcclusionFromDistance(eyeHits[0].distance);
         }
         return 0;
       };
-      occlOD = Math.max(occlOD, evalDeskOccl(eyeOD));
-      occlOS = Math.max(occlOS, evalDeskOccl(eyeOS));
+      occlOD = Math.max(occlOD, evalEyeRayOccl(eyeOD));
+      occlOS = Math.max(occlOS, evalEyeRayOccl(eyeOS));
     }
 
     state.occlOD = occlOD;
     state.occlOS = occlOS;
 
-    // 3. Center-ray focus distance (0 when eyelids closed)
+    // 3. Focus distance telemetry (use held item only when within near inspection cone; otherwise center raycast)
     if (state.eyelidClose > 0.8) {
       state.focusDistM = 0;
+      return;
+    }
+    if (
+      heldEntry &&
+      state.heldOffset.z <= 0.45 &&
+      Math.abs(state.heldOffset.x - 0.029) < 0.16 &&
+      state.heldOffset.y < 0.06
+    ) {
+      state.focusDistM = Math.min(20.0, Math.max(0.04, eyeOD.distanceTo(heldWorldPos)));
       return;
     }
     raycaster.set(camera.position, forward);

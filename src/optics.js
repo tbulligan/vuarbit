@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { computeMlnAngleDeg } from './state.js';
+import { computeMlnAngleDeg, computeMlnFreqScale } from './state.js';
 import visionFrag from './shaders/vision.frag.glsl?raw';
 
 const EYE_HALF_IPD_M = 0.029;
@@ -35,7 +35,7 @@ const BLUR_FRAG = /* glsl */ `
   }
 `;
 
-function createEyeRenderTarget(w, h, samples = 0) {
+function createEyeRenderTarget(w, h, samples = 0, type = THREE.UnsignedByteType) {
   const depthTexture = new THREE.DepthTexture(w, h);
   depthTexture.type = THREE.UnsignedIntType;
   depthTexture.format = THREE.DepthFormat;
@@ -44,17 +44,19 @@ function createEyeRenderTarget(w, h, samples = 0) {
     minFilter: THREE.LinearFilter,
     magFilter: THREE.LinearFilter,
     format: THREE.RGBAFormat,
+    type,
     depthBuffer: true,
     depthTexture,
     samples,
   });
 }
 
-function createBlurRenderTarget(w, h) {
+function createBlurRenderTarget(w, h, type = THREE.UnsignedByteType) {
   return new THREE.WebGLRenderTarget(w, h, {
     minFilter: THREE.LinearFilter,
     magFilter: THREE.LinearFilter,
     format: THREE.RGBAFormat,
+    type,
     depthBuffer: false,
     stencilBuffer: false,
   });
@@ -97,12 +99,18 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
 
   const odCamera = new THREE.PerspectiveCamera(OD_FOV_DEG, aspect, NEAR_CLIP, FAR_CLIP);
 
+  // Half-float linear HDR targets (with safe 8-bit fallback) so optical defocus/HOAs run in linear light before ACES + sRGB
+  const useHalfFloat =
+    Boolean(renderer.capabilities?.isWebGL2) &&
+    Boolean(renderer.extensions?.has('EXT_color_buffer_float'));
+  const rtType = useHalfFloat ? THREE.HalfFloatType : THREE.UnsignedByteType;
+
   // 4x WebGL2 MSAA on dominant OD target + quarter-res separable blur targets for smooth +13 D defocus
-  const rtOD = createEyeRenderTarget(initW, initH, 4);
+  const rtOD = createEyeRenderTarget(initW, initH, 4, rtType);
   const blurW = Math.max(1, Math.floor(initW * 0.25));
   const blurH = Math.max(1, Math.floor(initH * 0.25));
-  const rtBlurH = createBlurRenderTarget(blurW, blurH);
-  const rtBlurV = createBlurRenderTarget(blurW, blurH);
+  const rtBlurH = createBlurRenderTarget(blurW, blurH, rtType);
+  const rtBlurV = createBlurRenderTarget(blurW, blurH, rtType);
 
   const baseFreq = waveformData?.phases?.mln_occluded?.dominant_freq_hz || waveformData?.waveform?.cycle_freq_hz || 0.85;
   const waveSpeedScale = THREE.MathUtils.clamp(TARGET_MLN_FREQ_HZ / Math.max(0.25, baseFreq), 1.0, 9.0);
@@ -132,6 +140,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uCompareNormal: { value: 0 },
     uMlnOffsetUV: { value: new THREE.Vector2(0, 0) },
     uMlnVelUV: { value: 0 },
+    uExposure: { value: renderer.toneMappingExposure || 1.0 },
     uResolution: { value: new THREE.Vector2(initW, initH) },
   };
 
@@ -165,6 +174,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
   const mlnQuat = new THREE.Quaternion();
 
   let elapsed = 0;
+  let mlnElapsed = 0;
   let shadowFrame = 0;
 
   function render(dt, state) {
@@ -174,19 +184,25 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     const gazeSpike = Math.min(1.0, (state.gazeVel || 0) * 1.10);
 
     const isNormal = Boolean(state.compareNormal);
-    const wave = sampleLoopingWaveform(waveformData, elapsed, waveSpeedScale);
+    const freqScale = isNormal
+      ? 1.0
+      : computeMlnFreqScale(state.focusStrength || 0, state.fatigue || 0, state.occlusionLevel || 0, gazeSpike);
+    mlnElapsed += dt * freqScale;
+
+    const wave = sampleLoopingWaveform(waveformData, mlnElapsed, waveSpeedScale);
     const mlnScale = isNormal ? 0 : Math.min(1.25, (state.mlnIntensity || 0) + gazeSpike * 0.55);
     const mln = isNormal
       ? { dxDeg: 0, dyDeg: 0, velDegS: 0 }
       : computeMlnAngleDeg(
           wave,
-          elapsed,
+          mlnElapsed,
           TARGET_MLN_FREQ_HZ,
           state.occlusionLevel || 0,
           mlnScale,
           gazeSpike,
           state.focusStrength || 0,
         );
+    const effVelDegS = mln.velDegS * freqScale;
 
     savedPos.copy(odCamera.position);
     savedQuat.copy(odCamera.quaternion);
@@ -243,8 +259,9 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uniforms.uOcclOD.value = state.occlOD || 0.0;
     uniforms.uFocusEffort.value = state.focusStrength || 0.0;
     uniforms.uCompareNormal.value = isNormal ? 1.0 : 0.0;
+    uniforms.uExposure.value = renderer.toneMappingExposure || 1.0;
     uniforms.uMlnOffsetUV.value.set(mln.dxDeg / 62.0, mln.dyDeg / 62.0);
-    uniforms.uMlnVelUV.value = THREE.MathUtils.clamp(Math.abs(mln.velDegS) / 900.0, 0.0, 0.015);
+    uniforms.uMlnVelUV.value = THREE.MathUtils.clamp(Math.abs(effVelDegS) / 900.0, 0.0, 0.015);
 
     renderer.setRenderTarget(prevTarget);
     renderer.render(quadScene, quadCamera);

@@ -21,6 +21,46 @@ export function computeDecompensation(fatigue) {
 }
 
 /**
+ * Compute MLN beat frequency multiplier in [0.5, 1.0].
+ * Halves beat frequency (0.5x) only when calmly Focused; stays 1.0x when unfocused,
+ * fatigued/decompensated, occluded, or actively moving head/gaze.
+ */
+export function computeMlnFreqScale(focusStrength, fatigue, occlusionLevel, gazeSpike) {
+  const focus = clamp(focusStrength || 0, 0, 1);
+  const decomp = computeDecompensation(fatigue || 0);
+  const occl = clamp((occlusionLevel || 0) * 2.0, 0, 1);
+  const gaze = clamp((gazeSpike || 0) * 2.0, 0, 1);
+  const calmFocus = focus * (1.0 - decomp) * (1.0 - occl) * (1.0 - gaze);
+  return 1.0 - 0.5 * calmFocus;
+}
+
+/**
+ * Compute target head-local offset (meters) placing a held object in the center
+ * of the dominant right eye's lower bifocal lens (or bare OD pupil when glasses off).
+ * Converges gently toward OD's pupillary axis at very close range (<0.18m) for smooth monocular occlusion.
+ */
+export function computeHeldRestOffset(zMeters, glassesOn) {
+  const z = clamp(Number.isFinite(zMeters) ? zMeters : 0.21, 0.04, 0.65);
+  const closeBlend = smoothstep(0.08, 0.18, z);
+  return {
+    x: 0.029 + (glassesOn ? 0.22 * z * closeBlend : 0),
+    y: glassesOn ? -0.21 * z * (0.35 + 0.65 * closeBlend) : 0,
+    z,
+  };
+}
+
+/**
+ * Compute anatomical horizontal yaw limit (radians) from posture.
+ * Standing allows full 360 deg body turn; seated constrains neck/torso (~95 deg),
+ * tightening smoothly (~37 deg) when leaned deeply over the desk.
+ */
+export function computeMaxYaw(mode, lean) {
+  if (mode !== 'seated') return Infinity;
+  const t = smoothstep(0.3, 0.85, lean || 0);
+  return 1.66 + (0.65 - 1.66) * t;
+}
+
+/**
  * Create initial simulation state.
  */
 export function createSimState() {
@@ -31,7 +71,7 @@ export function createSimState() {
     eyelidClose: 0,
     lean: 0,
     holding: null,
-    heldOffset: { x: 0.029, y: -0.05, z: 0.28 },
+    heldOffset: computeHeldRestOffset(0.21, true),
     occlOD: 0,
     occlOS: 0,
     occlusionLevel: 0,

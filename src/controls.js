@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { clamp } from './state.js';
+import { clamp, computeHeldRestOffset, computeMaxYaw } from './state.js';
 
 /**
  * Pointer-lock mouse look, standing collision movement, seating toggle,
@@ -70,21 +70,28 @@ export function createControls(domElement, state, sceneApi) {
 
     if (chosen) {
       state.holding = chosen.id;
-      // Start centered in right eye's lower reading-distance sweet spot (~28cm)
-      state.heldOffset = { x: 0.029, y: -0.052, z: 0.28 };
+      // Start centered in dominant right eye's lower bifocal reading sweet spot (~21cm)
+      state.heldOffset = computeHeldRestOffset(0.21, state.glassesOn);
     }
   }
+
+  let seatPanX = 0;
+  let seatPanZ = 0;
 
   function toggleSeatMode() {
     if (state.mode === 'standing') {
       state.mode = 'seated';
       state.lean = 0;
+      seatPanX = 0;
+      seatPanZ = 0;
       state.yaw = sceneApi.seatPose.yaw;
       state.pitch = sceneApi.seatPose.pitch;
     } else {
       placeBackHeldObject();
       state.mode = 'standing';
       state.lean = 0;
+      seatPanX = 0;
+      seatPanZ = 0;
       standPos.copy(sceneApi.standPose.position);
     }
   }
@@ -125,14 +132,23 @@ export function createControls(domElement, state, sceneApi) {
     const dx = e.movementX || 0;
     const dy = e.movementY || 0;
     state.yaw -= dx * sens;
-    state.pitch = clamp(state.pitch - dy * sens, -1.45, 1.45);
+    state.pitch = clamp(state.pitch - dy * sens, -1.48, state.mode === 'seated' ? 1.15 : 1.45);
+
+    const maxYaw = computeMaxYaw(state.mode, state.lean);
+    if (Number.isFinite(maxYaw)) {
+      state.yaw = clamp(state.yaw, -maxYaw, maxYaw);
+    }
     angularAccum += Math.hypot(dx, dy) * sens;
   };
 
   const onWheel = (e) => {
     if (Math.abs(e.deltaY) < 0.01) return;
-    // Scroll up (<0) -> closer / lean forward (E); scroll down (>0) -> further / lean back (Q)
-    wheelDeltaAccum += Math.sign(-e.deltaY) * Math.min(1.5, Math.abs(e.deltaY) / 100);
+    // Scroll up (<0) -> positive (lean in / push held away); drained smoothly across frames in update()
+    wheelDeltaAccum = clamp(
+      wheelDeltaAccum + Math.sign(-e.deltaY) * Math.min(1.5, Math.abs(e.deltaY) / 100),
+      -3.0,
+      3.0
+    );
   };
 
   const onKeyDown = (e) => {
@@ -163,6 +179,11 @@ export function createControls(domElement, state, sceneApi) {
       case 'KeyV':
         state.compareNormal = !state.compareNormal;
         state.fatigue = 0.05;
+        if (!state.compareNormal) {
+          focusToggle = false;
+          state.focusing = keys.has('Space');
+          state.focusStrength = 0;
+        }
         break;
       case 'KeyM':
         state.muted = !state.muted;
@@ -212,8 +233,10 @@ export function createControls(domElement, state, sceneApi) {
       (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     const leanIn = keys.has('KeyE') ? 1 : 0;
     const leanOut = keys.has('KeyQ') ? 1 : 0;
-    const wheelStep = wheelDeltaAccum;
-    wheelDeltaAccum = 0;
+    // Exponentially drain wheel accumulator so discrete scroll detents glide continuously (~100ms)
+    const wheelStep = wheelDeltaAccum * (1 - Math.exp(-14 * step));
+    wheelDeltaAccum -= wheelStep;
+    if (Math.abs(wheelDeltaAccum) < 1e-4) wheelDeltaAccum = 0;
 
     if (state.holding) {
       // Keep nearest tilted corner outside thick +13 D glasses (~4.2cm front plane) or bare cornea (~2.6cm)
@@ -229,12 +252,12 @@ export function createControls(domElement, state, sceneApi) {
       const zDelta = (leanIn - leanOut) * zSpeed * step - wheelStep * 0.032;
       state.heldOffset.z = clamp(state.heldOffset.z - zDelta, minZ, 0.65);
 
-      // Moving object closer (E or scroll down) naturally converges it onto the dominant eye (OD, +0.029m)
+      // Moving object closer (E or scroll down) guides its center directly into the lower right bifocal lens
       if (zDelta > 0 && strafeInput === 0 && fwdInput === 0) {
         const pullAlpha = 1 - Math.exp(-(leanIn > 0 ? 8.5 * step : Math.abs(wheelStep) * 0.48));
-        const targetReadY = state.glassesOn ? -0.16 * state.heldOffset.z : 0.0;
-        state.heldOffset.x += (0.029 - state.heldOffset.x) * pullAlpha;
-        state.heldOffset.y += (targetReadY - state.heldOffset.y) * pullAlpha;
+        const target = computeHeldRestOffset(state.heldOffset.z, state.glassesOn);
+        state.heldOffset.x += (target.x - state.heldOffset.x) * pullAlpha;
+        state.heldOffset.y += (target.y - state.heldOffset.y) * pullAlpha;
       }
     } else {
       // Lean control via E/Q or mouse scroll wheel
@@ -243,7 +266,12 @@ export function createControls(domElement, state, sceneApi) {
         state.lean = clamp(state.lean + leanDelta, -0.25, 1.0);
       }
 
-      if (state.mode === 'standing' && (fwdInput !== 0 || strafeInput !== 0)) {
+      if (state.mode === 'seated' && (fwdInput !== 0 || strafeInput !== 0)) {
+        // Seated WASD pans shoulders/torso cleanly over the desk (impact-printer carriage) while mouse stays pure look
+        const panSpeed = 0.55;
+        seatPanX = clamp(seatPanX + strafeInput * panSpeed * step, -0.24, 0.24);
+        seatPanZ = clamp(seatPanZ - fwdInput * panSpeed * step, -0.26, 0.08);
+      } else if (state.mode === 'standing' && (fwdInput !== 0 || strafeInput !== 0)) {
         const walkSpeed = 2.4;
         forward.set(-Math.sin(state.yaw), 0, -Math.cos(state.yaw));
         right.set(Math.cos(state.yaw), 0, -Math.sin(state.yaw));
@@ -266,20 +294,23 @@ export function createControls(domElement, state, sceneApi) {
     }
 
     if (camera) {
+      const maxYaw = computeMaxYaw(state.mode, state.lean);
+      if (Number.isFinite(maxYaw)) {
+        state.yaw = clamp(state.yaw, -maxYaw, maxYaw);
+      }
+
       camera.rotation.order = 'YXZ';
       camera.rotation.y = state.yaw;
       camera.rotation.x = state.pitch;
       camera.rotation.z = 0;
 
       if (state.mode === 'seated') {
-        // Slouching forward brings eyes down from ~40cm all the way to ~4.3cm over the workbook
+        // Yaw-aligned slouch (E/Q/Scroll) + desk-aligned torso pan (WASD), clamped to clear classmate & desk bounds
         const fwdLean = state.lean * 0.28;
-        const dropLean = Math.max(0, state.lean) * 0.275 - Math.min(0, state.lean) * 0.05;
-        camera.position.set(
-          seatPos.x - Math.sin(state.yaw) * fwdLean,
-          seatPos.y - dropLean,
-          seatPos.z - Math.cos(state.yaw) * fwdLean
-        );
+        const dropLean = Math.max(0, state.lean) * 0.24 - Math.min(0, state.lean) * 0.05;
+        const dx = clamp(-Math.sin(state.yaw) * fwdLean + seatPanX, -0.30, 0.30);
+        const dz = clamp(-Math.cos(state.yaw) * fwdLean + seatPanZ, -0.36, 0.10);
+        camera.position.set(seatPos.x + dx, seatPos.y - dropLean, seatPos.z + dz);
       } else {
         const fwdLean = state.lean * 0.20;
         const dropLean = Math.max(0, state.lean) * 0.08;

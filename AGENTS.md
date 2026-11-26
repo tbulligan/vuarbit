@@ -9,7 +9,7 @@
 ## Module Ownership & Contracts
 
 - `src/state.js` (pure ES module, zero DOM/Three.js imports):
-  - `createSimState()`, `updateSimState(state, dt)`, `computeOcclusionFromDistance(distMeters)`, `computeDiplopiaOffsetDeg(distMeters)`, `computeMlnAngleDeg(...)`, `computeDecompensation(fatigue)`.
+  - `createSimState()`, `updateSimState(state, dt)`, `computeOcclusionFromDistance(distMeters)`, `computeDiplopiaOffsetDeg(distMeters)`, `computeMlnAngleDeg(...)`, `computeMlnFreqScale(...)`, `computeHeldRestOffset(...)`, `computeMaxYaw(...)`, `computeDecompensation(fatigue)`.
 - `src/scene.js`:
   - `createClassroomScene()` -> `{ scene, deskPos, seatPose, standPose, pickables, updateScene(dt, state, camera) }`.
 - `src/controls.js`:
