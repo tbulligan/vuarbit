@@ -4,9 +4,9 @@ First-person WebGL2 visual & auditory simulation of childhood bilateral aphakia,
 
 ## Clinical & Optical Model (Anonymized)
 
-- **Bilateral Aphakia & Straight-Cut Executive Bifocal**:
+- **Bilateral Aphakia & Executive Bifocal**:
   - Upper distance half (`+13.0 D`): ~1.24x magnification, strong pincushion distortion, off-axis peripheral lens blur, high-plus eccentric chromatic dispersion ($\Delta = c \times D$), and a fixed focal plane at `3.8 m` (zero accommodation).
-  - Lower near half (`+16.5 D`, straight horizontal split with distinct 1994 split-line image jump): tight zero-accommodation focal sweet spot around `0.21 m` (`~19–24 cm`) for the 0.5 cm dark-green squared workbook and held desk objects.
+  - Lower near half (`+17.0 D` / `+4.0 D` add, horizontal split with 1994 split-line image jump): tight zero-accommodation focal sweet spot around `0.22 m` (`~19–26 cm`) for the 0.5 cm dark-green squared workbook and held desk objects.
   - Outside the warm amber translucent rims (or with glasses removed via `Z`), roving jack-in-the-box ring scotoma dead-band and heavy uncorrected `+13 D` blur.
 - **Residual Astigmatism & Corneal HOAs**: Directional blur along `123°` (OD) and `180°` (OS) with elongated astigmatic light streaks, spherical-aberration halos, asymmetric coma flare, and sunlit-window veiling glare.
 - **Diplopia & Visual Acuity (`VOD 0.7` / `VOS 0.15`)**: Dominant OD (`VOD 0.7` subtle softness & contrast rolloff with glasses, smooth quarter-res `+13 D` Gaussian blur without glasses) paired with amblyopic OS (`VOS 0.15`) shifted strictly left (`-1.53°`, `~1 cm` / 2 workbook squares when seated) and up (`+0.31°`, `~0.2 cm` seated), with perceptual contrast preservation and partial Focus suppression.
@@ -23,7 +23,8 @@ First-person WebGL2 visual & auditory simulation of childhood bilateral aphakia,
 | `WASD` / Arrows | Walk (standing), pan torso over desk (seated), or move held object in view |
 | `E` / `Q` or Mouse Wheel | Lean forward/back (scroll up = lean in), or move held object closer / further (scroll down = pull closer, auto-centers onto right eye's reading section) |
 | `X` | Sit at front-left desk / stand up |
-| `F` | Pick up / put down pencil, eraser, or pencil case |
+| `F` | Pick up / put down desk items (pencil, eraser, pencil case, ruler, sharpener) |
+| `RMB` drag | Rotate held object for close-up inspection |
 | `C` / hold `Space` | Conscious Focus suppression (reduces diplopia & unoccluded MLN, 2.4x faster fatigue) |
 | `Z` | Toggle amber executive bifocal glasses ON / OFF |
 | `R` | Close / rest eyes (opaque eyelids + diffuse bright glare; eases fatigue) |

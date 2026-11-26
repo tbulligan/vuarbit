@@ -29,10 +29,28 @@ float linearizeDepth(float d) {
   return (2.0 * uNear * uFar) / max(0.0001, (uFar + uNear - ndc * (uFar - uNear)));
 }
 
-// ACES Filmic tone mapping (0.75 pre-scale aligns Narkowicz curve to neutral exposure=1.0) + IEC sRGB encoding
+// Gamut-preserving Stephen Hill ACES Filmic tone mapping + IEC sRGB encoding (calibrated for linear classroom HDR)
+vec3 RRTAndODTFit(vec3 v) {
+  vec3 a = v * (v + 0.0245786) - 0.000090537;
+  vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+  return a / b;
+}
+
 vec3 linearToDisplay(vec3 lin) {
-  vec3 x = max(lin, vec3(0.0)) * (uExposure * 0.75);
-  vec3 mapped = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+  mat3 ACESInputMat = mat3(
+    vec3(0.59719, 0.07600, 0.02840),
+    vec3(0.35458, 0.90834, 0.13383),
+    vec3(0.04823, 0.01566, 0.83777)
+  );
+  mat3 ACESOutputMat = mat3(
+    vec3( 1.60475, -0.10208, -0.00327),
+    vec3(-0.53108,  1.10813, -0.07276),
+    vec3(-0.07367, -0.00605,  1.07602)
+  );
+  vec3 x = max(lin, vec3(0.0)) * (uExposure * 0.95);
+  x = ACESInputMat * x;
+  x = RRTAndODTFit(x);
+  vec3 mapped = clamp(ACESOutputMat * x, 0.0, 1.0);
   vec3 lo = mapped * 12.92;
   vec3 hi = 1.055 * pow(mapped, vec3(1.0 / 2.4)) - 0.055;
   return mix(lo, hi, step(vec3(0.0031308), mapped));
@@ -127,6 +145,7 @@ vec3 sampleOD(
   float motionSmearUV,
   float chromaShiftUV,
   vec2 radialDir,
+  float veilAmount,
   float angleSeed
 ) {
   vec2 invAspect = vec2(1.0 / uAspect, 1.0);
@@ -181,7 +200,7 @@ vec3 sampleOD(
       texture2D(tColorOD, clamp(baseUv + astEdgeOff, vec2(0.001), vec2(0.999))).rgb +
       texture2D(tColorOD, clamp(baseUv - astEdgeOff, vec2(0.001), vec2(0.999))).rgb
     );
-    col = mix(col, astGhost, 0.10 * (1.0 - heavyBlurMix));
+    col = mix(col, astGhost, 0.06 * (1.0 - heavyBlurMix));
   }
 
   // Daytime constricted-pupil astigmatism & corneal HOAs (runs in linear HDR before ACES + sRGB)
@@ -215,15 +234,13 @@ vec3 sampleOD(
     col += flare * hoaStrength;
   }
 
-  // Convert linear HDR scene light to ACES Filmic sRGB, then apply perceptual VOD 0.7 contrast rolloff
-  col = linearToDisplay(col);
-  col = mix(vec3(0.5), col, 0.965);
-
-  return col;
+  // Add subtle linear intraocular glare before ACES + sRGB (prevents lifting blacks into gray haze)
+  col += vec3(0.98, 0.96, 0.92) * veilAmount;
+  return linearToDisplay(col);
 }
 
 // 8-tap uniform Vogel disk for amblyopic OS (VOS 0.15) with smooth crossfade into tBlurOD for +13 D uncorrected blur
-vec3 sampleOS(vec2 baseUv, float isoBlurUV, float motionSmearUV, float angleSeed) {
+vec3 sampleOS(vec2 baseUv, float isoBlurUV, float motionSmearUV, float veilAmount, float angleSeed) {
   vec2 invAspect = vec2(1.0 / uAspect, 1.0);
   float heavyBlurMix = smoothstep(0.014, 0.034, isoBlurUV);
   float fineBlurUV = min(isoBlurUV, 0.018);
@@ -246,6 +263,7 @@ vec3 sampleOS(vec2 baseUv, float isoBlurUV, float motionSmearUV, float angleSeed
     vec3 heavy = texture2D(tBlurOD, clamp(baseUv, vec2(0.003), vec2(0.997))).rgb;
     col = mix(col, heavy, heavyBlurMix);
   }
+  col += vec3(0.98, 0.96, 0.92) * veilAmount;
   return linearToDisplay(col);
 }
 
@@ -305,7 +323,7 @@ void main() {
   float inBifocal = inLens * (1.0 - smoothstep(-0.004, 0.004, dSplit));
   float bifocalLine = inLens * (1.0 - smoothstep(0.0, 0.0055, abs(dSplit)));
 
-  // High-plus (+13D / +16.5D) 1994 optical UV mapping + distinct split-line jump + jack-in-the-box ring scotoma
+  // High-plus (+13D / +17D) 1994 optical UV mapping + distinct split-line jump + jack-in-the-box ring scotoma
   vec2 pOpt = p - vec2(0.0, -0.02);
   float rLen = length(pOpt);
   float r2 = dot(pOpt, pOpt);
@@ -329,29 +347,30 @@ void main() {
 
   if (uEyelidClose < 0.995) {
     float depthOD = linearizeDepth(texture2D(tDepthOD, clamp(uvOD, vec2(0.001), vec2(0.999))).x);
-    // Distance half: crisp on ~2.1m..23m blackboard/room;
-    // Near half (~21cm childhood aphakic reading distance): tight zero-accommodation sweet spot (~19..24cm)
-    float targetFocus = mix(3.8, 0.27, inBifocal);
-    float dofTolerance = mix(0.30, 1.15, inBifocal);
+    // Distance half (+13 D): crisp on ~1.8m..23m blackboard/room;
+    // Near half (+17 D = +4 D add): ~22cm childhood aphakic reading distance, crisp ~19..26cm sweet spot
+    float targetFocus = mix(3.8, 0.22, inBifocal);
+    float dofTolerance = mix(0.30, 0.72, inBifocal);
     float cocDiopters = max(0.0, abs(1.0 / max(depthOD, 0.02) - 1.0 / targetFocus) - dofTolerance);
+    float veil = smoothstep(0.45, 0.96, uEyelidLight) * (0.032 + decomp * 0.035);
 
     // Intrinsic VOD 0.7 in right lens & binocular overlap vs amblyopic VOS 0.15 in left-only lens (unchanged by Focus)
-    float baseAcuityBlur = mix(0.0008, 0.0052, inLeftOnly) + decomp * 0.0014;
+    float baseAcuityBlur = mix(0.00045, 0.0048, inLeftOnly) + decomp * 0.0014;
     float periphBlur = inLens * periphFactor * periphFactor * 0.0055;
-    float correctedBlur = clamp(baseAcuityBlur + periphBlur + cocDiopters * 0.0045, 0.0, 0.038);
+    float correctedBlur = clamp(baseAcuityBlur + periphBlur + cocDiopters * 0.0060, 0.0, 0.038);
     float aphakicBlur = 0.044;
     float isoBlurOD = mix(aphakicBlur, correctedBlur, inLens);
 
     vec2 astDirOD = normalize(mix(vec2(cos(radians(123.0)), sin(radians(123.0))), vec2(1.0, 0.0), inLeftOnly));
-    float astBlurOD = mix(0.011, 0.0012 + inLeftOnly * 0.0022 + periphFactor * 0.0032, inLens) + decomp * 0.0014;
+    float astBlurOD = mix(0.011, 0.0010 + inLeftOnly * 0.0022 + periphFactor * 0.0032, inLens) + decomp * 0.0014;
     float hoaOD = mix(0.55, 0.34 + decomp * 0.24, inLens);
     float chromaOD = inLens * clamp(rLens * rLens * 0.0072, 0.0, 0.0068);
 
     vec3 colOD = sampleOD(
-      uvOD, isoBlurOD, astBlurOD, astDirOD, hoaOD, uMlnVelUV, chromaOD, radialDir, noiseAngle
+      uvOD, isoBlurOD, astBlurOD, astDirOD, hoaOD, uMlnVelUV, chromaOD, radialDir, veil, noiseAngle
     );
     // Slightly lower amblyopic contrast in left-only lens (VOS 0.15) to visually reinforce OD dominance
-    colOD = mix(colOD, mix(vec3(0.5), colOD, 0.92), inLeftOnly);
+    colOD = mix(colOD, mix(vec3(0.42), colOD, 0.93), inLeftOnly);
 
     // Constant angular diplopia sampled from OD view: fake OS image ALWAYS stays left & up at every distance/depth edge
     vec2 diplopiaUV = vec2(
@@ -364,7 +383,7 @@ void main() {
     float cocOS = max(0.0, abs(1.0 / max(depthOS, 0.02) - 1.0 / targetFocus) - dofTolerance);
     // VOS 0.15 amblyopic softness (softer than VOD 0.7 yet clearly legible in shape/strokes) + CoC / uncorrected +13 D blur
     float isoBlurOS = mix(aphakicBlur, 0.0022 + clamp(cocOS * 0.0072, 0.0, 0.028), inLens);
-    vec3 colOS = sampleOS(uvOS, isoBlurOS, uMlnVelUV, noiseAngle + 1.57);
+    vec3 colOS = sampleOS(uvOS, isoBlurOS, uMlnVelUV, veil, noiseAngle + 1.57);
 
     float lumaOD = dot(colOD, vec3(0.299, 0.587, 0.114));
     float lumaOS = dot(colOS, vec3(0.299, 0.587, 0.114));
@@ -384,10 +403,6 @@ void main() {
     float edgeStrength = smoothstep(0.03, 0.28, abs(lumaOS - lumaOD));
     float rivalMix = edgeStrength * mix(0.46, 0.18, focusClamped) * (1.0 - odNearSolid * 0.65);
     col = mix(linMix, rival, rivalMix);
-
-    // Subtle intraocular veiling glare when looking toward bright sunny windows
-    float veil = smoothstep(0.45, 0.96, uEyelidLight) * (0.028 + decomp * 0.03);
-    col += vec3(0.98, 0.96, 0.90) * veil;
 
     // Dark ring scotoma dead-band transition just outside the high-plus rim
     col *= (1.0 - scotomaBand * 0.28);

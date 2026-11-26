@@ -40,7 +40,7 @@ export function computeMlnFreqScale(focusStrength, fatigue, occlusionLevel, gaze
  * Converges gently toward OD's pupillary axis at very close range (<0.18m) for smooth monocular occlusion.
  */
 export function computeHeldRestOffset(zMeters, glassesOn) {
-  const z = clamp(Number.isFinite(zMeters) ? zMeters : 0.21, 0.04, 0.65);
+  const z = clamp(Number.isFinite(zMeters) ? zMeters : 0.22, 0.04, 0.65);
   const closeBlend = smoothstep(0.08, 0.18, z);
   return {
     x: 0.029 + (glassesOn ? 0.22 * z * closeBlend : 0),
@@ -93,7 +93,7 @@ export function createSimState() {
     eyelidClose: 0,
     lean: 0,
     holding: null,
-    heldOffset: computeHeldRestOffset(0.21, true),
+    heldOffset: computeHeldRestOffset(0.22, true),
     heldRot: { yaw: 0, pitch: 0 },
     occlOD: 0,
     occlOS: 0,

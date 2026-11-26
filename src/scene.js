@@ -654,11 +654,11 @@ export function createClassroomScene() {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#c7ddf0');
 
-  // Bright natural Italian classroom daylight + warm fill (matte desktops & cream paper prevent clipping)
-  const hemiLight = new THREE.HemisphereLight('#f4f6fa', '#8d8a84', 0.9);
+  // Cool-neutral natural Italian classroom daylight + balanced fill (prevents yellow cast without washing out)
+  const hemiLight = new THREE.HemisphereLight('#eef4ff', '#9c9286', 0.84);
   scene.add(hemiLight);
 
-  const sunLight = new THREE.DirectionalLight('#fffaf2', 1.55);
+  const sunLight = new THREE.DirectionalLight('#fffdf8', 1.66);
   sunLight.position.set(-7.5, 4.4, -1.0);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.set(2048, 2048);
@@ -671,7 +671,7 @@ export function createClassroomScene() {
   sunLight.shadow.bias = -0.0005;
   scene.add(sunLight);
 
-  const ceilingFill = new THREE.PointLight('#f2f6ff', 10.5, 16, 1.4);
+  const ceilingFill = new THREE.PointLight('#f4f7ff', 10.5, 16, 1.4);
   ceilingFill.position.set(0, 3.0, -0.5);
   scene.add(ceilingFill);
 
@@ -703,9 +703,9 @@ export function createClassroomScene() {
   scene.add(ceiling);
 
   // Wall materials: ochre/mustard lower (#d49234, h=1.25m), off-white upper (#eceae4)
-  const lowerWallMat = new THREE.MeshStandardMaterial({ color: '#c9a15c', roughness: 0.85 });
+  const lowerWallMat = new THREE.MeshStandardMaterial({ color: '#d49234', roughness: 0.85 });
   const upperWallMat = new THREE.MeshStandardMaterial({ color: '#eceae4', roughness: 0.9 });
-  const trimMat = new THREE.MeshStandardMaterial({ color: '#8a6a3a', roughness: 0.7 });
+  const trimMat = new THREE.MeshStandardMaterial({ color: '#9c6e2c', roughness: 0.7 });
 
   function addSolidWall(width, cx, cy, cz, rotY) {
     const low = new THREE.Mesh(new THREE.PlaneGeometry(width, 1.25), lowerWallMat);

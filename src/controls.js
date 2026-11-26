@@ -17,6 +17,8 @@ export function createControls(domElement, state, sceneApi) {
   const forward = new THREE.Vector3();
   const right = new THREE.Vector3();
   const moveDir = new THREE.Vector3();
+  const toItem = new THREE.Vector3();
+  const pickableMeshes = sceneApi.pickables.map((p) => p.mesh);
 
   // Initialize camera pose from standPose
   state.yaw = sceneApi.standPose.yaw;
@@ -50,20 +52,36 @@ export function createControls(domElement, state, sceneApi) {
       return;
     }
 
-    // Prefer pickable nearest center view ray, fallback to closest pickable
+    // Prefer direct view-ray hit on pickable mesh, fallback to angle-dominant nearest item
     let chosen = null;
     if (camera) {
       camera.getWorldDirection(forward);
       raycaster.set(camera.position, forward);
-      let bestScore = Infinity;
-      for (const item of sceneApi.pickables) {
-        const toItem = item.mesh.position.clone().sub(camera.position);
-        const dist = toItem.length();
-        const angle = forward.angleTo(toItem.normalize());
-        const score = dist + angle * 0.6;
-        if (score < bestScore) {
-          bestScore = score;
-          chosen = item;
+      raycaster.near = 0.02;
+      raycaster.far = 2.0;
+      const hits = raycaster.intersectObjects(pickableMeshes, true);
+      if (hits.length > 0) {
+        const hitObj = hits[0].object;
+        chosen = sceneApi.pickables.find((item) => {
+          let cur = hitObj;
+          while (cur) {
+            if (cur === item.mesh) return true;
+            cur = cur.parent;
+          }
+          return false;
+        }) || null;
+      }
+      if (!chosen) {
+        let bestScore = Infinity;
+        for (const item of sceneApi.pickables) {
+          toItem.copy(item.mesh.position).sub(camera.position);
+          const dist = toItem.length();
+          const angle = forward.angleTo(toItem.normalize());
+          const score = angle + dist * 0.05;
+          if (score < bestScore) {
+            bestScore = score;
+            chosen = item;
+          }
         }
       }
     } else {
@@ -72,8 +90,8 @@ export function createControls(domElement, state, sceneApi) {
 
     if (chosen) {
       state.holding = chosen.id;
-      // Start centered in dominant right eye's lower bifocal reading sweet spot (~21cm)
-      state.heldOffset = computeHeldRestOffset(0.21, state.glassesOn);
+      // Start centered in dominant right eye's lower bifocal reading sweet spot (~22cm for +17 D)
+      state.heldOffset = computeHeldRestOffset(0.22, state.glassesOn);
       state.heldRot.yaw = 0;
       state.heldRot.pitch = 0;
     }
@@ -196,10 +214,8 @@ export function createControls(domElement, state, sceneApi) {
         break;
       case 'KeyR':
         state.eyesClosed = !state.eyesClosed;
-        if (!state.eyesClosed) {
-          focusToggle = false;
-          state.focusing = false;
-        }
+        focusToggle = false;
+        state.focusing = state.eyesClosed ? false : keys.has('Space');
         break;
       case 'KeyZ':
         state.glassesOn = !state.glassesOn;
