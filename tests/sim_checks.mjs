@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
+  PERSONAS,
+  SETTING_SPECS,
+  QUALITY_PRESETS,
+  getPersonaById,
+  createDefaultVisualSettings,
+  sanitizeVisualSettings,
+  applyPersona,
+  updateVisualSetting,
+  computeAcuityBlurUV,
   createSimState,
   computeOcclusionFromDistance,
   computeDiplopiaOffsetDeg,
@@ -257,6 +266,158 @@ updateHeldRotation(stHeld.heldRot, -Infinity, NaN, NaN);
 assert.equal(stHeld.heldRot.yaw, snapYaw, 'non-finite dx/sensitivity must leave yaw finite and unchanged');
 assert.equal(stHeld.heldRot.pitch, snapPitch, 'non-finite dy/sensitivity must leave pitch finite and unchanged');
 
+// 7. Validate src/personas.js & persona/settings integration in src/state.js
+assert.equal(QUALITY_PRESETS.high.dprCap, 1.75);
+assert.equal(QUALITY_PRESETS.balanced.dprCap, 1.25);
+assert.equal(QUALITY_PRESETS.performance.dprCap, 1.0);
+
+assert.equal(PERSONAS.length, 7, 'must define exactly 7 clinical personas');
+const expectedPersonas = {
+  vuarbit_1994: { shortName: 'Vuarbit 1994', lensProfile: 'aphakic_bifocal', vodAcuity: 0.70, vosAcuity: 0.15, mlnScale: 1.0 },
+  normal: { shortName: 'Normal', lensProfile: 'none', vodAcuity: 1.0, vosAcuity: 1.0, mlnScale: 0.0 },
+  glaucoma: { shortName: 'Glaucoma', lensProfile: 'none', vodAcuity: 0.90, vosAcuity: 0.85, glaucoma: 0.65 },
+  amd: { shortName: 'Wet AMD', lensProfile: 'none', vodAcuity: 0.45, vosAcuity: 0.40, amd: 0.70 },
+  albinism: { shortName: 'Ocular Albinism', lensProfile: 'none', vodAcuity: 0.25, vosAcuity: 0.25, albinism: 0.75, mlnScale: 0.85 },
+  cataracts: { shortName: 'Cataracts', lensProfile: 'none', vodAcuity: 0.40, vosAcuity: 0.35, cataract: 0.72 },
+  deuteranopia: { shortName: 'Deuteranopia', lensProfile: 'none', vodAcuity: 1.0, vosAcuity: 1.0, cvdType: 'deutan', cvdSeverity: 1.0 },
+};
+for (const [id, checks] of Object.entries(expectedPersonas)) {
+  const persona = getPersonaById(id);
+  assert.ok(persona, `missing persona ${id}`);
+  assert.equal(persona.shortName, checks.shortName, `persona ${id} shortName mismatch`);
+  for (const [k, v] of Object.entries(checks)) {
+    if (k !== 'shortName') {
+      assert.equal(persona.settings[k], v, `persona ${id} setting ${k} mismatch`);
+    }
+  }
+  for (const specKey of Object.keys(SETTING_SPECS)) {
+    assert.ok(Object.hasOwn(persona.settings, specKey), `persona ${id} missing setting ${specKey}`);
+  }
+}
+assert.equal(getPersonaById('nonexistent'), undefined);
+
+// Sanitization, clamping, invalid/NaN/unknown-key rejection
+const defaults = createDefaultVisualSettings();
+assert.deepEqual(sanitizeVisualSettings(null), defaults);
+const sanitized = sanitizeVisualSettings({
+  lensProfile: 'invalid_lens',
+  lensPowerD: 99,
+  nearAddD: -5,
+  dominantEye: 'OS',
+  vodAcuity: NaN,
+  vosAcuity: '0.35',
+  diplopiaH: Infinity,
+  diplopiaV: null,
+  mlnScale: '',
+  glaucoma: false,
+  cvdType: 'protan',
+  cvdSeverity: 2.5,
+  unknownHack: 'drop_me',
+});
+assert.equal(sanitized.lensProfile, defaults.lensProfile, 'invalid enum must fall back to default');
+assert.equal(sanitized.lensPowerD, 18, 'lensPowerD must clamp to max 18');
+assert.equal(sanitized.nearAddD, 0, 'nearAddD must clamp to min 0');
+assert.equal(sanitized.dominantEye, 'OS', 'valid enum must be preserved');
+assert.equal(sanitized.vodAcuity, defaults.vodAcuity, 'NaN must fall back to default');
+assert.equal(sanitized.vosAcuity, 0.35, 'numeric string must coerce cleanly');
+assert.equal(sanitized.diplopiaH, defaults.diplopiaH, 'Infinity must fall back to default');
+assert.equal(sanitized.diplopiaV, defaults.diplopiaV, 'null must fall back to default');
+assert.equal(sanitized.mlnScale, defaults.mlnScale, 'empty string must fall back to default');
+assert.equal(sanitized.glaucoma, defaults.glaucoma, 'boolean must fall back to default');
+assert.equal(sanitized.cvdType, 'protan');
+assert.equal(sanitized.cvdSeverity, 1.0, 'cvdSeverity must clamp to max 1.0');
+assert.equal(Object.hasOwn(sanitized, 'unknownHack'), false, 'unknown keys must be ignored');
+
+// computeAcuityBlurUV endpoints & monotonicity
+assert.equal(computeAcuityBlurUV(1.0), 0);
+assert.equal(computeAcuityBlurUV(2.0), 0);
+assert.equal(computeAcuityBlurUV(NaN), 0);
+assert.equal(computeAcuityBlurUV(0.05), 0.014);
+assert.equal(computeAcuityBlurUV(0.01), 0.014);
+const blur006 = computeAcuityBlurUV(0.06);
+const blur015 = computeAcuityBlurUV(0.15);
+const blur040 = computeAcuityBlurUV(0.40);
+const blur070 = computeAcuityBlurUV(0.70);
+assert.ok(
+  blur006 > blur015 && blur015 > blur040 && blur040 > blur070 && blur070 > 0,
+  'computeAcuityBlurUV must be strictly decreasing with higher acuity'
+);
+
+// dominantEye === 'OS' mirroring & custom diplopia offset
+const heldOD = computeHeldRestOffset(0.21, true, 'OD');
+const heldOS = computeHeldRestOffset(0.21, true, 'OS');
+assert.equal(heldOS.x, -heldOD.x, 'OS dominant eye must mirror X held offset');
+assert.equal(heldOS.y, heldOD.y, 'OS dominant eye must preserve Y held offset');
+assert.equal(heldOS.z, heldOD.z, 'OS dominant eye must preserve Z held offset');
+assert.equal(computeHeldRestOffset(0.21, false, 'OS').x, -0.029, 'bare OS pupil must mirror to -0.029m');
+
+assert.deepEqual(computeDiplopiaOffsetDeg(0.375, { diplopiaH: 0, diplopiaV: 0 }), { dxDeg: 0, dyDeg: 0 });
+assert.deepEqual(computeDiplopiaOffsetDeg(0.375, { diplopiaH: 2.2, diplopiaV: -0.9 }), { dxDeg: 2.2, dyDeg: -0.9 });
+
+// createSimState persona defaults + applyPersona + updateVisualSetting
+const stPersona = createSimState();
+assert.equal(stPersona.personaId, 'vuarbit_1994');
+assert.equal(stPersona.settingsOpen, false);
+assert.equal(stPersona.qualityPreset, 'high');
+assert.deepEqual(stPersona.settings, defaults);
+
+assert.equal(applyPersona(stPersona, 'does_not_exist'), false);
+assert.equal(stPersona.personaId, 'vuarbit_1994');
+
+stPersona.compareNormal = true;
+stPersona.fatigue = 0.72;
+stPersona.focusStrength = 0.9;
+assert.equal(applyPersona(stPersona, 'amd'), true);
+assert.equal(stPersona.personaId, 'amd');
+assert.equal(stPersona.compareNormal, false);
+assert.equal(stPersona.fatigue, 0.08);
+assert.equal(stPersona.focusStrength, 0);
+assert.equal(stPersona.glassesOn, false);
+assert.equal(stPersona.settings.amd, 0.70);
+
+assert.equal(updateVisualSetting(stPersona, 'notASetting', 123), undefined);
+assert.equal(stPersona.personaId, 'amd', 'unknown setting key must not change personaId');
+
+assert.equal(updateVisualSetting(stPersona, 'lensProfile', 'aphakic_bifocal'), 'aphakic_bifocal');
+assert.equal(stPersona.personaId, 'custom');
+assert.equal(stPersona.glassesOn, true, 'lensProfile aphakic_bifocal must sync glassesOn=true');
+assert.equal(updateVisualSetting(stPersona, 'lensPowerD', 99), 18);
+assert.equal(stPersona.settings.lensPowerD, 18);
+assert.equal(updateVisualSetting(stPersona, 'lensProfile', 'none'), 'none');
+assert.equal(stPersona.glassesOn, false, 'lensProfile none must sync glassesOn=false');
+
+// Normal vision: zero MLN (even occluded) and fatigue relaxes toward 0.05
+const stNormal = createSimState();
+applyPersona(stNormal, 'normal');
+stNormal.fatigue = 0.4;
+stNormal.occlOS = 1.0;
+for (let i = 0; i < 60; i++) {
+  updateSimState(stNormal, 0.05);
+}
+assert.equal(stNormal.mlnIntensity, 0, 'normal vision must have 0 MLN even under monocular occlusion');
+assert.ok(stNormal.fatigue < 0.4 && stNormal.fatigue >= 0.05, `normal vision fatigue must relax toward 0.05, got ${stNormal.fatigue}`);
+assert.equal(stNormal.activeZone, 'emmetropic');
+
+// Albinism infantile nystagmus drive (even with mlnScale === 0)
+const stAlb = createSimState();
+applyPersona(stAlb, 'albinism');
+updateVisualSetting(stAlb, 'mlnScale', 0);
+updateSimState(stAlb, 0.016);
+const albUnfocused = stAlb.mlnIntensity;
+assert.ok(albUnfocused > 0.25, `albinism must drive infantile nystagmus, got ${albUnfocused}`);
+stAlb.focusing = true;
+for (let i = 0; i < 30; i++) {
+  updateSimState(stAlb, 0.05);
+}
+assert.ok(stAlb.mlnIntensity < albUnfocused, 'focus effort must modestly damp albinism nystagmus');
+
+// Bifocal nearAddD=0 stays distance even when looking down
+const stNoAdd = createSimState();
+updateVisualSetting(stNoAdd, 'nearAddD', 0);
+stNoAdd.pitch = -0.5;
+updateSimState(stNoAdd, 0.016);
+assert.equal(stNoAdd.activeZone, 'distance', 'zero nearAddD must not enter near bifocal zone');
+
 console.log(
-  `sim_checks.mjs PASSED: waveform=${wf.waveform.samples_x_deg.length} samples @ ${wf.waveform.sample_rate_hz} Hz (MLN p2p=${wf.phases.mln_occluded.peak_to_peak_deg} deg, SPV=${wf.phases.mln_occluded.slow_phase_velocity_deg_s} deg/s, exo=${wf.exotropia_estimate_deg} deg); all state/MLN/diplopia assertions green.`
+  `sim_checks.mjs PASSED: waveform=${wf.waveform.samples_x_deg.length} samples @ ${wf.waveform.sample_rate_hz} Hz (MLN p2p=${wf.phases.mln_occluded.peak_to_peak_deg} deg, SPV=${wf.phases.mln_occluded.slow_phase_velocity_deg_s} deg/s, exo=${wf.exotropia_estimate_deg} deg); all state/persona/MLN/diplopia assertions green.`
 );
