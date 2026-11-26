@@ -90,8 +90,8 @@ export function createControls(domElement, state, sceneApi) {
 
     if (chosen) {
       state.holding = chosen.id;
-      // Start centered in dominant right eye's lower bifocal reading sweet spot (~22cm for +17 D)
-      state.heldOffset = computeHeldRestOffset(0.22, state.glassesOn);
+      // Start centered in dominant eye's lower bifocal reading sweet spot (~22cm for +17 D)
+      state.heldOffset = computeHeldRestOffset(0.22, state.glassesOn, state.settings?.dominantEye);
       state.heldRot.yaw = 0;
       state.heldRot.pitch = 0;
     }
@@ -140,12 +140,14 @@ export function createControls(domElement, state, sceneApi) {
   let rmbDown = false;
 
   const onCanvasClick = () => {
+    if (state.settingsOpen) return;
     if (document.pointerLockElement !== domElement && domElement.requestPointerLock) {
       Promise.resolve(domElement.requestPointerLock()).catch(() => {});
     }
   };
 
   const onMouseDown = (e) => {
+    if (state.settingsOpen) return;
     if (e.button === 2) {
       rmbDown = true;
     }
@@ -169,7 +171,7 @@ export function createControls(domElement, state, sceneApi) {
   };
 
   const onMouseMove = (e) => {
-    if (!state.pointerLocked) return;
+    if (!state.pointerLocked || state.settingsOpen) return;
     const dx = e.movementX || 0;
     const dy = e.movementY || 0;
     if (state.holding && rmbDown) {
@@ -188,6 +190,7 @@ export function createControls(domElement, state, sceneApi) {
   };
 
   const onWheel = (e) => {
+    if (state.settingsOpen) return;
     if (Math.abs(e.deltaY) < 0.01) return;
     // Scroll up (<0) -> positive (lean in / push held away); drained smoothly across frames in update()
     wheelDeltaAccum = clamp(
@@ -198,6 +201,26 @@ export function createControls(domElement, state, sceneApi) {
   };
 
   const onKeyDown = (e) => {
+    if (!e.repeat && e.code === 'KeyP') {
+      const opening = !state.settingsOpen;
+      state.settingsOpen = opening;
+      if (opening) {
+        document.exitPointerLock?.();
+        keys.clear();
+        rmbDown = false;
+        wheelDeltaAccum = 0;
+        state.focusing = focusToggle;
+      }
+      return;
+    }
+
+    if (!e.repeat && e.code === 'Escape' && state.settingsOpen) {
+      state.settingsOpen = false;
+      return;
+    }
+
+    if (state.settingsOpen) return;
+
     keys.add(e.code);
     if (e.code === 'Space') {
       e.preventDefault();
@@ -218,7 +241,9 @@ export function createControls(domElement, state, sceneApi) {
         state.focusing = state.eyesClosed ? false : keys.has('Space');
         break;
       case 'KeyZ':
-        state.glassesOn = !state.glassesOn;
+        if (state.settings?.lensProfile !== 'none') {
+          state.glassesOn = !state.glassesOn;
+        }
         break;
       case 'KeyC':
         focusToggle = !focusToggle;
@@ -275,20 +300,27 @@ export function createControls(domElement, state, sceneApi) {
     // Instantaneous angular velocity (rad/s): drops immediately to 0 the frame mouse movement stops
     const instVel = step > 1e-4 ? angularAccum / step : 0;
     angularAccum = 0;
-    state.gazeVel = instVel < 0.04 ? 0 : instVel;
+    state.gazeVel = state.settingsOpen || instVel < 0.04 ? 0 : instVel;
 
-    const fwdInput =
-      (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) -
-      (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
-    const strafeInput =
-      (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) -
-      (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
-    const leanIn = keys.has('KeyE') ? 1 : 0;
-    const leanOut = keys.has('KeyQ') ? 1 : 0;
+    const suppressed = Boolean(state.settingsOpen);
+    const fwdInput = suppressed
+      ? 0
+      : (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) -
+        (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
+    const strafeInput = suppressed
+      ? 0
+      : (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) -
+        (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
+    const leanIn = suppressed ? 0 : keys.has('KeyE') ? 1 : 0;
+    const leanOut = suppressed ? 0 : keys.has('KeyQ') ? 1 : 0;
     // Exponentially drain wheel accumulator so discrete scroll detents glide continuously (~100ms)
-    const wheelStep = wheelDeltaAccum * (1 - Math.exp(-14 * step));
-    wheelDeltaAccum -= wheelStep;
-    if (Math.abs(wheelDeltaAccum) < 1e-4) wheelDeltaAccum = 0;
+    const wheelStep = suppressed ? 0 : wheelDeltaAccum * (1 - Math.exp(-14 * step));
+    if (suppressed) {
+      wheelDeltaAccum = 0;
+    } else {
+      wheelDeltaAccum -= wheelStep;
+      if (Math.abs(wheelDeltaAccum) < 1e-4) wheelDeltaAccum = 0;
+    }
 
     if (state.holding) {
       // Keep nearest tilted corner outside thick +13 D glasses (~4.2cm front plane) or bare cornea (~2.6cm)
@@ -304,10 +336,14 @@ export function createControls(domElement, state, sceneApi) {
       const zDelta = (leanIn - leanOut) * zSpeed * step - wheelStep * 0.032;
       state.heldOffset.z = clamp(state.heldOffset.z - zDelta, minZ, 0.65);
 
-      // Moving object closer (E or scroll down) guides its center directly into the lower right bifocal lens
+      // Moving object closer (E or scroll down) guides its center directly into the lower dominant bifocal lens
       if (zDelta > 0 && strafeInput === 0 && fwdInput === 0) {
         const pullAlpha = 1 - Math.exp(-(leanIn > 0 ? 8.5 * step : Math.abs(wheelStep) * 0.48));
-        const target = computeHeldRestOffset(state.heldOffset.z, state.glassesOn);
+        const target = computeHeldRestOffset(
+          state.heldOffset.z,
+          state.glassesOn,
+          state.settings?.dominantEye
+        );
         state.heldOffset.x += (target.x - state.heldOffset.x) * pullAlpha;
         state.heldOffset.y += (target.y - state.heldOffset.y) * pullAlpha;
       }

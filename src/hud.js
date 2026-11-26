@@ -1,3 +1,5 @@
+import { getPersonaById } from './personas.js';
+
 function makeEl(tag, className, text) {
   const el = document.createElement(tag);
   if (className) el.className = className;
@@ -8,9 +10,32 @@ function makeEl(tag, className, text) {
 function zoneLabel(state) {
   if (state.eyelidClose > 0.8 || state.activeZone === 'closed') return 'Resting (Closed)';
   if (state.compareNormal || state.activeZone === 'normal') return 'Normal Vision (Compare)';
-  if (!state.glassesOn || state.activeZone === 'uncorrected') return 'Uncorrected (+13 D off)';
-  if (state.activeZone === 'near') return 'Near Bifocal (+17.0 D)';
-  return 'Distance (+13.0 D)';
+  if (state.settings?.lensProfile === 'none' || state.activeZone === 'emmetropic') {
+    return 'Emmetropic (No Lens)';
+  }
+  const p = Number.isFinite(state.settings?.lensPowerD) ? state.settings.lensPowerD : 13.0;
+  const a = Number.isFinite(state.settings?.nearAddD) ? state.settings.nearAddD : 4.0;
+  if (!state.glassesOn || state.activeZone === 'uncorrected') {
+    return `Uncorrected (+${p.toFixed(1)} D off)`;
+  }
+  if (state.activeZone === 'near') return `Near Bifocal (+${(p + a).toFixed(1)} D)`;
+  return `Distance (+${p.toFixed(1)} D)`;
+}
+
+function glassesLabel(state) {
+  if (state.compareNormal) return 'OFF (Normal Compare)';
+  if (state.settings?.lensProfile === 'none') return 'None (Emmetropic)';
+  const p = Number.isFinite(state.settings?.lensPowerD) ? state.settings.lensPowerD : 13.0;
+  const a = Number.isFinite(state.settings?.nearAddD) ? state.settings.nearAddD : 4.0;
+  return state.glassesOn
+    ? `ON (+${p.toFixed(1)} / +${a.toFixed(1)} D)`
+    : `OFF (+${p.toFixed(1)} D off)`;
+}
+
+function personaLabel(state) {
+  if (state.personaId === 'custom') return 'Custom';
+  const persona = getPersonaById?.(state.personaId);
+  return persona ? persona.shortName : 'Vuarbit 1994';
 }
 
 /**
@@ -30,6 +55,7 @@ export function createHud(rootElement, initialState) {
     return v;
   }
 
+  const valPersona = makeRow('Persona');
   const valGlasses = makeRow('Glasses');
   const valZone = makeRow('Optical Zone');
   const valFocus = makeRow('Focus Dist');
@@ -41,7 +67,7 @@ export function createHud(rootElement, initialState) {
   const controlsLegend = makeEl(
     'div',
     'hud-controls',
-    'WASD Move/Adjust | E/Q/Wheel Lean/Near-Far | X Sit | F Pick | RMB Rotate | C/Space Focus | Z Glasses | R Rest | V Compare | M Mute | H HUD | F11 Fullscreen',
+    'WASD Move/Adjust | E/Q/Wheel Lean/Near-Far | X Sit | F Pick | RMB Rotate | C/Space Focus | Z Glasses | R Rest | V Compare | M Mute | P Settings | H HUD | F11 Fullscreen',
   );
 
   const reticle = makeEl('div', 'hud-reticle');
@@ -82,16 +108,13 @@ export function createHud(rootElement, initialState) {
 
     panel.classList.toggle('is-hidden', !state.hudVisible);
     controlsLegend.classList.toggle('is-hidden', !state.hudVisible);
-    reticle.classList.toggle('is-hidden', !state.pointerLocked);
+    reticle.classList.toggle('is-hidden', !state.pointerLocked || Boolean(state.settingsOpen));
     overlay.classList.toggle('is-hidden', entered);
 
     if (!state.hudVisible) return;
 
-    valGlasses.textContent = state.compareNormal
-      ? 'OFF (Normal Compare)'
-      : state.glassesOn
-        ? 'ON (+13 / +17.0 D)'
-        : 'OFF (Uncorrected)';
+    valPersona.textContent = personaLabel(state);
+    valGlasses.textContent = glassesLabel(state);
     valZone.textContent = zoneLabel(state);
     const isClosed = state.eyelidClose > 0.8 || state.activeZone === 'closed';
     valFocus.textContent = isClosed ? '0.00 m (Closed)' : `${(state.focusDistM || 0).toFixed(2)} m`;
@@ -105,7 +128,12 @@ export function createHud(rootElement, initialState) {
     const mlnPct = Math.round((state.mlnIntensity || 0) * 100);
     valMln.textContent = `${occlPct}% / ${mlnPct}%`;
     valFatigue.textContent = `${Math.round((state.fatigue || 0) * 100)}%`;
-    valTinnitus.textContent = state.muted || state.compareNormal ? 'MUTED' : 'ON (E7 + C9)';
+    valTinnitus.textContent =
+      state.muted || state.compareNormal
+        ? 'MUTED'
+        : (state.settings?.tinnitus ?? 1) <= 0.005
+          ? 'OFF'
+          : 'ON (E7 + C9)';
   }
 
   function dispose() {

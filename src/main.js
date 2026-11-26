@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 import { createSimState, updateSimState } from './state.js';
+import { QUALITY_PRESETS, applyPersona, updateVisualSetting } from './personas.js';
 import { createClassroomScene } from './scene.js';
 import { createControls } from './controls.js';
 import { createOpticsRenderer } from './optics.js';
 import { createTinnitusAudio } from './audio.js';
 import { createHud } from './hud.js';
+import { createSettingsDrawer } from './settings.js';
 
 // shortcut: 180-sample synthetic sawtooth fallback when JSON unavailable, upgrade by bundling default waveform
 function buildFallbackWaveform() {
@@ -69,14 +71,41 @@ async function init() {
   const audio = createTinnitusAudio();
   const hud = createHud(hudRoot, state);
 
+  const onResize = () => {
+    const dprCap = QUALITY_PRESETS[state.qualityPreset]?.dprCap ?? 1.75;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCap));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    optics.resize(window.innerWidth, window.innerHeight);
+  };
+
+  const settings = createSettingsDrawer(hudRoot, state, {
+    onSelectPersona(id) {
+      applyPersona(state, id);
+    },
+    onSettingChange(key, value) {
+      updateVisualSetting(state, key, value);
+    },
+    onReset() {
+      applyPersona(state, 'vuarbit_1994');
+    },
+    onQualityChange(presetId) {
+      if (!QUALITY_PRESETS[presetId]) return;
+      state.qualityPreset = presetId;
+      if (optics.setQuality) {
+        optics.setQuality(presetId);
+      } else {
+        onResize();
+      }
+    },
+    onClose() {
+      state.settingsOpen = false;
+    },
+  });
+
   const startAudioOnce = () => audio.start();
   window.addEventListener('pointerdown', startAudioOnce, { once: true });
   window.addEventListener('keydown', startAudioOnce, { once: true });
 
-  const onResize = () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    optics.resize(window.innerWidth, window.innerHeight);
-  };
   window.addEventListener('resize', onResize);
 
   let lastTime = performance.now();
@@ -93,6 +122,7 @@ async function init() {
     optics.render(dt, state);
     audio.update(state);
     hud.update(state);
+    settings.sync(state);
   }
 
   rafId = requestAnimationFrame(frame);
@@ -103,6 +133,7 @@ async function init() {
     controls.dispose();
     optics.dispose();
     audio.dispose();
+    settings.dispose();
     hud.dispose();
     renderer.dispose();
   });
