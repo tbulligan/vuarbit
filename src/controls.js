@@ -215,23 +215,24 @@ export function createControls(domElement, state, sceneApi) {
     const wheelStep = wheelDeltaAccum;
     wheelDeltaAccum = 0;
 
-    if (state.mode === 'seated' && state.holding) {
-      // Prevent clipping through glasses (~3.6cm front plane) or bare cornea (~2.2cm) while allowing closer inspection
+    if (state.holding) {
+      // Keep nearest tilted corner outside thick +13 D glasses (~4.2cm front plane) or bare cornea (~2.6cm)
       const heldItem = sceneApi.pickables.find((p) => p.id === state.holding);
-      const halfDepth = heldItem?.halfDepth || 0.022;
-      const minZ = (state.glassesOn ? 0.036 : 0.022) + halfDepth;
+      const halfDepth = heldItem?.halfDepth || 0.048;
+      const minZ = (state.glassesOn ? 0.042 : 0.026) + halfDepth;
 
       const xySpeed = 0.42;
       const zSpeed = 0.45;
       state.heldOffset.x = clamp(state.heldOffset.x + strafeInput * xySpeed * step, -0.22, 0.22);
       state.heldOffset.y = clamp(state.heldOffset.y + fwdInput * xySpeed * step, -0.18, 0.16);
-      const zDelta = (leanIn - leanOut) * zSpeed * step + wheelStep * 0.032;
+      // Scroll down (wheelStep < 0) pulls held object closer; scroll up (wheelStep > 0) pushes it further away
+      const zDelta = (leanIn - leanOut) * zSpeed * step - wheelStep * 0.032;
       state.heldOffset.z = clamp(state.heldOffset.z - zDelta, minZ, 0.65);
 
-      // Pulling object closer (E or scroll up) guides it to center of right eye's lower reading-distance section
-      if ((leanIn > 0 || wheelStep > 0) && strafeInput === 0 && fwdInput === 0) {
-        const pullAlpha = 1 - Math.exp(-(leanIn > 0 ? 7.0 * step : 0.25));
-        const targetReadY = -0.18 * state.heldOffset.z;
+      // Moving object closer (E or scroll down) naturally converges it onto the dominant eye (OD, +0.029m)
+      if (zDelta > 0 && strafeInput === 0 && fwdInput === 0) {
+        const pullAlpha = 1 - Math.exp(-(leanIn > 0 ? 8.5 * step : Math.abs(wheelStep) * 0.48));
+        const targetReadY = state.glassesOn ? -0.16 * state.heldOffset.z : 0.0;
         state.heldOffset.x += (0.029 - state.heldOffset.x) * pullAlpha;
         state.heldOffset.y += (targetReadY - state.heldOffset.y) * pullAlpha;
       }
@@ -271,9 +272,9 @@ export function createControls(domElement, state, sceneApi) {
       camera.rotation.z = 0;
 
       if (state.mode === 'seated') {
-        // Slouching forward brings eyes down to ~22-28cm over the workbook (pediatric aphakia relative-distance magnification)
+        // Slouching forward brings eyes down from ~40cm all the way to ~4.3cm over the workbook
         const fwdLean = state.lean * 0.28;
-        const dropLean = Math.max(0, state.lean) * 0.24 - Math.min(0, state.lean) * 0.05;
+        const dropLean = Math.max(0, state.lean) * 0.275 - Math.min(0, state.lean) * 0.05;
         camera.position.set(
           seatPos.x - Math.sin(state.yaw) * fwdLean,
           seatPos.y - dropLean,

@@ -1298,8 +1298,8 @@ export function createClassroomScene() {
       restPosition: pencilRestPos.clone(),
       restQuaternion: pencilRestQuat.clone(),
       occluderRadius: 0.015,
-      halfDepth: 0.022,
-      halfHeight: 0.014,
+      // Front half-extent along camera +Z accounting for heldTiltQuat so tips never clip glasses
+      halfDepth: 0.048,
     },
     {
       id: 'eraser',
@@ -1308,8 +1308,7 @@ export function createClassroomScene() {
       restPosition: eraserRestPos.clone(),
       restQuaternion: eraserRestQuat.clone(),
       occluderRadius: 0.020,
-      halfDepth: 0.022,
-      halfHeight: 0.015,
+      halfDepth: 0.026,
     },
     {
       id: 'pencilcase',
@@ -1318,8 +1317,7 @@ export function createClassroomScene() {
       restPosition: pencilCaseRestPos.clone(),
       restQuaternion: pencilCaseRestQuat.clone(),
       occluderRadius: 0.044,
-      halfDepth: 0.044,
-      halfHeight: 0.032,
+      halfDepth: 0.074,
     },
   ];
 
@@ -1336,6 +1334,7 @@ export function createClassroomScene() {
   const heldWorldPos = new THREE.Vector3();
   const toTarget = new THREE.Vector3();
   const nearestDeskPt = new THREE.Vector3();
+  const heldBox = new THREE.Box3();
   const heldTiltQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.35, 0.45, -0.55));
   const deskBounds = { minX: -2.91, maxX: -1.59, y: 0.73, minZ: -1.72, maxZ: -1.18 };
 
@@ -1349,12 +1348,12 @@ export function createClassroomScene() {
     teacher.rightArm.rotation.z = 0.22 + Math.cos(simTime * 1.6) * 0.12;
     teacher.leftArm.rotation.x = 0.22 + Math.sin(simTime * 1.1) * 0.08;
 
-    // Animate seated deskmate facing -Z (head tilted down toward notebook, arms forward on desk)
+    // Animate seated deskmate facing -Z (head tilted down toward notebook, arms resting cleanly on top of y=0.73 desk)
     classmate.torso.scale.y = 1 + Math.sin(simTime * 2.6 + 1.0) * 0.014;
     classmate.headPivot.rotation.x = -0.28 + Math.sin(simTime * 1.4) * 0.04;
-    classmate.rightArm.rotation.x = 0.78 + Math.sin(simTime * 5.2) * 0.07;
+    classmate.rightArm.rotation.x = 1.28 + Math.sin(simTime * 5.2) * 0.04;
     classmate.rightArm.rotation.y = Math.cos(simTime * 4.1) * 0.05;
-    classmate.leftArm.rotation.x = 0.62;
+    classmate.leftArm.rotation.x = 1.26;
 
     // Subtle analog clock minute hand drift
     minHandPivot.rotation.z = -simTime * 0.02;
@@ -1368,7 +1367,7 @@ export function createClassroomScene() {
     const ceilAlign = Math.max(0, forward.y);
     state.eyelidLight = Math.min(1, Math.max(0.08, 0.12 + winAlign * 0.78 + ceilAlign * 0.32));
 
-    // Move held pickable into camera-relative space via state.heldOffset (prevent clipping through desk)
+    // Move held pickable into camera-relative space via state.heldOffset (prevent tilted tips clipping through desk/workbook)
     let heldEntry = null;
     if (state.holding) {
       heldEntry = pickables.find((p) => p.id === state.holding) || null;
@@ -1376,23 +1375,25 @@ export function createClassroomScene() {
         const off = state.heldOffset;
         localHeld.set(off.x, off.y, -off.z);
         heldWorldPos.copy(localHeld).applyMatrix4(camera.matrixWorld);
-        const overDesk =
-          heldWorldPos.x >= deskBounds.minX - 0.06 &&
-          heldWorldPos.x <= deskBounds.maxX + 0.06 &&
-          heldWorldPos.z >= deskBounds.minZ - 0.06 &&
-          heldWorldPos.z <= deskBounds.maxZ + 0.06;
-        if (overDesk) {
-          const minDeskY = deskBounds.y + (heldEntry.halfHeight || 0.02) + 0.012;
-          if (heldWorldPos.y < minDeskY) {
-            heldWorldPos.y = minDeskY;
-            // Sync clamped desktop height back into camera-local heldOffset.y so lifting with W has zero lag
-            localHeld.copy(heldWorldPos).applyMatrix4(camera.matrixWorldInverse);
-            off.y = Math.max(-0.18, Math.min(0.16, localHeld.y));
-          }
-        }
         heldEntry.mesh.position.copy(heldWorldPos);
         heldEntry.mesh.quaternion.copy(camera.quaternion).multiply(heldTiltQuat);
         heldEntry.mesh.updateMatrixWorld(true);
+
+        heldBox.setFromObject(heldEntry.mesh);
+        const overDesk =
+          heldBox.max.x >= deskBounds.minX &&
+          heldBox.min.x <= deskBounds.maxX &&
+          heldBox.max.z >= deskBounds.minZ &&
+          heldBox.min.z <= deskBounds.maxZ;
+        const minSurfaceY = deskBounds.y + 0.014; // clears y=0.73 desk and y=0.742 open workbook
+        if (overDesk && heldBox.min.y < minSurfaceY) {
+          heldWorldPos.y += minSurfaceY - heldBox.min.y;
+          heldEntry.mesh.position.copy(heldWorldPos);
+          heldEntry.mesh.updateMatrixWorld(true);
+          // Sync clamped desktop height back into camera-local heldOffset.y so lifting with W has zero lag
+          localHeld.copy(heldWorldPos).applyMatrix4(camera.matrixWorldInverse);
+          off.y = Math.max(-0.18, Math.min(0.16, localHeld.y));
+        }
       }
     }
 

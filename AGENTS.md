@@ -16,7 +16,7 @@
   - `createControls(domElement, state, sceneApi)` -> `{ update(dt, camera), dispose() }`.
 - `src/optics.js` & `src/shaders/vision.frag.glsl`:
   - `createOpticsRenderer(renderer, scene, waveformData)` -> `{ odCamera, render(dt, state), resize(w, h), dispose() }`.
-  - Dual `WebGLRenderTarget`s (OD `+0.029 m` 4x MSAA full-res, OS `-0.029 m` 0.75x parallel) with `THREE.DepthTexture` (`near = 0.02`, `far = 30.0`), 5.5 Hz MLN oscillopsia perturbation restored post-render.
+  - Single 4x MSAA full-res OD `WebGLRenderTarget` (`+0.029 m`) with `THREE.DepthTexture` (`near = 0.02`, `far = 30.0`), quarter-res separable Gaussian blur targets (`rtBlurH`/`rtBlurV`), constant-angle OD-derived `VOS 0.15` diplopia, and 5.5 Hz MLN oscillopsia perturbation restored post-render.
 - `src/audio.js`:
   - `createTinnitusAudio()` -> `{ start(), update(state), dispose() }`.
 - `src/hud.js`:

@@ -86,24 +86,21 @@ const occNear = computeOcclusionFromDistance(0.11);
 assert.ok(occFar > 0 && occFar < occMid && occMid < occNear && occNear < 1, 'occlusion ramp must be strictly monotonic in (0.08, 0.25)');
 assert.ok(Math.abs(occMid - 0.5) < 1e-6, `midpoint occlusion expected 0.5, got ${occMid}`);
 
-// 3. Validate src/state.js: computeDiplopiaOffsetDeg (1cm/0.5cm @ 0.1m, 2cm/1cm @ 0.4m, 5cm/1.5cm @ 3m+)
-const dipNear = computeDiplopiaOffsetDeg(0.1);
-const dipMid = computeDiplopiaOffsetDeg(0.4);
-const dipFar = computeDiplopiaOffsetDeg(3.0);
-const dipBeyond = computeDiplopiaOffsetDeg(6.0);
+// 3. Validate src/state.js: computeDiplopiaOffsetDeg (-1.53 deg L / +0.31 deg U -> 1.0cm L / 0.2cm U @ 0.375m seated triangle)
+const metricFromDeg = (deg, distM) => Math.tan((Math.abs(deg) * Math.PI) / 180) * distM;
+const dipTriangle = computeDiplopiaOffsetDeg(0.375);
+const dipNear = computeDiplopiaOffsetDeg(0.10);
+const dipFar = computeDiplopiaOffsetDeg(3.75);
 
-assert.ok(dipNear.dxDeg < 0 && dipNear.dyDeg > 0, 'OS ghost must shift left (dx<0) and up (dy>0)');
-assert.ok(Math.abs(dipNear.dxDeg - (-5.71)) < 0.15, `0.10m dxDeg expected ~-5.71, got ${dipNear.dxDeg}`);
-assert.ok(Math.abs(dipNear.dyDeg - 2.86) < 0.15, `0.10m dyDeg expected ~+2.86, got ${dipNear.dyDeg}`);
-assert.ok(Math.abs(dipMid.dxDeg - (-2.86)) < 0.15, `0.40m dxDeg expected ~-2.86, got ${dipMid.dxDeg}`);
-assert.ok(Math.abs(dipMid.dyDeg - 1.43) < 0.15, `0.40m dyDeg expected ~+1.43, got ${dipMid.dyDeg}`);
-assert.ok(Math.abs(dipFar.dxDeg - (-0.95)) < 0.15, `3.00m dxDeg expected ~-0.95, got ${dipFar.dxDeg}`);
-assert.ok(Math.abs(dipFar.dyDeg - 0.29) < 0.15, `3.00m dyDeg expected ~+0.29, got ${dipFar.dyDeg}`);
-assert.equal(dipBeyond.dxDeg, dipFar.dxDeg, 'beyond 3m must hold steady 3m+ offset');
+assert.ok(dipTriangle.dxDeg < 0 && dipTriangle.dyDeg > 0, 'OS ghost must shift left (dx<0) and up (dy>0)');
+assert.ok(Math.abs(metricFromDeg(dipTriangle.dxDeg, 0.375) - 0.01) < 2e-4, '0.375m seated triangle horizontal offset expected ~1.0cm (2 squares)');
+assert.ok(Math.abs(metricFromDeg(dipTriangle.dyDeg, 0.375) - 0.002) < 2e-4, '0.375m seated triangle vertical offset expected ~0.2cm');
+assert.equal(dipNear.dxDeg, dipTriangle.dxDeg, 'angular horizontal diplopia must stay constant across depths');
+assert.equal(dipFar.dyDeg, dipTriangle.dyDeg, 'angular vertical diplopia must stay constant across depths');
 
-// Verify GLSL per-pixel diplopia constants stay in sync with state.js
+// Verify GLSL diplopia constants stay in sync with state.js
 const fragSrc = fs.readFileSync(new URL('../src/shaders/vision.frag.glsl', import.meta.url), 'utf8');
-for (const c of ['0.552', '1.2535', '0.143', '0.0295', '0.8316', '0.1938']) {
+for (const c of ['-1.53', '0.31']) {
   assert.ok(fragSrc.includes(c), `vision.frag.glsl missing diplopia constant ${c}`);
 }
 
@@ -138,6 +135,11 @@ for (let i = 0; i < 60; i++) {
 assert.ok(stRelaxed.fatigue > 0.08, 'fatigue should rise while eyes open');
 assert.ok(stFocused.fatigue > stRelaxed.fatigue + 0.01, 'Focus effort must build fatigue faster');
 assert.ok(stFocused.focusStrength > 0.8, 'Focus effort should engage strongly at low fatigue');
+assert.ok(stRelaxed.mlnIntensity >= 0.12, `unfocused baseline MLN should be clearly present, got ${stRelaxed.mlnIntensity}`);
+assert.ok(
+  stFocused.mlnIntensity < stRelaxed.mlnIntensity * 0.5,
+  `Focus effort must curb baseline MLN (${stRelaxed.mlnIntensity} -> ${stFocused.mlnIntensity})`
+);
 assert.equal(stRelaxed.activeZone, 'distance');
 
 // Reserve-depletion -> tipping-point crash curve

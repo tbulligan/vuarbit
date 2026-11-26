@@ -69,16 +69,13 @@ export function computeOcclusionFromDistance(distMeters) {
 
 /**
  * Compute diplopic angular offset (degrees) of amblyopic OS image relative to OD.
- * Matches lived metric offsets (kept in sync with vision.frag.glsl):
- *  - 0.10m: ~1.0cm left (-5.71 deg), ~0.5cm up (+2.86 deg)
- *  - 0.40m: ~2.0cm left (-2.86 deg), ~1.0cm up (+1.43 deg)
- *  - 3.00m and beyond: ~5.0cm left (-0.95 deg), ~1.5cm up (+0.29 deg)
+ * Constant angular offset (kept in sync with vision.frag.glsl):
+ *  - Horizontal (left): -1.53 deg (~1.0cm / 2 workbook squares @ 0.375m seated triangle)
+ *  - Vertical (up): +0.31 deg (~0.2cm @ 0.375m)
  */
 export function computeDiplopiaOffsetDeg(distMeters) {
-  const d = clamp(Number.isFinite(distMeters) ? distMeters : 3.0, 0.05, 3.0);
-  const dxDeg = -(0.552 + 1.2535 / (d + 0.143));
-  const dyDeg = 0.0295 + 0.8316 / (d + 0.1938);
-  return { dxDeg, dyDeg };
+  void distMeters;
+  return { dxDeg: -1.53, dyDeg: 0.31 };
 }
 
 /**
@@ -173,9 +170,9 @@ export function updateSimState(state, dt) {
     state.fatigue = clamp(state.fatigue + rate * step, 0, 1);
   }
 
-  // MLN intensity: low damped baseline while reserve holds; rises sharply on decompensation crash or monocular occlusion
+  // MLN intensity: noticeable unfocused baseline damped by Focus effort; rises sharply on decompensation or monocular occlusion
   const postDecomp = computeDecompensation(state.fatigue);
-  const unocclDrive = (0.035 + 0.34 * postDecomp) * (state.eyesClosed ? 0.35 : 1.0) * (1 - 0.55 * state.focusStrength);
+  const unocclDrive = (0.15 + 0.34 * postDecomp) * (state.eyesClosed ? 0.35 : 1.0) * (1 - 0.68 * state.focusStrength);
   state.mlnIntensity = clamp(state.occlusionLevel * 0.95 + unocclDrive, 0, 1);
 
   if (state.eyelidClose > 0.8) {

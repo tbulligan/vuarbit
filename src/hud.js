@@ -41,7 +41,7 @@ export function createHud(rootElement, initialState) {
   const controlsLegend = makeEl(
     'div',
     'hud-controls',
-    'WASD Move/Adjust | E/Q/Wheel Lean/Near-Far | X Sit | F Pick | C/Space Focus | Z Glasses | R Rest | V Compare | M Mute | H HUD',
+    'WASD Move/Adjust | E/Q/Wheel Lean/Near-Far | X Sit | F Pick | C/Space Focus | Z Glasses | R Rest | V Compare | M Mute | H HUD | F11 Fullscreen',
   );
 
   const reticle = makeEl('div', 'hud-reticle');

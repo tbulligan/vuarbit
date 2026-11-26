@@ -5,6 +5,7 @@ import visionFrag from './shaders/vision.frag.glsl?raw';
 const EYE_HALF_IPD_M = 0.029;
 const NEAR_CLIP = 0.02;
 const FAR_CLIP = 30.0;
+const OD_FOV_DEG = 62;
 const TARGET_MLN_FREQ_HZ = 5.5; // 5-6 beats/sec clinical MLN beat rate
 
 const FULLSCREEN_VERT = /* glsl */ `
@@ -12,6 +13,25 @@ const FULLSCREEN_VERT = /* glsl */ `
   void main() {
     vUv = uv;
     gl_Position = vec4(position.xy, 0.0, 1.0);
+  }
+`;
+
+// Fast 15-tap separable Gaussian on quarter-res OD target for smooth, leak-free +13 D aphakic/CoC blur
+const BLUR_FRAG = /* glsl */ `
+  uniform sampler2D tSource;
+  uniform vec2 uStep;
+  varying vec2 vUv;
+
+  void main() {
+    vec3 acc = vec3(0.0);
+    float wSum = 0.0;
+    for (int i = -7; i <= 7; i++) {
+      float fi = float(i);
+      float w = exp(-0.5 * (fi * fi) / (3.3 * 3.3));
+      acc += texture2D(tSource, clamp(vUv + uStep * fi, vec2(0.002), vec2(0.998))).rgb * w;
+      wSum += w;
+    }
+    gl_FragColor = vec4(acc / wSum, 1.0);
   }
 `;
 
@@ -27,6 +47,16 @@ function createEyeRenderTarget(w, h, samples = 0) {
     depthBuffer: true,
     depthTexture,
     samples,
+  });
+}
+
+function createBlurRenderTarget(w, h) {
+  return new THREE.WebGLRenderTarget(w, h, {
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
+    format: THREE.RGBAFormat,
+    depthBuffer: false,
+    stencilBuffer: false,
   });
 }
 
@@ -55,8 +85,8 @@ function sampleLoopingWaveform(waveform, timeSec, speedScale) {
 }
 
 /**
- * Dual-eye OD (full-res) / OS (half-res) WebGL2 optics pipeline with 5.5 Hz MLN oscillopsia,
- * per-pixel diplopia, and straight-cut executive aphakic bifocal.
+ * WebGL2 optics pipeline: 4x MSAA OD target + quarter-res separable Gaussian blur,
+ * 5.5 Hz MLN oscillopsia, constant-angle VOS 0.15 diplopia, and straight-cut executive aphakic bifocal.
  */
 export function createOpticsRenderer(renderer, scene, waveformData) {
   const size = new THREE.Vector2();
@@ -65,21 +95,30 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
   const initH = Math.max(1, size.y);
   const aspect = initW / initH;
 
-  const odCamera = new THREE.PerspectiveCamera(62, aspect, NEAR_CLIP, FAR_CLIP);
-  const osCamera = new THREE.PerspectiveCamera(62, aspect, NEAR_CLIP, FAR_CLIP);
+  const odCamera = new THREE.PerspectiveCamera(OD_FOV_DEG, aspect, NEAR_CLIP, FAR_CLIP);
 
-  // Realism mode: 4x WebGL2 MSAA on dominant OD target; 0.75x target on amblyopic OS (VOS 0.15)
+  // 4x WebGL2 MSAA on dominant OD target + quarter-res separable blur targets for smooth +13 D defocus
   const rtOD = createEyeRenderTarget(initW, initH, 4);
-  const rtOS = createEyeRenderTarget(Math.max(1, Math.floor(initW * 0.75)), Math.max(1, Math.floor(initH * 0.75)), 0);
+  const blurW = Math.max(1, Math.floor(initW * 0.25));
+  const blurH = Math.max(1, Math.floor(initH * 0.25));
+  const rtBlurH = createBlurRenderTarget(blurW, blurH);
+  const rtBlurV = createBlurRenderTarget(blurW, blurH);
 
   const baseFreq = waveformData?.phases?.mln_occluded?.dominant_freq_hz || waveformData?.waveform?.cycle_freq_hz || 0.85;
   const waveSpeedScale = THREE.MathUtils.clamp(TARGET_MLN_FREQ_HZ / Math.max(0.25, baseFreq), 1.0, 9.0);
 
+  const blurStepUV = 0.0042;
+  const blurStepH = new THREE.Vector2(blurStepUV / aspect, 0);
+  const blurStepV = new THREE.Vector2(0, blurStepUV);
+  const blurUniforms = {
+    tSource: { value: rtOD.texture },
+    uStep: { value: blurStepH },
+  };
+
   const uniforms = {
     tColorOD: { value: rtOD.texture },
+    tBlurOD: { value: rtBlurV.texture },
     tDepthOD: { value: rtOD.depthTexture },
-    tColorOS: { value: rtOS.texture },
-    tDepthOS: { value: rtOS.depthTexture },
     uNear: { value: NEAR_CLIP },
     uFar: { value: FAR_CLIP },
     uAspect: { value: aspect },
@@ -96,6 +135,19 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uResolution: { value: new THREE.Vector2(initW, initH) },
   };
 
+  const quadGeo = new THREE.PlaneGeometry(2, 2);
+  const quadCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+  const blurMat = new THREE.ShaderMaterial({
+    vertexShader: FULLSCREEN_VERT,
+    fragmentShader: BLUR_FRAG,
+    uniforms: blurUniforms,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const blurScene = new THREE.Scene();
+  blurScene.add(new THREE.Mesh(quadGeo, blurMat));
+
   const quadMaterial = new THREE.ShaderMaterial({
     vertexShader: FULLSCREEN_VERT,
     fragmentShader: visionFrag,
@@ -103,10 +155,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     depthTest: false,
     depthWrite: false,
   });
-
   const quadScene = new THREE.Scene();
-  const quadCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  const quadGeo = new THREE.PlaneGeometry(2, 2);
   quadScene.add(new THREE.Mesh(quadGeo, quadMaterial));
 
   const savedPos = new THREE.Vector3();
@@ -151,7 +200,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     );
     mlnQuat.setFromEuler(mlnEuler);
 
-    // Refresh 2048 shadow map every 2 frames before OD pass only (reused by OS)
+    // Refresh 2048 shadow map every 2 frames
     if (shadowFrame % 2 === 0) {
       renderer.shadowMap.needsUpdate = true;
     }
@@ -168,16 +217,18 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     renderer.render(scene, odCamera);
     renderer.shadowMap.needsUpdate = false;
 
-    // Skip OS render pass completely when eyelids are fully closed or in normal comparison mode
-    const needOS = !isNormal && (state.eyelidClose || 0) < 0.995;
-    if (needOS) {
-      osCamera.position.copy(savedPos).addScaledVector(rightVec, -EYE_HALF_IPD_M);
-      osCamera.quaternion.copy(odCamera.quaternion);
-      osCamera.updateMatrixWorld(true);
+    // Skip quarter-res blur passes when eyelids are fully closed or in normal comparison mode
+    const needBlur = !isNormal && (state.eyelidClose || 0) < 0.995;
+    if (needBlur) {
+      blurUniforms.tSource.value = rtOD.texture;
+      blurUniforms.uStep.value = blurStepH;
+      renderer.setRenderTarget(rtBlurH);
+      renderer.render(blurScene, quadCamera);
 
-      renderer.setRenderTarget(rtOS);
-      renderer.clear();
-      renderer.render(scene, osCamera);
+      blurUniforms.tSource.value = rtBlurH.texture;
+      blurUniforms.uStep.value = blurStepV;
+      renderer.setRenderTarget(rtBlurV);
+      renderer.render(blurScene, quadCamera);
     }
 
     odCamera.position.copy(savedPos);
@@ -207,19 +258,23 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
 
     odCamera.aspect = newAspect;
     odCamera.updateProjectionMatrix();
-    osCamera.aspect = newAspect;
-    osCamera.updateProjectionMatrix();
 
     rtOD.setSize(bw, bh);
-    rtOS.setSize(Math.max(1, Math.floor(bw * 0.75)), Math.max(1, Math.floor(bh * 0.75)));
+    const nextBlurW = Math.max(1, Math.floor(bw * 0.25));
+    const nextBlurH = Math.max(1, Math.floor(bh * 0.25));
+    rtBlurH.setSize(nextBlurW, nextBlurH);
+    rtBlurV.setSize(nextBlurW, nextBlurH);
+    blurStepH.set(blurStepUV / newAspect, 0);
     uniforms.uAspect.value = newAspect;
     uniforms.uResolution.value.set(bw, bh);
   }
 
   function dispose() {
     rtOD.dispose();
-    rtOS.dispose();
+    rtBlurH.dispose();
+    rtBlurV.dispose();
     quadGeo.dispose();
+    blurMat.dispose();
     quadMaterial.dispose();
   }
 

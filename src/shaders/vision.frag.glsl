@@ -1,7 +1,6 @@
 uniform sampler2D tColorOD;
+uniform sampler2D tBlurOD;
 uniform sampler2D tDepthOD;
-uniform sampler2D tColorOS;
-uniform sampler2D tDepthOS;
 
 uniform float uNear;
 uniform float uFar;
@@ -20,8 +19,9 @@ uniform vec2 uResolution;
 
 varying vec2 vUv;
 
-const float TAN_HALF_Y = 0.6008606; // tan(31 deg)
-const float IPD_M = 0.058;
+const float TAN_HALF_Y = 0.6008606; // tan(31 deg) for 62 deg OD camera
+// Constant angular diplopia offset matching state.js: -1.53 deg L (~1.0cm / 2 squares @ 0.375m), +0.31 deg U (~0.2cm)
+const vec2 DIPLOPIA_TAN = vec2(-0.0267099, 0.0054106); // tan(radians(vec2(-1.53, 0.31)))
 
 float linearizeDepth(float d) {
   float ndc = d * 2.0 - 1.0;
@@ -53,15 +53,6 @@ float sdSegment(vec2 p, vec2 a, vec2 b) {
   vec2 ba = b - a;
   float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
   return length(pa - ba * h);
-}
-
-// Per-pixel diplopia offset (degrees) matching state.js:
-// 1cm L / 0.5cm U @ 0.1m, 2cm L / 1cm U @ 0.4m, 5cm L / 1.5cm U @ 3m+
-vec2 computePerPixelDiplopiaDeg(float distMeters) {
-  float d = clamp(distMeters, 0.05, 3.0);
-  float dx = -(0.552 + 1.2535 / (d + 0.143));
-  float dy = 0.0295 + 0.8316 / (d + 0.1938);
-  return vec2(dx, dy);
 }
 
 // O(1) jittered micro-flash layer (no visible grid: randomized position per firing + rotated coordinates)
@@ -116,7 +107,7 @@ vec3 computeFlashPhosphenes(vec2 px, float t, float closed, float decomp) {
   return fine + mid;
 }
 
-// Realism OD sampling: sharp focal peak + 8-tap CoC defocus + directional astigmatic streaks, halos, coma & veiling glare
+// Realism OD sampling (intrinsic VOD 0.7 BCVA + uniform 12-tap CoC + smooth quarter-res +13 D blur; Focus does not alter OD acuity)
 vec3 sampleOD(
   vec2 baseUv,
   float isoBlurUV,
@@ -126,7 +117,6 @@ vec3 sampleOD(
   float motionSmearUV,
   float chromaShiftUV,
   vec2 radialDir,
-  float focusEffort,
   float angleSeed
 ) {
   vec2 invAspect = vec2(1.0 / uAspect, 1.0);
@@ -141,30 +131,51 @@ vec3 sampleOD(
     col.b = texture2D(tColorOD, clamp(baseUv - cOff, vec2(0.001), vec2(0.999))).b;
   }
 
-  // Keep peak sharpness right inside focal sweet-spot; blend into 8-tap CoC + MLN smear as defocus/motion grows
-  float blurDrive = isoBlurUV + motionSmearUV;
-  if (blurDrive > 0.0006) {
-    vec3 acc = col;
-    const int TAPS = 8;
+  // Smooth crossfade into pre-blurred quarter-res OD for heavy CoC & uncorrected +13 D aphakia
+  float heavyBlurMix = smoothstep(0.011, 0.032, isoBlurUV);
+  float fineBlurUV = min(isoBlurUV, 0.016);
+  float blurDrive = fineBlurUV + motionSmearUV;
+
+  if (heavyBlurMix < 0.995 && blurDrive > 0.0004) {
+    vec3 acc = vec3(0.0);
+    const int TAPS = 12;
     for (int i = 0; i < TAPS; i++) {
       float fi = float(i);
       float r = sqrt((fi + 0.5) / float(TAPS));
       float theta = fi * 2.39996323 + angleSeed;
       vec2 disk = vec2(cos(theta), sin(theta)) * r;
-      vec2 off = disk * isoBlurUV + astDir * (disk.x * astBlurUV) + perpDir * (disk.y * astBlurUV * 0.25) + vec2(disk.x * motionSmearUV, 0.0);
+      vec2 off = disk * fineBlurUV + astDir * (disk.x * astBlurUV) + perpDir * (disk.y * astBlurUV * 0.25) + vec2(disk.x * motionSmearUV, 0.0);
       acc += texture2D(tColorOD, clamp(baseUv + off * invAspect, vec2(0.001), vec2(0.999))).rgb;
     }
-    vec3 blurred = acc / float(TAPS + 1);
-    col = mix(col, blurred, smoothstep(0.0006, 0.0040, blurDrive));
+    vec3 blurred = acc / float(TAPS);
+    col = mix(col, blurred, smoothstep(0.0004, 0.0018, blurDrive));
   }
 
-  // Subtle directional 123-deg astigmatism micro-edge artifact (tighter when actively Focusing)
-  vec2 astEdgeOff = astDir * astBlurUV * invAspect;
-  vec3 astGhost = 0.5 * (
-    texture2D(tColorOD, clamp(baseUv + astEdgeOff, vec2(0.001), vec2(0.999))).rgb +
-    texture2D(tColorOD, clamp(baseUv - astEdgeOff, vec2(0.001), vec2(0.999))).rgb
-  );
-  col = mix(col, astGhost, mix(0.13, 0.06, focusEffort));
+  if (heavyBlurMix > 0.005) {
+    // Extra 4-tap wide gather over pre-blurred target yields smooth ~2.8 deg +13 D aphakic blur with zero text leakage
+    float extraR = max(0.0, isoBlurUV - 0.022) * 0.65;
+    vec3 heavy = vec3(0.0);
+    for (int j = 0; j < 4; j++) {
+      float ang = float(j) * 1.5707963 + angleSeed * 0.5;
+      vec2 hOff = (vec2(cos(ang), sin(ang)) * extraR + astDir * (cos(ang) * astBlurUV * 0.5)) * invAspect;
+      heavy += texture2D(tBlurOD, clamp(baseUv + hOff, vec2(0.003), vec2(0.997))).rgb;
+    }
+    heavy *= 0.25;
+    col = mix(col, heavy, heavyBlurMix);
+  }
+
+  // Subtle directional 123-deg astigmatism micro-edge artifact (damped when heavy +13 D blur already dominates)
+  if (heavyBlurMix < 0.85) {
+    vec2 astEdgeOff = astDir * astBlurUV * invAspect;
+    vec3 astGhost = 0.5 * (
+      texture2D(tColorOD, clamp(baseUv + astEdgeOff, vec2(0.001), vec2(0.999))).rgb +
+      texture2D(tColorOD, clamp(baseUv - astEdgeOff, vec2(0.001), vec2(0.999))).rgb
+    );
+    col = mix(col, astGhost, 0.10 * (1.0 - heavyBlurMix));
+  }
+
+  // Intrinsic aphakic/MLN contrast-sensitivity rolloff (VOD 0.7 invariant under conscious Focus)
+  col = mix(vec3(0.5), col, 0.965);
 
   // Daytime constricted-pupil astigmatism & corneal HOAs: restrained directional streaks, subtle halo & coma on bright sources only
   if (hoaStrength > 0.01) {
@@ -200,19 +211,31 @@ vec3 sampleOD(
   return col;
 }
 
-// 4-tap amblyopic OS sampling (0.75x target -> smooth & authentic VOS 0.15)
+// 8-tap uniform Vogel disk for amblyopic OS (VOS 0.15) with smooth crossfade into tBlurOD for +13 D uncorrected blur
 vec3 sampleOS(vec2 baseUv, float isoBlurUV, float motionSmearUV, float angleSeed) {
   vec2 invAspect = vec2(1.0 / uAspect, 1.0);
-  vec3 acc = vec3(0.0);
-  const int TAPS = 4;
-  for (int i = 0; i < TAPS; i++) {
-    float fi = float(i);
-    float theta = fi * 1.5707963 + angleSeed;
-    vec2 disk = vec2(cos(theta), sin(theta));
-    vec2 off = vec2(disk.x * (isoBlurUV + 0.004 + motionSmearUV), disk.y * isoBlurUV);
-    acc += texture2D(tColorOS, clamp(baseUv + off * invAspect, vec2(0.002), vec2(0.998))).rgb;
+  float heavyBlurMix = smoothstep(0.014, 0.034, isoBlurUV);
+  float fineBlurUV = min(isoBlurUV, 0.018);
+
+  vec3 col = vec3(0.0);
+  if (heavyBlurMix < 0.995) {
+    const int TAPS = 8;
+    float rx = fineBlurUV + motionSmearUV;
+    float ry = fineBlurUV;
+    for (int i = 0; i < TAPS; i++) {
+      float fi = float(i);
+      float r = sqrt((fi + 0.5) / float(TAPS));
+      float theta = fi * 2.39996323 + angleSeed;
+      vec2 off = vec2(cos(theta) * rx, sin(theta) * ry) * r;
+      col += texture2D(tColorOD, clamp(baseUv + off * invAspect, vec2(0.002), vec2(0.998))).rgb;
+    }
+    col /= float(TAPS);
   }
-  return acc * 0.25;
+  if (heavyBlurMix > 0.005) {
+    vec3 heavy = texture2D(tBlurOD, clamp(baseUv, vec2(0.003), vec2(0.997))).rgb;
+    col = mix(col, heavy, heavyBlurMix);
+  }
+  return col;
 }
 
 // Diffuse bright-only light bleed through closed eyelids (zero recognizable room shapes)
@@ -296,44 +319,51 @@ void main() {
     float dofTolerance = mix(0.22, 0.72, inBifocal);
     float cocDiopters = max(0.0, abs(1.0 / max(depthOD, 0.02) - 1.0 / targetFocus) - dofTolerance);
 
-    float correctedBlur = clamp(cocDiopters * 0.0062, 0.0, 0.030);
-    float aphakicBlur = 0.036;
+    // Intrinsic VOD 0.7 acuity (~20/29, unchanged by Focus; Focus improves clarity via reduced MLN + OS suppression)
+    float vod07BaseBlur = 0.0008 + decomp * 0.0014;
+    float correctedBlur = clamp(vod07BaseBlur + cocDiopters * 0.0068, 0.0, 0.036);
+    float aphakicBlur = 0.044;
     float isoBlurOD = mix(aphakicBlur, correctedBlur, inLens);
 
     vec2 astDirOD = vec2(cos(radians(123.0)), sin(radians(123.0)));
-    float astBlurOD = mix(0.009, 0.0012, inLens) + decomp * 0.0014;
+    float astBlurOD = mix(0.011, 0.0012, inLens) + decomp * 0.0014;
     float hoaOD = mix(0.55, 0.34 + decomp * 0.24, inLens);
     float chromaOD = inLens * clamp(rLen * 0.0055, 0.0, 0.0036);
 
     vec3 colOD = sampleOD(
-      uvOD, isoBlurOD, astBlurOD, astDirOD, hoaOD, uMlnVelUV, chromaOD, radialDir, uFocusEffort, noiseAngle
+      uvOD, isoBlurOD, astBlurOD, astDirOD, hoaOD, uMlnVelUV, chromaOD, radialDir, noiseAngle
     );
 
-    // Per-pixel depth-varying diplopia: cancel parallel OS stereo baseline, then apply exact metric offset
-    vec2 dipDeg = computePerPixelDiplopiaDeg(depthOD);
+    // Constant angular diplopia sampled from OD view: fake OS image ALWAYS stays left & up at every distance/depth edge
     vec2 diplopiaUV = vec2(
-      tan(radians(dipDeg.x)) / (2.0 * uAspect * TAN_HALF_Y),
-      tan(radians(dipDeg.y)) / (2.0 * TAN_HALF_Y)
+      DIPLOPIA_TAN.x / (2.0 * uAspect * TAN_HALF_Y),
+      DIPLOPIA_TAN.y / (2.0 * TAN_HALF_Y)
     );
-    float stereoParallaxU = (IPD_M / max(depthOD, 0.05)) / (2.0 * uAspect * TAN_HALF_Y);
-    vec2 prenticeDiv = inLens * (-0.011 * pOpt / vec2(uAspect, 1.0));
-    vec2 uvOS = clamp(uvOD + vec2(stereoParallaxU, 0.0) - diplopiaUV + prenticeDiv, vec2(0.002), vec2(0.998));
+    vec2 uvOS = clamp(uvOD - diplopiaUV, vec2(0.002), vec2(0.998));
 
-    float depthOS = linearizeDepth(texture2D(tDepthOS, uvOS).x);
+    float depthOS = linearizeDepth(texture2D(tDepthOD, uvOS).x);
     float cocOS = max(0.0, abs(1.0 / max(depthOS, 0.02) - 1.0 / targetFocus) - dofTolerance);
-    float isoBlurOS = mix(aphakicBlur * 1.05, 0.0028 + clamp(cocOS * 0.0065, 0.0, 0.024), inLens);
+    // VOS 0.15 amblyopic softness (softer than VOD 0.7 yet clearly legible in shape/strokes) + CoC / uncorrected +13 D blur
+    float isoBlurOS = mix(aphakicBlur, 0.0022 + clamp(cocOS * 0.0072, 0.0, 0.028), inLens);
     vec3 colOS = sampleOS(uvOS, isoBlurOS, uMlnVelUV, noiseAngle + 1.57);
 
+    float lumaOD = dot(colOD, vec3(0.299, 0.587, 0.114));
     float lumaOS = dot(colOS, vec3(0.299, 0.587, 0.114));
-    colOS = mix(colOS, vec3(lumaOS), 0.08) * 0.99;
+    colOS = mix(colOS, vec3(lumaOS), 0.04) * 0.99;
 
-    // Binocular rivalry: solid near foreground objects in OD stay opaque & corporeal
+    // Binocular rivalry: OD stays sharp & dominant (>=56% linear), while rivalry term keeps dark-on-light (ink) & light-on-dark (chalk) OS strokes bold
     float odNearSolid = smoothstep(0.95, 0.55, depthOD) * smoothstep(0.08, 0.25, depthOS - depthOD);
-    // Unfocused state shows strong obvious OS ghost (0.58); Focus (C/Space) suppresses it strongly (~0.10)
-    float baseOsBlend = mix(0.58, 0.68, clamp(uOcclOD, 0.0, 1.0));
-    float suppressedOsBlend = baseOsBlend * (1.0 - 0.82 * clamp(uFocusEffort, 0.0, 1.0));
-    float osBlend = mix(suppressedOsBlend, 0.05, odNearSolid);
-    col = mix(colOD, colOS, osBlend);
+    float focusClamped = clamp(uFocusEffort, 0.0, 1.0);
+    float baseOsBlend = mix(0.44, 0.62, clamp(uOcclOD, 0.0, 1.0));
+    float osWeight = mix(baseOsBlend * (1.0 - 0.58 * focusClamped), 0.14, odNearSolid * 0.65);
+
+    vec3 linMix = mix(colOD, colOS, osWeight);
+    float localBg = dot(texture2D(tBlurOD, clamp(uvOD, vec2(0.003), vec2(0.997))).rgb, vec3(0.299, 0.587, 0.114));
+    float bgBright = smoothstep(0.32, 0.62, localBg);
+    vec3 rival = mix(max(colOD, colOS), min(colOD, colOS), bgBright);
+    float edgeStrength = smoothstep(0.03, 0.28, abs(lumaOS - lumaOD));
+    float rivalMix = edgeStrength * mix(0.46, 0.18, focusClamped) * (1.0 - odNearSolid * 0.65);
+    col = mix(linMix, rival, rivalMix);
 
     // Subtle intraocular veiling glare when looking toward bright sunny windows
     float veil = smoothstep(0.45, 0.96, uEyelidLight) * (0.028 + decomp * 0.03);
