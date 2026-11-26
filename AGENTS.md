@@ -10,8 +10,8 @@
 
 - `src/state.js` (pure ES module, zero DOM/Three.js imports):
   - `createSimState()`, `updateSimState(state, dt)`, `computeOcclusionFromDistance(distMeters)`, `computeDiplopiaOffsetDeg(distMeters)`, `computeMlnAngleDeg(...)`, `computeMlnFreqScale(...)`, `computeHeldRestOffset(...)`, `computeMaxYaw(...)`, `computeDecompensation(fatigue)`.
-- `src/scene.js`:
-  - `createClassroomScene()` -> `{ scene, deskPos, seatPose, standPose, pickables, updateScene(dt, state, camera) }`.
+- `src/scene.js` (owns helpers `src/scene/{classmates,props,player_shadow}.js`):
+  - `createClassroomScene()` -> `{ scene, deskPos, seatPose, standPose, pickables, colliders, updateScene(dt, state, camera) }`.
 - `src/controls.js`:
   - `createControls(domElement, state, sceneApi)` -> `{ update(dt, camera), dispose() }`.
 - `src/optics.js` & `src/shaders/vision.frag.glsl`:

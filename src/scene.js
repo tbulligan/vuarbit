@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { computeOcclusionFromDistance } from './state.js';
+import { createStylizedPerson, populateClassmates } from './scene/classmates.js';
+import { createUpgradedPickables, populateClassroomProps } from './scene/props.js';
+import { createPlayerShadowCaster } from './scene/player_shadow.js';
 
-// shortcut: procedural low-poly geometry + canvas textures only (16 extra classmates deferred to TODO.md), upgrade if external glTF assets are ever added
+// shortcut: procedural geometry + canvas textures only (no external glTF models), upgrade if custom rigged/scanned meshes are ever added
 
 function makeCanvasTexture(width, height, drawFn, repeatX = 1, repeatY = 1) {
   const canvas = document.createElement('canvas');
@@ -636,225 +639,6 @@ function buildDeskRowGroup(seats, frameMat, sharedMats, sharedGeos) {
   return group;
 }
 
-function createStylizedPerson(shirtColor, pantsColor, hairColor, seated = false) {
-  // Local forward is -Z (matches desk/chair orientation)
-  const group = new THREE.Group();
-  const skinMat = new THREE.MeshStandardMaterial({ color: '#e1b594', roughness: 0.72 });
-  const shirtMat = new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.8 });
-  const pantsMat = new THREE.MeshStandardMaterial({ color: pantsColor, roughness: 0.85 });
-  const hairMat = new THREE.MeshStandardMaterial({ color: hairColor, roughness: 0.88 });
-  const eyeMat = new THREE.MeshStandardMaterial({ color: '#241e1a', roughness: 0.5 });
-
-  // Torso bottom aligns cleanly with top of legs (0.88 standing, 0.46 seated)
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.48, 0.20), shirtMat);
-  torso.position.set(0, seated ? 0.70 : 1.12, 0);
-  torso.castShadow = true;
-  group.add(torso);
-
-  const headPivot = new THREE.Group();
-  headPivot.position.set(0, seated ? 0.96 : 1.40, 0);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.105, 14, 12), skinMat);
-  head.position.set(0, 0.09, 0);
-  head.castShadow = true;
-  headPivot.add(head);
-
-  // Subtle face orientation cues on -Z (front)
-  const eyeGeo = new THREE.SphereGeometry(0.011, 8, 6);
-  const lEye = new THREE.Mesh(eyeGeo, eyeMat);
-  lEye.position.set(-0.036, 0.102, -0.098);
-  const rEye = new THREE.Mesh(eyeGeo, eyeMat);
-  rEye.position.set(0.036, 0.102, -0.098);
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.028, 0.02), skinMat);
-  nose.position.set(0, 0.082, -0.104);
-  headPivot.add(lEye, rEye, nose);
-
-  // Hair cap tilted backward (+Z) so front face (-Z) remains open
-  const hair = new THREE.Mesh(
-    new THREE.SphereGeometry(0.11, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.62),
-    hairMat
-  );
-  hair.position.set(0, 0.098, 0.014);
-  hair.rotation.x = 0.28;
-  headPivot.add(hair);
-  group.add(headPivot);
-
-  const leftArm = new THREE.Group();
-  leftArm.position.set(-0.21, seated ? 0.88 : 1.32, 0);
-  const leftLimb = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.34, 0.085), shirtMat);
-  leftLimb.position.set(0, -0.15, 0);
-  leftArm.add(leftLimb);
-  group.add(leftArm);
-
-  const rightArm = new THREE.Group();
-  rightArm.position.set(0.21, seated ? 0.88 : 1.32, 0);
-  const rightLimb = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.34, 0.085), shirtMat);
-  rightLimb.position.set(0, -0.15, 0);
-  rightArm.add(rightLimb);
-  group.add(rightArm);
-
-  if (!seated) {
-    const legGeo = new THREE.BoxGeometry(0.13, 0.88, 0.14);
-    const lLeg = new THREE.Mesh(legGeo, pantsMat);
-    lLeg.position.set(-0.09, 0.44, 0);
-    lLeg.castShadow = true;
-    const rLeg = new THREE.Mesh(legGeo, pantsMat);
-    rLeg.position.set(0.09, 0.44, 0);
-    rLeg.castShadow = true;
-    group.add(lLeg, rLeg);
-  } else {
-    const thighGeo = new THREE.BoxGeometry(0.12, 0.11, 0.34);
-    const lThigh = new THREE.Mesh(thighGeo, pantsMat);
-    lThigh.position.set(-0.085, 0.49, -0.13);
-    const rThigh = new THREE.Mesh(thighGeo, pantsMat);
-    rThigh.position.set(0.085, 0.49, -0.13);
-    const shinGeo = new THREE.BoxGeometry(0.11, 0.44, 0.11);
-    const lShin = new THREE.Mesh(shinGeo, pantsMat);
-    lShin.position.set(-0.085, 0.22, -0.25);
-    const rShin = new THREE.Mesh(shinGeo, pantsMat);
-    rShin.position.set(0.085, 0.22, -0.25);
-    group.add(lThigh, rThigh, lShin, rShin);
-  }
-
-  return { group, headPivot, leftArm, rightArm, torso };
-}
-
-function createPickablePencil() {
-  const group = new THREE.Group();
-  const barrelTex = makeCanvasTexture(512, 128, (ctx, w, h) => {
-    ctx.fillStyle = '#e0a629';
-    ctx.fillRect(0, 0, w, h);
-    // Subtle yellow-lacquer facet stripes & crisp printed HB 2 stamp
-    ctx.fillStyle = '#cc901d';
-    for (let y = 0; y < h; y += 22) ctx.fillRect(0, y, w, 4);
-    ctx.fillStyle = '#1f2126';
-    ctx.font = 'bold 28px Georgia, serif';
-    ctx.fillText('HB  2  ·  GRAFITE  ·  ITALIA', 74, 74);
-  });
-  const body = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.0042, 0.0042, 0.15, 6),
-    new THREE.MeshStandardMaterial({ map: barrelTex, roughness: 0.48 })
-  );
-  body.rotation.z = Math.PI / 2;
-  group.add(body);
-
-  const woodCone = new THREE.Mesh(
-    new THREE.ConeGeometry(0.0042, 0.018, 6),
-    new THREE.MeshStandardMaterial({ color: '#deb98b', roughness: 0.78 })
-  );
-  woodCone.rotation.z = -Math.PI / 2;
-  woodCone.position.set(0.084, 0, 0);
-  group.add(woodCone);
-
-  const graphiteTip = new THREE.Mesh(
-    new THREE.ConeGeometry(0.0017, 0.007, 6),
-    new THREE.MeshStandardMaterial({ color: '#27292e', roughness: 0.45 })
-  );
-  graphiteTip.rotation.z = -Math.PI / 2;
-  graphiteTip.position.set(0.091, 0, 0);
-  group.add(graphiteTip);
-
-  const ferrule = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.0044, 0.0044, 0.012, 10),
-    new THREE.MeshStandardMaterial({ color: '#c4c7cc', metalness: 0.65, roughness: 0.3 })
-  );
-  ferrule.rotation.z = Math.PI / 2;
-  ferrule.position.set(-0.081, 0, 0);
-  group.add(ferrule);
-
-  const capEraser = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.0041, 0.0041, 0.01, 10),
-    new THREE.MeshStandardMaterial({ color: '#da7685', roughness: 0.75 })
-  );
-  capEraser.rotation.z = Math.PI / 2;
-  capEraser.position.set(-0.092, 0, 0);
-  group.add(capEraser);
-
-  group.traverse((obj) => {
-    if (obj.isMesh) obj.castShadow = true;
-  });
-  return group;
-}
-
-function createPickableEraser() {
-  const group = new THREE.Group();
-  const eraserTex = makeCanvasTexture(512, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#c84b4b';
-    ctx.fillRect(0, 0, w * 0.62, h);
-    ctx.fillStyle = '#36659e';
-    ctx.fillRect(w * 0.62, 0, w * 0.38, h);
-    // Matte rubber speckles
-    ctx.fillStyle = 'rgba(255,255,255,0.08)';
-    for (let i = 0; i < 400; i += 1) {
-      ctx.fillRect((i * 73) % w, (i * 41) % h, 3, 3);
-    }
-    ctx.fillStyle = '#f4efe4';
-    ctx.font = 'bold 34px Georgia, serif';
-    ctx.fillText('MATITA', 56, 138);
-    ctx.font = 'bold 26px Georgia, serif';
-    ctx.fillText('PENNA', w * 0.66, 136);
-    ctx.strokeStyle = 'rgba(244,239,228,0.6)';
-    ctx.lineWidth = 4;
-    ctx.strokeRect(18, 22, w - 36, h - 44);
-  });
-  const block = new THREE.Mesh(
-    new THREE.BoxGeometry(0.052, 0.013, 0.024),
-    new THREE.MeshStandardMaterial({ map: eraserTex, roughness: 0.88 })
-  );
-  group.add(block);
-  group.traverse((obj) => {
-    if (obj.isMesh) obj.castShadow = true;
-  });
-  return group;
-}
-
-function createPickablePencilCase() {
-  // Classic 1990s woven fabric zippered astuccio (~18cm x 4.2cm x 6.8cm) with canvas weave & stitching detail
-  const group = new THREE.Group();
-  const fabricTex = makeCanvasTexture(512, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#254268';
-    ctx.fillRect(0, 0, w, h);
-    // Woven canvas grid
-    ctx.fillStyle = 'rgba(255,255,255,0.05)';
-    for (let x = 0; x < w; x += 6) ctx.fillRect(x, 0, 2, h);
-    ctx.fillStyle = 'rgba(10,16,28,0.12)';
-    for (let y = 0; y < h; y += 6) ctx.fillRect(0, y, w, 2);
-    // Red athletic center band + dashed white contrast stitching
-    ctx.fillStyle = '#bf4438';
-    ctx.fillRect(0, h * 0.44, w, h * 0.22);
-    ctx.strokeStyle = '#e7e2d3';
-    ctx.lineWidth = 3;
-    ctx.setLineDash([10, 7]);
-    ctx.beginPath();
-    ctx.moveTo(0, h * 0.44);
-    ctx.lineTo(w, h * 0.44);
-    ctx.moveTo(0, h * 0.66);
-    ctx.lineTo(w, h * 0.66);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    // Sewn woven label patch
-    ctx.fillStyle = '#e8e2d0';
-    ctx.fillRect(w * 0.34, h * 0.14, w * 0.32, h * 0.20);
-    ctx.fillStyle = '#254268';
-    ctx.font = 'bold 26px Georgia, serif';
-    ctx.fillText('ASTUCCIO', w * 0.37, h * 0.28);
-  });
-  const fabricMat = new THREE.MeshStandardMaterial({ map: fabricTex, roughness: 0.9 });
-  const zipMat = new THREE.MeshStandardMaterial({ color: '#d0b055', metalness: 0.65, roughness: 0.32 });
-
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 0.068), fabricMat);
-  const zipper = new THREE.Mesh(new THREE.BoxGeometry(0.168, 0.005, 0.009), zipMat);
-  zipper.position.set(0, 0.021, 0);
-  const pullTab = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.006, 0.008), zipMat);
-  pullTab.position.set(0.082, 0.023, 0.006);
-  pullTab.rotation.y = 0.4;
-
-  group.add(body, zipper, pullTab);
-  group.traverse((obj) => {
-    if (obj.isMesh) obj.castShadow = true;
-  });
-  return group;
-}
-
 /**
  * Build procedural mid-1990s Italian middle-school classroom scene.
  */
@@ -1163,33 +947,19 @@ export function createClassroomScene() {
   const cLeftRail = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.04, 0.60), cattedraLegMat);
   cLeftRail.position.set(-0.63, 0.18, 0);
 
-  const register = new THREE.Mesh(
-    new THREE.BoxGeometry(0.32, 0.035, 0.24),
-    new THREE.MeshStandardMaterial({ color: '#1d4c8a', roughness: 0.6 })
-  );
-  register.position.set(-0.22, 0.798, 0.04);
-  register.rotation.y = 0.08;
   cattedraGroup.add(
     addFocusMesh(cattedraTop),
     cattedraFront,
     cattedraPedestal,
     cLegFront,
     cLegBack,
-    cLeftRail,
-    register
+    cLeftRail
   );
-
-  const teacherChair = new THREE.Mesh(
-    new THREE.BoxGeometry(0.44, 0.45, 0.44),
-    new THREE.MeshStandardMaterial({ color: '#8f653b', roughness: 0.7 })
-  );
-  teacherChair.position.set(-0.08, 0.225, -0.58);
-  cattedraGroup.add(teacherChair);
   scene.add(cattedraGroup);
   colliders.push({ minX: 0.14, maxX: 1.56, minZ: -3.55, maxZ: -2.56 });
 
   // Standing teacher near blackboard, angled toward class (+Z) while gesturing
-  const teacher = createStylizedPerson('#3e6259', '#323842', '#4c382c', false);
+  const teacher = createStylizedPerson('#3e6259', '#323842', '#4c382c', false, { scale: 1.08 });
   teacher.group.position.set(-0.05, 0, -3.05);
   teacher.group.rotation.y = Math.PI - 0.28;
   scene.add(addFocusMesh(teacher.group));
@@ -1234,18 +1004,14 @@ export function createClassroomScene() {
     }
   }
 
-  // 1 classmate in LEFT chair of Vuarbit's Row 1 paired desk (X = -2.25 - 0.33 = -2.58, Z = -1.45 + 0.42 = -1.03)
-  const classmate = createStylizedPerson('#4b739c', '#353e4a', '#2c231c', true);
-  classmate.group.position.set(-2.58, 0, -1.03);
-  scene.add(addFocusMesh(classmate.group));
-
-  // Classmate's closed notebook on left half of desk
-  const mateBook = new THREE.Mesh(
-    new THREE.BoxGeometry(0.22, 0.015, 0.28),
-    new THREE.MeshStandardMaterial({ color: '#396ba6', roughness: 0.7 })
-  );
-  mateBook.position.set(-2.58, 0.738, -1.36);
-  scene.add(mateBook);
+  // Populate 15 seated classmates, varied desk items, and 6 tucked backpacks across 4x2 + 4x3 grid
+  const { updateClassmates } = populateClassmates({
+    scene,
+    addFocusMesh,
+    rowsZ,
+    deskColumns,
+    makeCanvasTexture,
+  });
 
   // Vuarbit's desk (RIGHT half of Row 1 Left 4x2 column: X = -2.25 + 0.33 = -1.92)
   const deskPos = new THREE.Vector3(-1.92, 0.73, -1.37);
@@ -1275,58 +1041,23 @@ export function createClassroomScene() {
   workbookGroup.add(cover, addFocusMesh(pages));
   scene.add(workbookGroup);
 
-  // Pickable pencil, eraser, and zippered pencil case (top-left of workbook) on Vuarbit's desk
-  const pencilMesh = createPickablePencil();
-  const pencilRestPos = new THREE.Vector3(-1.66, 0.736, -1.30);
-  const pencilRestQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 1.25, 0));
-  pencilMesh.position.copy(pencilRestPos);
-  pencilMesh.quaternion.copy(pencilRestQuat);
-  scene.add(addFocusMesh(pencilMesh));
+  // Upgraded pickable pencil, eraser, pencil case, 15 cm ruler, and sharpener on Vuarbit's desk
+  const { pickables } = createUpgradedPickables({
+    scene,
+    addFocusMesh,
+    makeCanvasTexture,
+  });
 
-  const eraserMesh = createPickableEraser();
-  const eraserRestPos = new THREE.Vector3(-1.67, 0.737, -1.43);
-  const eraserRestQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.35, 0));
-  eraserMesh.position.copy(eraserRestPos);
-  eraserMesh.quaternion.copy(eraserRestQuat);
-  scene.add(addFocusMesh(eraserMesh));
+  // Classroom props (open backpack, school bell, coat rack, teacher chair, cattedra props, wall charts, wastebasket, cabinet details)
+  const { updateProps } = populateClassroomProps({
+    scene,
+    addFocusMesh,
+    colliders,
+    makeCanvasTexture,
+  });
 
-  const pencilCaseMesh = createPickablePencilCase();
-  const pencilCaseRestPos = new THREE.Vector3(-2.06, 0.751, -1.56);
-  const pencilCaseRestQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.16, 0));
-  pencilCaseMesh.position.copy(pencilCaseRestPos);
-  pencilCaseMesh.quaternion.copy(pencilCaseRestQuat);
-  scene.add(addFocusMesh(pencilCaseMesh));
-
-  const pickables = [
-    {
-      id: 'pencil',
-      name: 'Wooden Pencil',
-      mesh: pencilMesh,
-      restPosition: pencilRestPos.clone(),
-      restQuaternion: pencilRestQuat.clone(),
-      occluderRadius: 0.015,
-      // Front half-extent along camera +Z accounting for heldTiltQuat so tips never clip glasses
-      halfDepth: 0.048,
-    },
-    {
-      id: 'eraser',
-      name: 'Red/Blue Eraser',
-      mesh: eraserMesh,
-      restPosition: eraserRestPos.clone(),
-      restQuaternion: eraserRestQuat.clone(),
-      occluderRadius: 0.020,
-      halfDepth: 0.026,
-    },
-    {
-      id: 'pencilcase',
-      name: 'Pencil Case',
-      mesh: pencilCaseMesh,
-      restPosition: pencilCaseRestPos.clone(),
-      restQuaternion: pencilCaseRestQuat.clone(),
-      occluderRadius: 0.044,
-      halfDepth: 0.074,
-    },
-  ];
+  // Invisible first-person player shadow caster aligned to camera
+  const playerShadow = createPlayerShadowCaster(scene);
 
   // Reusable scratch objects for zero-GC update loop
   let simTime = 0;
@@ -1343,6 +1074,8 @@ export function createClassroomScene() {
   const toTarget = new THREE.Vector3();
   const heldBox = new THREE.Box3();
   const heldTiltQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.35, 0.45, -0.55));
+  const heldRotEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  const heldRotQuat = new THREE.Quaternion();
   const deskBounds = { minX: -2.91, maxX: -1.59, y: 0.73, minZ: -1.72, maxZ: -1.18 };
 
   function updateScene(dt, state, camera) {
@@ -1355,12 +1088,8 @@ export function createClassroomScene() {
     teacher.rightArm.rotation.z = 0.22 + Math.cos(simTime * 1.6) * 0.12;
     teacher.leftArm.rotation.x = 0.22 + Math.sin(simTime * 1.1) * 0.08;
 
-    // Animate seated deskmate facing -Z (head tilted down toward notebook, arms resting cleanly on top of y=0.73 desk)
-    classmate.torso.scale.y = 1 + Math.sin(simTime * 2.6 + 1.0) * 0.014;
-    classmate.headPivot.rotation.x = -0.28 + Math.sin(simTime * 1.4) * 0.04;
-    classmate.rightArm.rotation.x = 1.28 + Math.sin(simTime * 5.2) * 0.04;
-    classmate.rightArm.rotation.y = Math.cos(simTime * 4.1) * 0.05;
-    classmate.leftArm.rotation.x = 1.26;
+    updateClassmates(simTime);
+    updateProps(simTime);
 
     // Subtle analog clock minute hand drift
     minHandPivot.rotation.z = -simTime * 0.02;
@@ -1368,6 +1097,7 @@ export function createClassroomScene() {
     if (!camera) return;
     camera.updateMatrixWorld(true);
     camera.getWorldDirection(forward);
+    playerShadow.update(state, camera);
 
     // Gaze-dependent light reaching closed eyelids (bright toward sunny left windows & ceiling lights)
     const winAlign = Math.max(0, forward.dot(windowLightDir));
@@ -1383,7 +1113,9 @@ export function createClassroomScene() {
         localHeld.set(off.x, off.y, -off.z);
         heldWorldPos.copy(localHeld).applyMatrix4(camera.matrixWorld);
         heldEntry.mesh.position.copy(heldWorldPos);
-        heldEntry.mesh.quaternion.copy(camera.quaternion).multiply(heldTiltQuat);
+        heldRotEuler.set(state.heldRot?.pitch || 0, state.heldRot?.yaw || 0, 0, 'YXZ');
+        heldRotQuat.setFromEuler(heldRotEuler);
+        heldEntry.mesh.quaternion.copy(camera.quaternion).multiply(heldRotQuat).multiply(heldTiltQuat);
         heldEntry.mesh.updateMatrixWorld(true);
 
         heldBox.setFromObject(heldEntry.mesh);
