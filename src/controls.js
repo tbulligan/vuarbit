@@ -251,6 +251,13 @@ export function createControls(domElement, state, sceneApi) {
       return;
     }
 
+    if (!e.repeat && e.code === 'KeyC') {
+      if (state.settingsOpen) e.preventDefault();
+      focusToggle = !focusToggle;
+      state.focusing = focusToggle || (!state.settingsOpen && keys.has('Space'));
+      return;
+    }
+
     if (state.settingsOpen) return;
 
     keys.add(e.code);
@@ -271,10 +278,6 @@ export function createControls(domElement, state, sceneApi) {
         state.eyesClosed = !state.eyesClosed;
         focusToggle = false;
         state.focusing = state.eyesClosed ? false : keys.has('Space');
-        break;
-      case 'KeyC':
-        focusToggle = !focusToggle;
-        state.focusing = focusToggle || keys.has('Space');
         break;
       case 'KeyM':
         state.muted = !state.muted;

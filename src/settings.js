@@ -363,7 +363,8 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       e.code === 'Escape' ||
       e.code === 'KeyV' ||
       e.code === 'KeyZ' ||
-      e.code === 'KeyL'
+      e.code === 'KeyL' ||
+      e.code === 'KeyC'
     ) {
       return;
     }
