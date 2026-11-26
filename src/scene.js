@@ -1123,7 +1123,7 @@ export function createClassroomScene() {
       lastLightsOn = lightsOn;
       scene.background.set(todPreset.skyBg);
       skyPlane.material.color.set(todPreset.skyPlane);
-      const indoorBounce = lightsOn ? (1.0 - todPreset.outdoorLux) * 0.22 : 0.0;
+      const indoorBounce = lightsOn ? (1.0 - todPreset.outdoorLux) * 0.12 : 0.0;
       hemiLight.color.set(todPreset.hemiSky);
       hemiLight.groundColor.set(todPreset.hemiGround);
       hemiLight.intensity = todPreset.hemiInt + indoorBounce;
