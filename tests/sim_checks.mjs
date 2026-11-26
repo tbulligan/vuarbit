@@ -273,15 +273,20 @@ assert.equal(QUALITY_PRESETS.high.dprCap, 1.75);
 assert.equal(QUALITY_PRESETS.balanced.dprCap, 1.25);
 assert.equal(QUALITY_PRESETS.performance.dprCap, 1.0);
 
-assert.equal(PERSONAS.length, 7, 'must define exactly 7 clinical personas');
+assert.equal(PERSONAS.length, 12, 'must define exactly 12 clinical presets');
 const expectedPersonas = {
   vuarbit_1994: { shortName: 'Vuarbit 1994', lensProfile: 'aphakic_bifocal', vodAcuity: 0.70, vosAcuity: 0.15, mlnScale: 1.0 },
   normal: { shortName: 'Normal Vision', lensProfile: 'none', vodAcuity: 1.0, vosAcuity: 1.0, mlnScale: 0.0 },
   glaucoma: { shortName: 'Glaucoma', lensProfile: 'none', vodAcuity: 0.90, vosAcuity: 0.85, glaucoma: 0.65 },
   amd: { shortName: 'Wet AMD', lensProfile: 'none', vodAcuity: 0.45, vosAcuity: 0.40, amd: 0.70 },
-  albinism: { shortName: 'Ocular Albinism', lensProfile: 'none', vodAcuity: 0.25, vosAcuity: 0.25, albinism: 0.75, mlnScale: 0.0 },
   cataracts: { shortName: 'Cataracts', lensProfile: 'none', vodAcuity: 0.40, vosAcuity: 0.35, cataract: 0.72 },
+  diabetic_retinopathy: { shortName: 'Diabetic Retinop.', lensProfile: 'none', diabeticRetinopathy: 0.65 },
+  retinitis_pigmentosa: { shortName: 'Retinitis Pigm.', lensProfile: 'none', retinitisPigmentosa: 0.65 },
+  albinism: { shortName: 'Ocular Albinism', lensProfile: 'none', vodAcuity: 0.25, vosAcuity: 0.25, albinism: 0.75, mlnScale: 0.0 },
   deuteranopia: { shortName: 'Deuteranopia', lensProfile: 'none', vodAcuity: 1.0, vosAcuity: 1.0, cvdType: 'deutan', cvdSeverity: 1.0 },
+  myopia: { shortName: 'Myopia (-4 D)', lensProfile: 'single_vision', lensPowerD: -4.0, myopiaD: 4.0 },
+  astigmatism: { shortName: 'Astigmatism', lensProfile: 'single_vision', astigmatismD: 2.75, astigmatismAxisDeg: 135 },
+  presbyopia: { shortName: 'Presbyopia', lensProfile: 'progressive', nearAddD: 2.5, presbyopiaD: 2.75 },
 };
 for (const [id, checks] of Object.entries(expectedPersonas)) {
   const persona = getPersonaById(id);
@@ -459,6 +464,24 @@ stFlip.heldOffset = computeHeldRestOffset(0.22, true, 'OD');
 const origX = stFlip.heldOffset.x;
 updateVisualSetting(stFlip, 'dominantEye', 'OS');
 assert.equal(stFlip.heldOffset.x, -origX, 'dominantEye OS swap must mirror active heldOffset.x');
+
+// Refractive presets start uncorrected (glassesOn=false) so user sees condition, then Z toggles glasses; negative minus lenses clamp cleanly
+const stMyo = createSimState();
+applyPersona(stMyo, 'myopia');
+assert.equal(stMyo.glassesOn, false, 'myopia preset starts uncorrected so Z demonstrates minus glasses');
+assert.equal(stMyo.settings.lensProfile, 'single_vision');
+assert.equal(stMyo.settings.lensPowerD, -4.0);
+assert.equal(updateVisualSetting(stMyo, 'lensPowerD', -20), -12.0, 'lensPowerD must clamp to min -12 D');
+assert.equal(updateVisualSetting(stMyo, 'lensProfile', 'progressive'), 'progressive');
+assert.equal(stMyo.glassesOn, true, 'selecting progressive lens profile must put glasses on');
+
+const stPresby = createSimState();
+applyPersona(stPresby, 'presbyopia');
+assert.equal(stPresby.glassesOn, false, 'presbyopia starts uncorrected');
+stPresby.glassesOn = true;
+stPresby.pitch = -0.4;
+updateSimState(stPresby, 0.016);
+assert.equal(stPresby.activeZone, 'near', 'progressive lens looking down must report near zone');
 
 // Bifocal nearAddD=0 stays distance even when looking down
 const stNoAdd = createSimState();

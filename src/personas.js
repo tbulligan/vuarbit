@@ -1,5 +1,5 @@
 /**
- * Clinical vision personas, allow-listed visual setting specs, and pure validation helpers.
+ * Clinical vision presets, allow-listed visual setting specs, and pure validation helpers.
  * Zero DOM or Three.js dependencies so Node unit tests can import directly.
  */
 
@@ -13,10 +13,22 @@ export const QUALITY_PRESETS = Object.freeze({
   performance: Object.freeze({ id: 'performance', label: 'Performance (1.0x)', dprCap: 1.0 }),
 });
 
+export const LENS_PROFILES = Object.freeze([
+  'aphakic_bifocal',
+  'single_vision',
+  'bifocal',
+  'progressive',
+  'none',
+]);
+
 export const SETTING_SPECS = Object.freeze({
-  lensProfile: Object.freeze({ type: 'enum', values: ['aphakic_bifocal', 'none'], default: 'aphakic_bifocal' }),
-  lensPowerD: Object.freeze({ type: 'number', min: 6, max: 18, step: 0.5, default: 13.0 }),
-  nearAddD: Object.freeze({ type: 'number', min: 0, max: 5, step: 0.25, default: 4.0 }),
+  lensProfile: Object.freeze({ type: 'enum', values: LENS_PROFILES, default: 'aphakic_bifocal' }),
+  lensPowerD: Object.freeze({ type: 'number', min: -12.0, max: 18.0, step: 0.25, default: 13.0 }),
+  nearAddD: Object.freeze({ type: 'number', min: 0.0, max: 5.0, step: 0.25, default: 4.0 }),
+  myopiaD: Object.freeze({ type: 'number', min: 0.0, max: 10.0, step: 0.25, default: 0.0 }),
+  presbyopiaD: Object.freeze({ type: 'number', min: 0.0, max: 4.0, step: 0.25, default: 0.0 }),
+  astigmatismD: Object.freeze({ type: 'number', min: 0.0, max: 5.0, step: 0.25, default: 0.0 }),
+  astigmatismAxisDeg: Object.freeze({ type: 'number', min: 0, max: 180, step: 5, default: 90 }),
   dominantEye: Object.freeze({ type: 'enum', values: ['OD', 'OS'], default: 'OD' }),
   vodAcuity: Object.freeze({ type: 'number', min: 0.05, max: 1.0, step: 0.05, default: 0.70 }),
   vosAcuity: Object.freeze({ type: 'number', min: 0.05, max: 1.0, step: 0.05, default: 0.15 }),
@@ -30,6 +42,8 @@ export const SETTING_SPECS = Object.freeze({
   amd: Object.freeze({ type: 'number', min: 0, max: 1.0, step: 0.05, default: 0.0 }),
   albinism: Object.freeze({ type: 'number', min: 0, max: 1.0, step: 0.05, default: 0.0 }),
   cataract: Object.freeze({ type: 'number', min: 0, max: 1.0, step: 0.05, default: 0.0 }),
+  diabeticRetinopathy: Object.freeze({ type: 'number', min: 0, max: 1.0, step: 0.05, default: 0.0 }),
+  retinitisPigmentosa: Object.freeze({ type: 'number', min: 0, max: 1.0, step: 0.05, default: 0.0 }),
   cvdType: Object.freeze({ type: 'enum', values: ['none', 'deutan', 'protan', 'tritan'], default: 'none' }),
   cvdSeverity: Object.freeze({ type: 'number', min: 0, max: 1.0, step: 0.05, default: 0.0 }),
 });
@@ -80,6 +94,12 @@ export function sanitizeVisualSettings(partial) {
 
 const EMMETROPIC_BASE = {
   lensProfile: 'none',
+  lensPowerD: 0.0,
+  nearAddD: 0.0,
+  myopiaD: 0.0,
+  presbyopiaD: 0.0,
+  astigmatismD: 0.0,
+  astigmatismAxisDeg: 90,
   vodAcuity: 1.0,
   vosAcuity: 1.0,
   diplopiaH: 0.0,
@@ -92,6 +112,8 @@ const EMMETROPIC_BASE = {
   amd: 0.0,
   albinism: 0.0,
   cataract: 0.0,
+  diabeticRetinopathy: 0.0,
+  retinitisPigmentosa: 0.0,
   cvdType: 'none',
   cvdSeverity: 0.0,
 };
@@ -100,14 +122,16 @@ export const PERSONAS = Object.freeze([
   Object.freeze({
     id: 'vuarbit_1994',
     group: 'vuarbit',
+    defaultGlassesOn: true,
     name: 'Vuarbit 1994 (Childhood Aphakia)',
     shortName: 'Vuarbit 1994',
-    description: 'Bilateral childhood aphakia (+13/+17 D bifocal), OD-dominant, OS amblyopia & diplopia, manifest latent nystagmus (MLN).',
+    description: 'Bilateral childhood aphakia (+13/+17 D amber executive bifocal), OD-dominant, OS amblyopia & diplopia, manifest latent nystagmus (MLN).',
     settings: Object.freeze(createDefaultVisualSettings()),
   }),
   Object.freeze({
     id: 'normal',
     group: 'vuarbit',
+    defaultGlassesOn: false,
     name: 'Normal Vision',
     shortName: 'Normal Vision',
     description: 'Healthy 20/20 binocular vision with no refractive error or ocular pathology.',
@@ -116,6 +140,7 @@ export const PERSONAS = Object.freeze([
   Object.freeze({
     id: 'glaucoma',
     group: 'condition',
+    defaultGlassesOn: false,
     name: 'Primary Open-Angle Glaucoma',
     shortName: 'Glaucoma',
     description: 'Arcuate & peripheral visual-field loss with Crabb (2013) perceptual filling-in; 100% reaches total blindness.',
@@ -130,6 +155,7 @@ export const PERSONAS = Object.freeze([
   Object.freeze({
     id: 'amd',
     group: 'condition',
+    defaultGlassesOn: false,
     name: 'Macular Degeneration (Wet AMD)',
     shortName: 'Wet AMD',
     description: 'Retinal-locked Amsler metamorphopsia (wavy straight lines) and central macular scotoma.',
@@ -143,8 +169,53 @@ export const PERSONAS = Object.freeze([
     })),
   }),
   Object.freeze({
+    id: 'cataracts',
+    group: 'condition',
+    defaultGlassesOn: false,
+    name: 'Nuclear & Cortical Cataracts',
+    shortName: 'Cataracts',
+    description: 'Nuclear brunescence yellowing, cortical haze, and forward disability glare; 100% is light-perception only.',
+    settings: Object.freeze(sanitizeVisualSettings({
+      ...EMMETROPIC_BASE,
+      vodAcuity: 0.40,
+      vosAcuity: 0.35,
+      floaters: 0.35,
+      cataract: 0.72,
+    })),
+  }),
+  Object.freeze({
+    id: 'diabetic_retinopathy',
+    group: 'condition',
+    defaultGlassesOn: false,
+    name: 'Diabetic Retinopathy',
+    shortName: 'Diabetic Retinop.',
+    description: 'Retinal-locked hemorrhage blotches, patchy exudate blur, and contrast loss; 100% causes dense vitreous hemorrhage.',
+    settings: Object.freeze(sanitizeVisualSettings({
+      ...EMMETROPIC_BASE,
+      vodAcuity: 0.55,
+      vosAcuity: 0.50,
+      floaters: 0.55,
+      diabeticRetinopathy: 0.65,
+    })),
+  }),
+  Object.freeze({
+    id: 'retinitis_pigmentosa',
+    group: 'condition',
+    defaultGlassesOn: false,
+    name: 'Retinitis Pigmentosa',
+    shortName: 'Retinitis Pigm.',
+    description: 'Progressive dark concentric tunnel constriction and low-light shadow collapse (nyctalopia); 100% is total blindness.',
+    settings: Object.freeze(sanitizeVisualSettings({
+      ...EMMETROPIC_BASE,
+      vodAcuity: 0.80,
+      vosAcuity: 0.80,
+      retinitisPigmentosa: 0.65,
+    })),
+  }),
+  Object.freeze({
     id: 'albinism',
     group: 'condition',
+    defaultGlassesOn: false,
     name: 'Ocular Albinism',
     shortName: 'Ocular Albinism',
     description: 'Foveal hypoplasia, iris-transillumination photophobia glare, and ~3.8 Hz infantile nystagmus.',
@@ -158,22 +229,9 @@ export const PERSONAS = Object.freeze([
     })),
   }),
   Object.freeze({
-    id: 'cataracts',
-    group: 'condition',
-    name: 'Nuclear & Cortical Cataracts',
-    shortName: 'Cataracts',
-    description: 'Nuclear brunescence yellowing, cortical haze, and forward disability glare; 100% is light-perception only.',
-    settings: Object.freeze(sanitizeVisualSettings({
-      ...EMMETROPIC_BASE,
-      vodAcuity: 0.40,
-      vosAcuity: 0.35,
-      floaters: 0.35,
-      cataract: 0.72,
-    })),
-  }),
-  Object.freeze({
     id: 'deuteranopia',
     group: 'condition',
+    defaultGlassesOn: false,
     name: 'Deuteranopia (Red-Green CVD)',
     shortName: 'Deuteranopia',
     description: 'Complete M-cone deficiency (Machado 2009 red-green shift) with normal spatial acuity.',
@@ -181,6 +239,50 @@ export const PERSONAS = Object.freeze([
       ...EMMETROPIC_BASE,
       cvdType: 'deutan',
       cvdSeverity: 1.0,
+    })),
+  }),
+  Object.freeze({
+    id: 'myopia',
+    group: 'condition',
+    defaultGlassesOn: false,
+    name: 'Myopia (-4.0 D Nearsighted)',
+    shortName: 'Myopia (-4 D)',
+    description: 'Depth-accurate -4.0 D nearsightedness: workbook sharp up close, blackboard deeply blurred. Press Z to wear -4.0 D glasses.',
+    settings: Object.freeze(sanitizeVisualSettings({
+      ...EMMETROPIC_BASE,
+      lensProfile: 'single_vision',
+      lensPowerD: -4.0,
+      myopiaD: 4.0,
+    })),
+  }),
+  Object.freeze({
+    id: 'astigmatism',
+    group: 'condition',
+    defaultGlassesOn: false,
+    name: 'Astigmatism (2.75 D Cyl)',
+    shortName: 'Astigmatism',
+    description: 'Directional corneal blur and bright-light streaking along the 135° meridian. Press Z to wear corrective toric glasses.',
+    settings: Object.freeze(sanitizeVisualSettings({
+      ...EMMETROPIC_BASE,
+      lensProfile: 'single_vision',
+      lensPowerD: 0.0,
+      astigmatismD: 2.75,
+      astigmatismAxisDeg: 135,
+    })),
+  }),
+  Object.freeze({
+    id: 'presbyopia',
+    group: 'condition',
+    defaultGlassesOn: false,
+    name: 'Presbyopia (+2.5 D Near Loss)',
+    shortName: 'Presbyopia',
+    description: 'Age-related near accommodation loss: blackboard sharp, workbook & held items blurry. Press Z for progressive glasses.',
+    settings: Object.freeze(sanitizeVisualSettings({
+      ...EMMETROPIC_BASE,
+      lensProfile: 'progressive',
+      lensPowerD: 0.0,
+      nearAddD: 2.5,
+      presbyopiaD: 2.75,
     })),
   }),
 ]);
@@ -222,7 +324,10 @@ export function applyPersona(state, personaId) {
   state.focusStrength = 0;
   state.eyesClosed = false;
   state.eyelidClose = 0;
-  state.glassesOn = persona.settings.lensProfile === 'aphakic_bifocal';
+  state.glassesOn =
+    typeof persona.defaultGlassesOn === 'boolean'
+      ? persona.defaultGlassesOn
+      : persona.settings.lensProfile !== 'none';
   return true;
 }
 
@@ -241,7 +346,7 @@ export function updateVisualSetting(state, key, value) {
   state.settings[key] = validated;
   state.personaId = 'custom';
   if (key === 'lensProfile') {
-    state.glassesOn = validated === 'aphakic_bifocal';
+    state.glassesOn = validated !== 'none';
   } else if (key === 'dominantEye' && state.holding && state.heldOffset) {
     const absX = Math.abs(state.heldOffset.x || 0);
     state.heldOffset.x = validated === 'OS' ? -absX : absX;

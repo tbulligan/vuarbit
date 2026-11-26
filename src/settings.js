@@ -7,7 +7,10 @@ import {
 } from './personas.js';
 
 const LENS_PROFILE_OPTIONS = [
-  { value: 'aphakic_bifocal', label: 'Aphakic Bifocal' },
+  { value: 'aphakic_bifocal', label: 'Aphakic Bifocal (Round)' },
+  { value: 'single_vision', label: 'Single-Vision (Modern)' },
+  { value: 'bifocal', label: 'Bifocal (Modern)' },
+  { value: 'progressive', label: 'Progressive (Titanium)' },
   { value: 'none', label: 'None (No Glasses)' },
 ];
 
@@ -59,9 +62,33 @@ function formatCataract(value) {
   return `${pct}% Haze`;
 }
 
+function formatDr(value) {
+  const pct = Math.round(value * 100);
+  if (pct <= 0) return '0%';
+  if (pct >= 95) return `${pct}% Heme`;
+  if (pct >= 55) return `${pct}% Blotch`;
+  return `${pct}% Mild`;
+}
+
+function formatRp(value) {
+  const pct = Math.round(value * 100);
+  if (pct <= 0) return '0%';
+  if (pct >= 98) return '100% Blind';
+  if (pct >= 65) return `${pct}% Tunnel`;
+  return `${pct}% Ring`;
+}
+
 function formatDiopter(value, decimals = 1) {
-  const sign = value >= 0 ? '+' : '';
+  const sign = value > 0.001 ? '+' : '';
   return `${sign}${value.toFixed(decimals)} D`;
+}
+
+function formatMinusDiopter(value) {
+  return value > 0.001 ? `-${value.toFixed(2)} D` : '0.00 D';
+}
+
+function formatAxis(value) {
+  return `${Math.round(value)}°`;
 }
 
 function formatDeg(value) {
@@ -76,7 +103,12 @@ const PRIMARY_GROUPS = [
       { key: 'glaucoma', label: 'Glaucoma', kind: 'range', format: formatGlaucoma },
       { key: 'amd', label: 'Wet AMD', kind: 'range', format: formatAmd },
       { key: 'cataract', label: 'Cataracts', kind: 'range', format: formatCataract },
+      { key: 'diabeticRetinopathy', label: 'Diabetic Retinop.', kind: 'range', format: formatDr },
+      { key: 'retinitisPigmentosa', label: 'Retinitis Pigm.', kind: 'range', format: formatRp },
       { key: 'albinism', label: 'Ocular Albinism', kind: 'range', format: formatPct },
+      { key: 'myopiaD', label: 'Myopia', kind: 'range', format: formatMinusDiopter },
+      { key: 'presbyopiaD', label: 'Presbyopia', kind: 'range', format: (v) => formatDiopter(v, 2) },
+      { key: 'astigmatismD', label: 'Astigmatism', kind: 'range', format: (v) => formatDiopter(v, 2) },
       { key: 'cvdType', label: 'Color Blindness', kind: 'select', options: CVD_TYPE_OPTIONS },
       { key: 'cvdSeverity', label: 'Color Shift', kind: 'range', format: formatPct },
     ],
@@ -95,8 +127,9 @@ const PRIMARY_GROUPS = [
 
 const ADVANCED_CONTROLS = [
   { key: 'lensProfile', label: 'Glasses / Lens', kind: 'select', options: LENS_PROFILE_OPTIONS },
-  { key: 'lensPowerD', label: 'Distance Power', kind: 'range', format: (v) => formatDiopter(v, 1) },
+  { key: 'lensPowerD', label: 'Lens Power', kind: 'range', format: (v) => formatDiopter(v, 2) },
   { key: 'nearAddD', label: 'Near Add', kind: 'range', format: (v) => formatDiopter(v, 2) },
+  { key: 'astigmatismAxisDeg', label: 'Astig. Axis', kind: 'range', format: formatAxis },
   { key: 'dominantEye', label: 'Dominant Eye', kind: 'select', options: DOMINANT_EYE_OPTIONS },
   { key: 'vodAcuity', label: 'Right Eye (OD)', kind: 'range', format: formatSnellenAcuity },
   { key: 'vosAcuity', label: 'Left Eye (OS)', kind: 'range', format: formatSnellenAcuity },
@@ -334,6 +367,8 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
 
     const s = state.settings || {};
     const lensDisabled = s.lensProfile === 'none';
+    const addDisabled = s.lensProfile === 'none' || s.lensProfile === 'single_vision';
+    const astigDisabled = (s.astigmatismD || 0) <= 0.05;
     const cvdDisabled = !s.cvdType || s.cvdType === 'none';
 
     if (acuityBothCtrl) {
@@ -370,8 +405,12 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
         }
       }
 
-      if (key === 'lensPowerD' || key === 'nearAddD') {
+      if (key === 'lensPowerD') {
         setDisabled(ctrl, lensDisabled);
+      } else if (key === 'nearAddD') {
+        setDisabled(ctrl, addDisabled);
+      } else if (key === 'astigmatismAxisDeg') {
+        setDisabled(ctrl, astigDisabled);
       } else if (key === 'cvdSeverity') {
         setDisabled(ctrl, cvdDisabled);
       }

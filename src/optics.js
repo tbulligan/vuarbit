@@ -9,6 +9,7 @@ const FAR_CLIP = 30.0;
 const OD_FOV_DEG = 62;
 const TARGET_MLN_FREQ_HZ = 5.5; // 5-6 beats/sec clinical MLN beat rate
 const CVD_TYPE_MAP = { none: 0, deutan: 1, protan: 2, tritan: 3 };
+const LENS_PROFILE_MAP = { none: 0, aphakic_bifocal: 1, single_vision: 2, bifocal: 3, progressive: 4 };
 const DEFAULT_SETTINGS = createDefaultVisualSettings();
 
 const FULLSCREEN_VERT = /* glsl */ `
@@ -148,6 +149,10 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uLensProfile: { value: 1.0 },
     uLensPowerD: { value: 13.0 },
     uNearAddD: { value: 4.0 },
+    uMyopiaD: { value: 0.0 },
+    uPresbyopiaD: { value: 0.0 },
+    uAstigmatismD: { value: 0.0 },
+    uAstigmatismAxisRad: { value: Math.PI * 0.5 },
     uDomIsOS: { value: 0.0 },
     uAcuityBlurDom: { value: computeAcuityBlurUV(0.70) },
     uAcuityBlurNonDom: { value: computeAcuityBlurUV(0.15) },
@@ -163,6 +168,8 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uAmd: { value: 0.0 },
     uAlbinism: { value: 0.0 },
     uCataract: { value: 0.0 },
+    uDiabeticRetinopathy: { value: 0.0 },
+    uRetinitisPigmentosa: { value: 0.0 },
     uCvdType: { value: 0.0 },
     uCvdSeverity: { value: 0.0 },
   };
@@ -210,14 +217,20 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     const amd = s.amd || 0;
     const albinism = s.albinism || 0;
     const cataract = s.cataract || 0;
+    const diabeticRetinopathy = s.diabeticRetinopathy || 0;
+    const retinitisPigmentosa = s.retinitisPigmentosa || 0;
+    const myopiaD = s.myopiaD || 0;
+    const presbyopiaD = s.presbyopiaD || 0;
+    const astigmatismD = s.astigmatismD || 0;
+    const lensProfileCode = LENS_PROFILE_MAP[lensProfile] ?? 1;
     const vodAcuity = s.vodAcuity ?? 0.70;
     const vosAcuity = s.vosAcuity ?? 0.15;
     const rawDomBlur = computeAcuityBlurUV(domIsOS ? vosAcuity : vodAcuity);
     const acuityBlurNonDom = computeAcuityBlurUV(domIsOS ? vodAcuity : vosAcuity);
     const hasDiplopia = Math.abs(s.diplopiaH ?? -1.53) >= 0.01 || Math.abs(s.diplopiaV ?? 0.31) >= 0.01;
-    // In emmetropic single-vision mode (no lenses, no diplopia), blend non-dominant acuity via binocular summation so OS acuity stays active
+    // In single-vision / no-lens mode without diplopia, blend non-dominant acuity via binocular summation so OS acuity stays active
     const acuityBlurDom =
-      lensProfile === 'none' && !hasDiplopia
+      lensProfile !== 'aphakic_bifocal' && !hasDiplopia
         ? rawDomBlur * 0.75 + acuityBlurNonDom * 0.25
         : rawDomBlur;
     const mlnUserScale = s.mlnScale ?? 1.0;
@@ -293,11 +306,15 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     const needBlur =
       !isNormal &&
       (state.eyelidClose || 0) < 0.995 &&
-      (lensProfile === 'aphakic_bifocal' ||
+      (lensProfileCode > 0 ||
         glaucoma > 0.01 ||
         amd > 0.01 ||
         cataract > 0.01 ||
         albinism > 0.01 ||
+        diabeticRetinopathy > 0.01 ||
+        myopiaD > 0.1 ||
+        presbyopiaD > 0.1 ||
+        astigmatismD > 0.1 ||
         Math.max(acuityBlurDom, acuityBlurNonDom) > 0.001);
     if (needBlur) {
       blurUniforms.tSource.value = rtOD.texture;
@@ -327,9 +344,13 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uniforms.uMlnOffsetUV.value.set(mln.dxDeg / 62.0, mln.dyDeg / 62.0);
     uniforms.uMlnVelUV.value = THREE.MathUtils.clamp(Math.abs(effVelDegS) / 900.0, 0.0, 0.015);
 
-    uniforms.uLensProfile.value = lensProfile === 'aphakic_bifocal' ? 1.0 : 0.0;
+    uniforms.uLensProfile.value = lensProfileCode;
     uniforms.uLensPowerD.value = s.lensPowerD ?? 13.0;
     uniforms.uNearAddD.value = s.nearAddD ?? 4.0;
+    uniforms.uMyopiaD.value = myopiaD;
+    uniforms.uPresbyopiaD.value = presbyopiaD;
+    uniforms.uAstigmatismD.value = astigmatismD;
+    uniforms.uAstigmatismAxisRad.value = THREE.MathUtils.degToRad(s.astigmatismAxisDeg ?? 90);
     uniforms.uDomIsOS.value = domIsOS ? 1.0 : 0.0;
     uniforms.uAcuityBlurDom.value = acuityBlurDom;
     uniforms.uAcuityBlurNonDom.value = acuityBlurNonDom;
@@ -343,6 +364,8 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uniforms.uAmd.value = amd;
     uniforms.uAlbinism.value = albinism;
     uniforms.uCataract.value = cataract;
+    uniforms.uDiabeticRetinopathy.value = diabeticRetinopathy;
+    uniforms.uRetinitisPigmentosa.value = retinitisPigmentosa;
     uniforms.uCvdType.value = CVD_TYPE_MAP[s.cvdType] ?? 0;
     uniforms.uCvdSeverity.value = s.cvdSeverity || 0.0;
 

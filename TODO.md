@@ -7,11 +7,12 @@
 - [x] Optional subtle player head/torso shadow caster on desk/floor.
 
 ## P2 — Persona & Visual Settings Menu (`P`)
-- [x] Safe DOM settings drawer (`P` key) separating **Named Personas** from custom clinical parameters (in-memory + `Reset`, `Esc` close, pointer-lock gating).
-  - [x] Presets: `Vuarbit 1994 (Childhood Aphakia)`, `Normal Vision`, `Primary Open-Angle Glaucoma`, `Macular Degeneration (Wet AMD)`, `Ocular Albinism`, `Nuclear & Cortical Cataracts`, `Deuteranopia (Red-Green CVD)`.
-  - [x] Visual condition parameters: lens profile (`Aphakic Bifocal` / `None`), lens power & near add, OD/OS acuity (`VOD`/`VOS`), dominant eye (`OD`/`OS`), diplopia H/V offset, MLN intensity, phosphenes, floaters, tinnitus.
-  - [x] SoTA shader clinical conditions (0–100% sliders): glaucoma (Crabb 2013 arcuate/peripheral perceptual filling-in), Wet AMD (retinal-locked static Amsler metamorphopsia + perceptual central scotoma), ocular albinism (linear-HDR iris transillumination glare + foveal hypoplasia + 3.8 Hz infantile nystagmus), cataracts (linear-HDR Beer-Lambert brunescence + forward glare scatter), Machado (2009) CVD (`Protan`/`Deutan`/`Tritan`).
+- [x] Safe DOM settings drawer (`P` key) separating **Presets** (`Profiles` & `Eye Conditions`) from custom clinical parameters (in-memory + `Reset`, `Compare (V)`, `Esc` close, pointer-lock gating).
+  - [x] Presets (12): `Vuarbit 1994`, `Normal Vision`, `Glaucoma`, `Wet AMD`, `Cataracts`, `Diabetic Retinopathy`, `Retinitis Pigmentosa`, `Ocular Albinism`, `Deuteranopia`, `Myopia (-4 D)`, `Astigmatism`, `Presbyopia`.
+  - [x] Unified lens & refractive engine with auto-matched frames: `Aphakic Bifocal` (round amber), `Single-Vision` / `Bifocal` (modern dark rectangular), `Progressive` (slim titanium), `None`; depth-accurate Myopia/Presbyopia vergence CoC, directional Astigmatism + axis, `VOD`/`VOS` MAR acuity with Snellen readouts, dominant eye (`OD`/`OS`), diplopia H/V, nystagmus, phosphenes, floaters, tinnitus.
+  - [x] SoTA linear-HDR clinical conditions (0–100% calibrated through end-stage): Crabb (2013) glaucoma, retinal-locked Wet AMD, cataracts, Diabetic Retinopathy, Retinitis Pigmentosa, ocular albinism, Machado (2009) CVD (`Protan`/`Deutan`/`Tritan`).
   - [x] Lightweight graphics DPR quality preset (`High 1.75x` / `Balanced 1.25x` / `Performance 1.0x`).
+  - [ ] Optional Frame customization dropdown (shape & color) in Optics Details for users representing their own eyewear.
 
 ## P3 — Second Scene: 2026 Work Desk (Pseudophakic IOL + 3 Pairs of Glasses)
 - Scene switcher (`1994 Classroom` ↔ `2026 Work Desk`) paired with a `Vuarbit 2026 (IOL)` persona to contrast childhood `+13 D` aphakia against adult IOL vision.

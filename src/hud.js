@@ -7,29 +7,37 @@ function makeEl(tag, className, text) {
   return el;
 }
 
+function fmtD(v) {
+  return `${v > 0.001 ? '+' : ''}${v.toFixed(1)} D`;
+}
+
 function zoneLabel(state) {
   if (state.eyelidClose > 0.8 || state.activeZone === 'closed') return 'Resting (Closed)';
   if (state.compareNormal || state.activeZone === 'normal') return 'Normal Vision (Compare)';
-  if (state.settings?.lensProfile === 'none' || state.activeZone === 'emmetropic') {
+  const lp = state.settings?.lensProfile || 'aphakic_bifocal';
+  if (lp === 'none' || state.activeZone === 'emmetropic') {
     return 'No Glasses';
   }
   const p = Number.isFinite(state.settings?.lensPowerD) ? state.settings.lensPowerD : 13.0;
   const a = Number.isFinite(state.settings?.nearAddD) ? state.settings.nearAddD : 4.0;
   if (!state.glassesOn || state.activeZone === 'uncorrected') {
-    return `Uncorrected (+${p.toFixed(1)} D off)`;
+    return lp === 'aphakic_bifocal' ? `Uncorrected (${fmtD(p)} off)` : 'Uncorrected (Press Z)';
   }
-  if (state.activeZone === 'near') return `Near Bifocal (+${(p + a).toFixed(1)} D)`;
-  return `Distance (+${p.toFixed(1)} D)`;
+  if (lp === 'progressive') return state.activeZone === 'near' ? `Progressive Near (+${a.toFixed(1)} add)` : 'Progressive Distance';
+  if (lp === 'single_vision') return `Single-Vision (${fmtD(p)})`;
+  if (state.activeZone === 'near') return `Near Bifocal (${fmtD(p + a)})`;
+  return `Distance (${fmtD(p)})`;
 }
 
 function glassesLabel(state) {
   if (state.compareNormal) return 'OFF (Normal Compare)';
-  if (state.settings?.lensProfile === 'none') return 'None';
+  const lp = state.settings?.lensProfile || 'aphakic_bifocal';
+  if (lp === 'none') return 'None';
   const p = Number.isFinite(state.settings?.lensPowerD) ? state.settings.lensPowerD : 13.0;
   const a = Number.isFinite(state.settings?.nearAddD) ? state.settings.nearAddD : 4.0;
-  return state.glassesOn
-    ? `ON (+${p.toFixed(1)} / +${a.toFixed(1)} D)`
-    : `OFF (+${p.toFixed(1)} D off)`;
+  const hasAdd = lp !== 'single_vision' && a > 0.1;
+  const rx = hasAdd ? `${fmtD(p)} / +${a.toFixed(1)} add` : fmtD(p);
+  return state.glassesOn ? `ON (${rx})` : `OFF (${rx}, press Z)`;
 }
 
 function personaLabel(state) {

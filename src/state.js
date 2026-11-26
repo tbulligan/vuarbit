@@ -302,7 +302,11 @@ export function updateSimState(state, dt) {
     state.activeZone = 'emmetropic';
   } else if (!state.glassesOn) {
     state.activeZone = 'uncorrected';
-  } else if (s.nearAddD > 0.25 && (state.pitch < -0.22 || (state.focusDistM > 0 && state.focusDistM < 0.7))) {
+  } else if (
+    (s.lensProfile === 'aphakic_bifocal' || s.lensProfile === 'bifocal' || s.lensProfile === 'progressive') &&
+    s.nearAddD > 0.25 &&
+    (state.pitch < -0.22 || (state.focusDistM > 0 && state.focusDistM < 0.7))
+  ) {
     state.activeZone = 'near';
   } else {
     state.activeZone = 'distance';
