@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { computeMlnAngleDeg, computeMlnFreqScale } from './state.js';
+import { QUALITY_PRESETS, createDefaultVisualSettings, computeAcuityBlurUV } from './personas.js';
 import visionFrag from './shaders/vision.frag.glsl?raw';
 
 const EYE_HALF_IPD_M = 0.029;
@@ -7,34 +8,8 @@ const NEAR_CLIP = 0.02;
 const FAR_CLIP = 30.0;
 const OD_FOV_DEG = 62;
 const TARGET_MLN_FREQ_HZ = 5.5; // 5-6 beats/sec clinical MLN beat rate
-const QUALITY_DPR_CAPS = { high: 1.75, balanced: 1.25, performance: 1.0 };
 const CVD_TYPE_MAP = { none: 0, deutan: 1, protan: 2, tritan: 3 };
-
-const DEFAULT_SETTINGS = {
-  lensProfile: 'aphakic_bifocal',
-  lensPowerD: 13.0,
-  nearAddD: 4.0,
-  dominantEye: 'OD',
-  vodAcuity: 0.70,
-  vosAcuity: 0.15,
-  diplopiaH: -1.53,
-  diplopiaV: 0.31,
-  mlnScale: 1.0,
-  phosphenes: 1.0,
-  floaters: 1.0,
-  tinnitus: 1.0,
-  glaucoma: 0.0,
-  amd: 0.0,
-  albinism: 0.0,
-  cataract: 0.0,
-  cvdType: 'none',
-  cvdSeverity: 0.0,
-};
-
-function computeAcuityBlurUV(acuityDecimal) {
-  const a = THREE.MathUtils.clamp(Number.isFinite(acuityDecimal) ? acuityDecimal : 1.0, 0.05, 1.0);
-  return THREE.MathUtils.clamp(0.0009 * Math.pow(1.0 / a - 1.0, 0.96), 0.0, 0.014);
-}
+const DEFAULT_SETTINGS = createDefaultVisualSettings();
 
 const FULLSCREEN_VERT = /* glsl */ `
   varying vec2 vUv;
@@ -367,7 +342,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
   }
 
   function setQuality(presetId) {
-    const cap = QUALITY_DPR_CAPS[presetId] ?? 1.75;
+    const cap = QUALITY_PRESETS[presetId]?.dprCap ?? 1.75;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
     resize(window.innerWidth, window.innerHeight);
   }
