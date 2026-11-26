@@ -219,6 +219,17 @@ export function createControls(domElement, state, sceneApi) {
       return;
     }
 
+    if (!e.repeat && e.code === 'KeyV' && (!state.settingsOpen || e.target?.tagName !== 'SELECT')) {
+      state.compareNormal = !state.compareNormal;
+      state.fatigue = 0.05;
+      if (!state.compareNormal) {
+        focusToggle = false;
+        state.focusing = state.settingsOpen ? false : keys.has('Space');
+        state.focusStrength = 0;
+      }
+      return;
+    }
+
     if (state.settingsOpen) return;
 
     keys.add(e.code);
@@ -248,15 +259,6 @@ export function createControls(domElement, state, sceneApi) {
       case 'KeyC':
         focusToggle = !focusToggle;
         state.focusing = focusToggle || keys.has('Space');
-        break;
-      case 'KeyV':
-        state.compareNormal = !state.compareNormal;
-        state.fatigue = 0.05;
-        if (!state.compareNormal) {
-          focusToggle = false;
-          state.focusing = keys.has('Space');
-          state.focusStrength = 0;
-        }
         break;
       case 'KeyM':
         state.muted = !state.muted;

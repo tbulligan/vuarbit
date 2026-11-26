@@ -282,6 +282,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   listen(drawer, 'wheel', (e) => e.stopPropagation(), { passive: true });
   listen(drawer, 'keydown', (e) => {
     if (e.code === 'KeyP' || e.code === 'Escape') return;
+    if (e.code === 'KeyV' && e.target?.tagName !== 'SELECT') return;
     e.stopPropagation();
   });
 
