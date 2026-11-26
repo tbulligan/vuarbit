@@ -9,6 +9,7 @@ uniform float uTime;
 uniform float uGlassesOn;
 uniform float uEyelidClose;
 uniform float uEyelidLight;
+uniform float uAmbientLight;
 uniform float uFatigue;
 uniform float uOcclOD;
 uniform float uFocusEffort;
@@ -401,19 +402,22 @@ vec3 applyLinearPathologies(vec3 linCol, vec2 uv, vec2 p, vec2 pFovea) {
     linCol *= (1.0 - smoothstep(0.88, 1.0, dr) * 0.90);
   }
 
-  // 6. Retinitis Pigmentosa: mid-peripheral ring scotoma -> dark concentric tunnel constriction; gentle shadow dim in daylight; 100% = NLP
+  // 6. Retinitis Pigmentosa: mid-peripheral ring scotoma -> dark concentric tunnel; nyctalopia scales sharply in dim/night lighting
   if (uRetinitisPigmentosa > 0.005) {
     float rp = clamp(uRetinitisPigmentosa, 0.0, 1.0);
+    float dimness = 1.0 - clamp(uAmbientLight, 0.0, 1.0);
     float r = length(pFovea);
-    float tunnelR = mix(0.64, 0.0, pow(rp, 0.85));
+    float tunnelR = mix(0.64, 0.0, pow(rp, 0.85)) * (1.0 - dimness * 0.32 * rp);
     float edgeW = mix(0.15, 0.035, rp);
     float tunnelMask = smoothstep(tunnelR, tunnelR + edgeW, r);
     // Early-to-moderate mid-peripheral ring scotoma (leaves sliver of far periphery until ~55%)
     float ringD = (r - 0.34) / 0.10;
     float ringScotoma = exp(-(ringD * ringD)) * smoothstep(0.08, 0.35, rp) * (1.0 - smoothstep(0.45, 0.72, rp)) * 0.70;
-    // Mild daytime shadow contrast loss only in very dark recesses (preserves close held objects in classroom daylight)
+    // Nyctalopia: gentle shadow dim in sunlit room, strong scotopic collapse at Dusk/Night/Lights OFF
     float luma = dot(linCol, vec3(0.2126, 0.7152, 0.0722));
-    float dimCollapse = (1.0 - smoothstep(0.015, 0.16, luma)) * rp * 0.24;
+    float nyctThresh = mix(0.16, 0.45, dimness);
+    float nyctDepth = mix(0.22, 0.90, smoothstep(0.15, 0.88, dimness));
+    float dimCollapse = (1.0 - smoothstep(0.015, nyctThresh, luma)) * rp * nyctDepth;
     linCol *= (1.0 - dimCollapse);
     float totalRpBlind = smoothstep(0.93, 1.0, rp);
     linCol *= (1.0 - max(max(tunnelMask, ringScotoma), totalRpBlind));
@@ -648,9 +652,11 @@ void main() {
     float astBlurOD = isAphakic > 0.5
       ? (mix(0.011, 0.0010 + inNonDomOnly * 0.0022 + periphFactor * 0.0032, inLens) + decomp * 0.0014)
       : (residualAstigD * 0.0046 + palSwim * 0.0055);
-    float hoaOD = isAphakic > 0.5
+    float dimness = 1.0 - clamp(uAmbientLight, 0.0, 1.0);
+    float pupilHoaBoost = 1.0 + dimness * 0.75;
+    float hoaOD = (isAphakic > 0.5
       ? mix(0.55, 0.34 + decomp * 0.24, inLens)
-      : clamp(residualAstigD * 0.24, 0.0, 0.85);
+      : clamp(residualAstigD * 0.24, 0.0, 0.85)) * pupilHoaBoost;
     float chromaOD = isAphakic * inLens * clamp(rLens * rLens * 0.0072 * powerRatio, 0.0, 0.009);
 
     vec3 linOD = sampleOD(
@@ -658,11 +664,16 @@ void main() {
     );
     linOD = applyLinearPathologies(linOD, uvOD, p, pFovea);
     vec3 colOD = linearToDisplay(linOD);
-    // Low-acuity spatial contrast loss (<=0.12 / 20/160..20/400) + subtle non-dominant lens contrast drop
-    float lowAcuityDrop = smoothstep(0.010, 0.030, baseAcuityBlur) * 0.24;
-    colOD = mix(colOD, mix(vec3(0.42), colOD, 0.93), inNonDomOnly);
-    colOD = mix(colOD, vec3(dot(colOD, vec3(0.299, 0.587, 0.114))), lowAcuityDrop * 0.35);
-    colOD = mix(colOD, (colOD - 0.5) * 0.78 + 0.5, lowAcuityDrop);
+    // Low-acuity & dim-light mesopic contrast loss (guarded so pure-black blind regions never lift to gray)
+    float colLuma = dot(colOD, vec3(0.299, 0.587, 0.114));
+    float nonBlack = smoothstep(0.004, 0.06, colLuma);
+    float lowAcuityDrop = smoothstep(0.010, 0.030, baseAcuityBlur) * 0.24 * nonBlack;
+    float mesopicDrop = dimness * max(uGlaucoma, uAmd) * 0.22 * nonBlack;
+    float contrastDrop = clamp(lowAcuityDrop + mesopicDrop, 0.0, 0.36);
+    colOD = mix(colOD, mix(vec3(0.42), colOD, 0.93), inNonDomOnly * nonBlack);
+    colOD = mix(colOD, vec3(colLuma), contrastDrop * 0.35);
+    colOD = mix(colOD, (colOD - 0.5) * 0.78 + 0.5, contrastDrop);
+    colOD *= (1.0 - mesopicDrop * 0.30);
 
     if (length(uDiplopiaTan) >= 1e-4) {
       // Constant angular diplopia sampled from dominant view
@@ -740,15 +751,16 @@ void main() {
   if (uEyelidClose > 0.005) {
     float lidEdge = smoothstep(uEyelidClose * 1.15 - 0.15, uEyelidClose * 1.15 + 0.05, abs(p.y) * 2.0 + 0.06 * (p.x * p.x));
     float closedMask = mix(1.0 - lidEdge, 1.0, smoothstep(0.75, 1.0, uEyelidClose));
-    vec3 lidBase = mix(vec3(0.095, 0.036, 0.026), vec3(0.42, 0.165, 0.082), clamp(uEyelidLight, 0.0, 1.0));
+    vec3 lidBase = mix(vec3(0.012, 0.006, 0.006), vec3(0.42, 0.165, 0.082), clamp(uEyelidLight, 0.0, 1.0));
     vec3 diffuseGlare = sampleClosedEyelidGlare(vUv, noiseAngle);
     vec3 innerLid = lidBase + diffuseGlare * 0.45;
     col = mix(col, innerLid, clamp(closedMask * uEyelidClose, 0.0, 1.0));
   }
 
-  // Plentiful tiny ultra-quick photopsia flashes: additive on dark/mid scenes, contrast-preserving over bright windows/lights
+  // Plentiful tiny ultra-quick photopsia flashes: additive on dark/mid scenes, more vivid in dim lighting
   if (uPhospheneScale > 0.005) {
-    vec3 phos = computeFlashPhosphenes(px + uMlnOffsetUV * uResolution * 0.35, uTime, uEyelidClose, decomp) * uPhospheneScale;
+    float phosDimBoost = 1.0 + (1.0 - clamp(uAmbientLight, 0.0, 1.0)) * 0.45;
+    vec3 phos = computeFlashPhosphenes(px + uMlnOffsetUV * uResolution * 0.35, uTime, uEyelidClose, decomp) * uPhospheneScale * phosDimBoost;
     float phosMag = max(phos.r, max(phos.g, phos.b));
     float bgLuma = dot(col, vec3(0.299, 0.587, 0.114));
     float brightBg = smoothstep(0.55, 0.92, bgLuma);

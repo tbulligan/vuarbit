@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createSimState, updateSimState } from './state.js';
-import { QUALITY_PRESETS, applyPersona, updateVisualSetting } from './personas.js';
+import { QUALITY_PRESETS, TIME_OF_DAY_PRESETS, applyPersona, updateVisualSetting } from './personas.js';
 import { createClassroomScene } from './scene.js';
 import { createControls } from './controls.js';
 import { createOpticsRenderer } from './optics.js';
@@ -100,6 +100,13 @@ async function init() {
       if (state.settings?.lensProfile !== 'none') {
         state.glassesOn = !state.glassesOn;
       }
+    },
+    onTimeOfDayChange(todId) {
+      if (!TIME_OF_DAY_PRESETS[todId]) return;
+      state.timeOfDay = todId;
+    },
+    onLightsToggle() {
+      state.lightsOn = state.lightsOn === false;
     },
     onQualityChange(presetId) {
       if (!QUALITY_PRESETS[presetId]) return;

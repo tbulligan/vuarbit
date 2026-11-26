@@ -13,6 +13,67 @@ export const QUALITY_PRESETS = Object.freeze({
   performance: Object.freeze({ id: 'performance', label: 'Performance (1.0x)', dprCap: 1.0 }),
 });
 
+export const TIME_OF_DAY_PRESETS = Object.freeze({
+  sunny: Object.freeze({
+    id: 'sunny',
+    label: 'Sunny Morning',
+    skyBg: '#c7ddf0',
+    skyPlane: '#eef7ff',
+    hemiSky: '#eef4ff',
+    hemiGround: '#9c9286',
+    hemiInt: 0.84,
+    sunColor: '#fffdf8',
+    sunInt: 1.66,
+    sunPos: Object.freeze([-7.5, 4.4, -1.0]),
+    outdoorLux: 1.0,
+  }),
+  overcast: Object.freeze({
+    id: 'overcast',
+    label: 'Overcast',
+    skyBg: '#aeb8c2',
+    skyPlane: '#c6d0d9',
+    hemiSky: '#dce3eb',
+    hemiGround: '#8a857e',
+    hemiInt: 0.72,
+    sunColor: '#e4eaf2',
+    sunInt: 0.45,
+    sunPos: Object.freeze([-6.5, 5.2, -0.5]),
+    outdoorLux: 0.52,
+  }),
+  dusk: Object.freeze({
+    id: 'dusk',
+    label: 'Dusk',
+    skyBg: '#463858',
+    skyPlane: '#8f5848',
+    hemiSky: '#98758a',
+    hemiGround: '#4a3d38',
+    hemiInt: 0.24,
+    sunColor: '#ff9658',
+    sunInt: 0.34,
+    sunPos: Object.freeze([-9.0, 1.3, 1.6]),
+    outdoorLux: 0.20,
+  }),
+  night: Object.freeze({
+    id: 'night',
+    label: 'Night',
+    skyBg: '#0b1020',
+    skyPlane: '#131d33',
+    hemiSky: '#263352',
+    hemiGround: '#1a1c22',
+    hemiInt: 0.11,
+    sunColor: '#7b98cc',
+    sunInt: 0.08,
+    sunPos: Object.freeze([-7.5, 4.8, 2.2]),
+    outdoorLux: 0.04,
+  }),
+});
+
+export function computeAmbientLight(timeOfDay, lightsOn) {
+  const preset = TIME_OF_DAY_PRESETS[timeOfDay] || TIME_OF_DAY_PRESETS.sunny;
+  const artLux = lightsOn ? 0.48 : 0.0;
+  return clamp(preset.outdoorLux * 0.68 + artLux, 0.03, 1.0);
+}
+
 export const LENS_PROFILES = Object.freeze([
   'aphakic_bifocal',
   'single_vision',

@@ -7,6 +7,7 @@ import {
   PERSONAS,
   SETTING_SPECS,
   QUALITY_PRESETS,
+  TIME_OF_DAY_PRESETS,
   getPersonaById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
@@ -15,12 +16,14 @@ import {
   computeAcuityBlurUV,
   formatSnellenAcuity,
   hasSuppressionMechanics,
+  computeAmbientLight,
 } from './personas.js';
 
 export {
   PERSONAS,
   SETTING_SPECS,
   QUALITY_PRESETS,
+  TIME_OF_DAY_PRESETS,
   getPersonaById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
@@ -29,6 +32,7 @@ export {
   computeAcuityBlurUV,
   formatSnellenAcuity,
   hasSuppressionMechanics,
+  computeAmbientLight,
 };
 
 export function clamp(value, min, max) {
@@ -120,6 +124,9 @@ export function createSimState() {
     settings: createDefaultVisualSettings(),
     settingsOpen: false,
     qualityPreset: 'high',
+    timeOfDay: 'sunny',
+    lightsOn: true,
+    ambientLight: 1.0,
     mode: 'standing',
     glassesOn: true,
     eyesClosed: false,
@@ -229,6 +236,7 @@ export function computeMlnAngleDeg(wave, elapsed, freqHz, occlusionLevel, mlnSca
 export function updateSimState(state, dt) {
   const step = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.1);
   const s = state.settings || createDefaultVisualSettings();
+  state.ambientLight = computeAmbientLight(state.timeOfDay, state.lightsOn !== false);
   const suppressionActive = hasSuppressionMechanics(s);
   const paused = Boolean(state.settingsOpen);
 

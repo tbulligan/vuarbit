@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { computeOcclusionFromDistance } from './state.js';
+import { computeOcclusionFromDistance, TIME_OF_DAY_PRESETS } from './state.js';
 import { createStylizedPerson, populateClassmates } from './scene/classmates.js';
 import { createUpgradedPickables, populateClassroomProps } from './scene/props.js';
 import { createPlayerShadowCaster } from './scene/player_shadow.js';
@@ -796,8 +796,13 @@ export function createClassroomScene() {
     scene.add(frameGroup);
   }
 
-  // Twin-tube 1990s fluorescent ceiling fixtures
-  const lampTubeMat = new THREE.MeshBasicMaterial({ color: '#fbfdff' });
+  // Twin-tube 1990s fluorescent ceiling fixtures (emissive toggled cleanly by lightsOn)
+  const lampTubeMat = new THREE.MeshStandardMaterial({
+    color: '#c8cdd2',
+    emissive: '#fbfdff',
+    emissiveIntensity: 1.35,
+    roughness: 0.35,
+  });
   const lampBodyMat = new THREE.MeshStandardMaterial({ color: '#d8dad7', roughness: 0.5 });
   for (const lx of [-1.75, 1.75]) {
     for (const lz of [-2.0, 0.35, 2.5]) {
@@ -1070,6 +1075,8 @@ export function createClassroomScene() {
   // Reusable scratch objects for zero-GC update loop
   let simTime = 0;
   let heldLiftY = 0;
+  let lastTimeOfDay = null;
+  let lastLightsOn = null;
   const raycaster = new THREE.Raycaster();
   const forward = new THREE.Vector3();
   const windowLightDir = new THREE.Vector3(-1, 0.25, 0).normalize();
@@ -1107,10 +1114,34 @@ export function createClassroomScene() {
     camera.getWorldDirection(forward);
     playerShadow.update(state, camera);
 
-    // Gaze-dependent light reaching closed eyelids (bright toward sunny left windows & ceiling lights)
+    // Update natural + artificial lighting rig only when timeOfDay or lightsOn changes
+    const todId = TIME_OF_DAY_PRESETS[state.timeOfDay] ? state.timeOfDay : 'sunny';
+    const lightsOn = state.lightsOn !== false;
+    const todPreset = TIME_OF_DAY_PRESETS[todId];
+    if (todId !== lastTimeOfDay || lightsOn !== lastLightsOn) {
+      lastTimeOfDay = todId;
+      lastLightsOn = lightsOn;
+      scene.background.set(todPreset.skyBg);
+      skyPlane.material.color.set(todPreset.skyPlane);
+      const indoorBounce = lightsOn ? (1.0 - todPreset.outdoorLux) * 0.22 : 0.0;
+      hemiLight.color.set(todPreset.hemiSky);
+      hemiLight.groundColor.set(todPreset.hemiGround);
+      hemiLight.intensity = todPreset.hemiInt + indoorBounce;
+      sunLight.color.set(todPreset.sunColor);
+      sunLight.intensity = todPreset.sunInt;
+      sunLight.position.set(todPreset.sunPos[0], todPreset.sunPos[1], todPreset.sunPos[2]);
+      ceilingFill.intensity = lightsOn ? 10.5 : 0.0;
+      lampTubeMat.emissiveIntensity = lightsOn ? 1.35 : 0.0;
+    }
+
+    // Gaze-dependent light reaching closed eyelids (scaled by actual outdoor & ceiling flux)
     const winAlign = Math.max(0, forward.dot(windowLightDir));
     const ceilAlign = Math.max(0, forward.y);
-    state.eyelidLight = Math.min(1, Math.max(0.08, 0.12 + winAlign * 0.78 + ceilAlign * 0.32));
+    const ceilFlux = lightsOn ? 0.52 : 0.0;
+    state.eyelidLight = Math.min(
+      1,
+      Math.max(0.02, 0.03 + todPreset.outdoorLux * (0.14 + winAlign * 0.72) + ceilFlux * (0.08 + ceilAlign * 0.48))
+    );
 
     // Move held pickable into camera-relative space; apply transient lift on desk collision so it returns smoothly when clear
     let heldEntry = null;

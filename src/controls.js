@@ -245,6 +245,12 @@ export function createControls(domElement, state, sceneApi) {
       return;
     }
 
+    if (!e.repeat && e.code === 'KeyL') {
+      if (state.settingsOpen) e.preventDefault();
+      state.lightsOn = state.lightsOn === false;
+      return;
+    }
+
     if (state.settingsOpen) return;
 
     keys.add(e.code);

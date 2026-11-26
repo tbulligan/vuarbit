@@ -138,6 +138,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uGlassesOn: { value: 1 },
     uEyelidClose: { value: 0 },
     uEyelidLight: { value: 0.35 },
+    uAmbientLight: { value: 1.0 },
     uFatigue: { value: 0.08 },
     uOcclOD: { value: 0 },
     uFocusEffort: { value: 0 },
@@ -340,6 +341,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uniforms.uGlassesOn.value = state.glassesOn ? 1.0 : 0.0;
     uniforms.uEyelidClose.value = state.eyelidClose || 0.0;
     uniforms.uEyelidLight.value = state.eyelidLight ?? 0.35;
+    uniforms.uAmbientLight.value = state.ambientLight ?? 1.0;
     uniforms.uFatigue.value = state.fatigue || 0.0;
     uniforms.uOcclOD.value = domIsOS ? (state.occlOS || 0.0) : (state.occlOD || 0.0);
     uniforms.uFocusEffort.value = state.focusStrength || 0.0;

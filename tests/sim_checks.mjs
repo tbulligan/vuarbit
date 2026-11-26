@@ -4,6 +4,7 @@ import {
   PERSONAS,
   SETTING_SPECS,
   QUALITY_PRESETS,
+  TIME_OF_DAY_PRESETS,
   getPersonaById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
@@ -12,6 +13,7 @@ import {
   computeAcuityBlurUV,
   formatSnellenAcuity,
   hasSuppressionMechanics,
+  computeAmbientLight,
   createSimState,
   computeOcclusionFromDistance,
   computeDiplopiaOffsetDeg,
@@ -489,6 +491,28 @@ stPresby.glassesOn = true;
 stPresby.pitch = -0.4;
 updateSimState(stPresby, 0.016);
 assert.equal(stPresby.activeZone, 'near', 'progressive lens looking down must report near zone');
+
+// Time-of-Day & Ceiling Lights ambient lux ordering + persona independence
+assert.deepEqual(Object.keys(TIME_OF_DAY_PRESETS), ['sunny', 'overcast', 'dusk', 'night']);
+const luxSunnyOn = computeAmbientLight('sunny', true);
+const luxSunnyOff = computeAmbientLight('sunny', false);
+const luxDuskOff = computeAmbientLight('dusk', false);
+const luxNightOff = computeAmbientLight('night', false);
+assert.ok(
+  luxSunnyOn === 1.0 && luxSunnyOn > luxSunnyOff && luxSunnyOff > luxDuskOff && luxDuskOff > luxNightOff && luxNightOff > 0,
+  `ambient light must decrease monotonically from sunny+on to night+off (${luxSunnyOn}, ${luxSunnyOff}, ${luxDuskOff}, ${luxNightOff})`
+);
+
+const stEnv = createSimState();
+assert.equal(stEnv.timeOfDay, 'sunny');
+assert.equal(stEnv.lightsOn, true);
+stEnv.timeOfDay = 'night';
+stEnv.lightsOn = false;
+updateSimState(stEnv, 0.016);
+assert.equal(stEnv.ambientLight, luxNightOff);
+applyPersona(stEnv, 'retinitis_pigmentosa');
+assert.equal(stEnv.timeOfDay, 'night', 'switching preset must preserve room timeOfDay');
+assert.equal(stEnv.lightsOn, false, 'switching preset must preserve room lightsOn');
 
 // Bifocal nearAddD=0 stays distance even when looking down
 const stNoAdd = createSimState();

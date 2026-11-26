@@ -2,6 +2,7 @@ import {
   PERSONAS,
   QUALITY_PRESETS,
   SETTING_SPECS,
+  TIME_OF_DAY_PRESETS,
   formatSnellenAcuity,
   getPersonaById,
 } from './personas.js';
@@ -279,6 +280,35 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   advDetails.replaceChildren(advSummary, advBody);
   body.appendChild(advDetails);
 
+  // Lighting section (Time of Day + Ceiling Lights)
+  const lightSection = makeEl('section', 'setting-group');
+  const lightHeading = makeEl('h3', 'setting-group-title', 'Lighting');
+  const todRow = makeEl('label', 'setting-row');
+  const todLbl = makeEl('span', 'setting-label', 'Time of Day');
+  const todSelect = makeEl('select', 'setting-select');
+  for (const preset of Object.values(TIME_OF_DAY_PRESETS)) {
+    const optionEl = makeEl('option', null, preset.label);
+    optionEl.value = preset.id;
+    todSelect.appendChild(optionEl);
+  }
+  listen(todSelect, 'change', () => {
+    lastTimeOfDay = todSelect.value;
+    callbacks.onTimeOfDayChange?.(todSelect.value);
+  });
+  todRow.replaceChildren(todLbl, todSelect);
+
+  const lightsRow = makeEl('div', 'setting-row');
+  const lightsLbl = makeEl('span', 'setting-label', 'Ceiling Lights (L)');
+  const lightsBtn = makeEl('button', 'settings-btn', 'ON');
+  lightsBtn.type = 'button';
+  lightsBtn.setAttribute('aria-pressed', 'true');
+  listen(lightsBtn, 'click', () => {
+    callbacks.onLightsToggle?.();
+  });
+  lightsRow.replaceChildren(lightsLbl, lightsBtn);
+  lightSection.replaceChildren(lightHeading, todRow, lightsRow);
+  body.appendChild(lightSection);
+
   // Graphics Quality section
   const qualitySection = makeEl('section', 'setting-group');
   const qualityHeading = makeEl('h3', 'setting-group-title', 'Graphics');
@@ -291,6 +321,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     qualitySelect.appendChild(optionEl);
   }
   listen(qualitySelect, 'change', () => {
+    lastQuality = qualitySelect.value;
     callbacks.onQualityChange?.(qualitySelect.value);
   });
   qualityRow.replaceChildren(qualityLbl, qualitySelect);
@@ -327,7 +358,15 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   listen(drawer, 'click', (e) => e.stopPropagation());
   listen(drawer, 'wheel', (e) => e.stopPropagation(), { passive: true });
   listen(drawer, 'keydown', (e) => {
-    if (e.code === 'KeyP' || e.code === 'Escape' || e.code === 'KeyV' || e.code === 'KeyZ') return;
+    if (
+      e.code === 'KeyP' ||
+      e.code === 'Escape' ||
+      e.code === 'KeyV' ||
+      e.code === 'KeyZ' ||
+      e.code === 'KeyL'
+    ) {
+      return;
+    }
     e.stopPropagation();
   });
 
@@ -336,6 +375,8 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   let lastCompare = null;
   let lastGlassesOn = null;
   let lastGlassesDisabled = null;
+  let lastTimeOfDay = null;
+  let lastLightsOn = null;
   let lastQuality = null;
   let lastAcuityBoth = null;
   const lastValues = new Map();
@@ -448,8 +489,22 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       }
     }
 
+    const tod = state.timeOfDay || 'sunny';
+    if (force || (tod !== lastTimeOfDay && document.activeElement !== todSelect)) {
+      lastTimeOfDay = tod;
+      todSelect.value = tod;
+    }
+
+    const lightsOn = state.lightsOn !== false;
+    if (force || lightsOn !== lastLightsOn) {
+      lastLightsOn = lightsOn;
+      lightsBtn.textContent = lightsOn ? 'ON' : 'OFF';
+      lightsBtn.classList.toggle('is-active', lightsOn);
+      lightsBtn.setAttribute('aria-pressed', lightsOn ? 'true' : 'false');
+    }
+
     const quality = state.qualityPreset || 'high';
-    if (force || quality !== lastQuality) {
+    if (force || (quality !== lastQuality && document.activeElement !== qualitySelect)) {
       lastQuality = quality;
       qualitySelect.value = quality;
     }
