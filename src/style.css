@@ -124,6 +124,224 @@ body {
   background: rgba(255, 255, 255, 0.45);
 }
 
+.settings-drawer {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  width: 364px;
+  max-width: calc(100vw - 28px);
+  display: flex;
+  flex-direction: column;
+  background: rgba(14, 17, 22, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+  overflow: hidden;
+  z-index: 20;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(20, 24, 31, 0.72);
+}
+
+.settings-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #f6f3ea;
+  white-space: nowrap;
+}
+
+.settings-badge {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(245, 211, 140, 0.16);
+  border: 1px solid rgba(245, 211, 140, 0.42);
+  color: #f5d38c;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.settings-btn {
+  padding: 4px 9px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e4e7ed;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.settings-btn-close {
+  border-color: rgba(245, 211, 140, 0.38);
+  color: #f5d38c;
+}
+
+.settings-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+.setting-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 11px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.setting-group-title {
+  margin: 0 0 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #aeb6c4;
+}
+
+.persona-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.persona-btn {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e6e9ef;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.persona-btn:hover {
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.persona-btn.is-active {
+  background: rgba(245, 211, 140, 0.18);
+  border-color: rgba(245, 211, 140, 0.68);
+  color: #f7deb0;
+  font-weight: 600;
+}
+
+.persona-desc {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: #b7bec9;
+  line-height: 1.35;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 24px;
+}
+
+.setting-row.is-disabled {
+  opacity: 0.45;
+}
+
+.setting-label {
+  font-size: 12px;
+  color: #d6dbe3;
+  flex: 0 0 118px;
+}
+
+.setting-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.setting-range {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  accent-color: #f5d38c;
+  cursor: pointer;
+}
+
+.setting-range:disabled,
+.setting-select:disabled {
+  cursor: not-allowed;
+}
+
+.setting-value {
+  flex: 0 0 54px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #f6f3ea;
+}
+
+.setting-select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(16, 19, 25, 0.92);
+  color: #f3f1eb;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .is-hidden {
   display: none;
 }
