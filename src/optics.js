@@ -7,6 +7,34 @@ const NEAR_CLIP = 0.02;
 const FAR_CLIP = 30.0;
 const OD_FOV_DEG = 62;
 const TARGET_MLN_FREQ_HZ = 5.5; // 5-6 beats/sec clinical MLN beat rate
+const QUALITY_DPR_CAPS = { high: 1.75, balanced: 1.25, performance: 1.0 };
+const CVD_TYPE_MAP = { none: 0, deutan: 1, protan: 2, tritan: 3 };
+
+const DEFAULT_SETTINGS = {
+  lensProfile: 'aphakic_bifocal',
+  lensPowerD: 13.0,
+  nearAddD: 4.0,
+  dominantEye: 'OD',
+  vodAcuity: 0.70,
+  vosAcuity: 0.15,
+  diplopiaH: -1.53,
+  diplopiaV: 0.31,
+  mlnScale: 1.0,
+  phosphenes: 1.0,
+  floaters: 1.0,
+  tinnitus: 1.0,
+  glaucoma: 0.0,
+  amd: 0.0,
+  albinism: 0.0,
+  cataract: 0.0,
+  cvdType: 'none',
+  cvdSeverity: 0.0,
+};
+
+function computeAcuityBlurUV(acuityDecimal) {
+  const a = THREE.MathUtils.clamp(Number.isFinite(acuityDecimal) ? acuityDecimal : 1.0, 0.05, 1.0);
+  return THREE.MathUtils.clamp(0.0009 * Math.pow(1.0 / a - 1.0, 0.96), 0.0, 0.014);
+}
 
 const FULLSCREEN_VERT = /* glsl */ `
   varying vec2 vUv;
@@ -142,6 +170,26 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uMlnVelUV: { value: 0 },
     uExposure: { value: renderer.toneMappingExposure || 1.0 },
     uResolution: { value: new THREE.Vector2(initW, initH) },
+    uLensProfile: { value: 1.0 },
+    uLensPowerD: { value: 13.0 },
+    uNearAddD: { value: 4.0 },
+    uDomIsOS: { value: 0.0 },
+    uAcuityBlurDom: { value: computeAcuityBlurUV(0.70) },
+    uAcuityBlurNonDom: { value: computeAcuityBlurUV(0.15) },
+    uDiplopiaTan: {
+      value: new THREE.Vector2(
+        Math.tan(THREE.MathUtils.degToRad(-1.53)),
+        Math.tan(THREE.MathUtils.degToRad(0.31)),
+      ),
+    },
+    uPhospheneScale: { value: 1.0 },
+    uFloaterScale: { value: 1.0 },
+    uGlaucoma: { value: 0.0 },
+    uAmd: { value: 0.0 },
+    uAlbinism: { value: 0.0 },
+    uCataract: { value: 0.0 },
+    uCvdType: { value: 0.0 },
+    uCvdSeverity: { value: 0.0 },
   };
 
   const quadGeo = new THREE.PlaneGeometry(2, 2);
@@ -180,6 +228,19 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
   function render(dt, state) {
     elapsed += dt;
 
+    const s = state.settings || DEFAULT_SETTINGS;
+    const domIsOS = (s.dominantEye ?? 'OD') === 'OS';
+    const lensProfile = s.lensProfile ?? 'aphakic_bifocal';
+    const glaucoma = s.glaucoma || 0;
+    const amd = s.amd || 0;
+    const albinism = s.albinism || 0;
+    const cataract = s.cataract || 0;
+    const vodAcuity = s.vodAcuity ?? 0.70;
+    const vosAcuity = s.vosAcuity ?? 0.15;
+    const acuityBlurDom = computeAcuityBlurUV(domIsOS ? vosAcuity : vodAcuity);
+    const acuityBlurNonDom = computeAcuityBlurUV(domIsOS ? vodAcuity : vosAcuity);
+    const mlnUserScale = s.mlnScale ?? 1.0;
+
     // Instantaneous gaze-shift nystagmus: prominent when turning head/mouse (strongest unfocused), stops immediately on 0 speed
     const gazeSpike = Math.min(1.0, (state.gazeVel || 0) * 1.10);
 
@@ -190,7 +251,9 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     mlnElapsed += dt * freqScale;
 
     const wave = sampleLoopingWaveform(waveformData, mlnElapsed, waveSpeedScale);
-    const mlnScale = isNormal ? 0 : Math.min(1.25, (state.mlnIntensity || 0) + gazeSpike * 0.55);
+    const mlnScale = isNormal
+      ? 0
+      : Math.min(1.25, (state.mlnIntensity || 0) + gazeSpike * 0.55) * mlnUserScale;
     const mln = isNormal
       ? { dxDeg: 0, dyDeg: 0, velDegS: 0 }
       : computeMlnAngleDeg(
@@ -199,10 +262,19 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
           TARGET_MLN_FREQ_HZ,
           state.occlusionLevel || 0,
           mlnScale,
-          gazeSpike,
+          gazeSpike * mlnUserScale,
           state.focusStrength || 0,
         );
-    const effVelDegS = mln.velDegS * freqScale;
+    let effVelDegS = mln.velDegS * freqScale;
+
+    // Continuous ~3.8 Hz infantile horizontal pendular/jerk nystagmus for ocular albinism
+    if (!isNormal && albinism > 0.01) {
+      const albAmp = albinism * 1.45 * (1.0 - 0.30 * (state.focusStrength || 0)) * (1.0 - 0.65 * (state.eyelidClose || 0));
+      const albOmega = 2.0 * Math.PI * 3.8;
+      const albPhase = elapsed * albOmega;
+      mln.dxDeg += albAmp * (Math.sin(albPhase) + 0.22 * Math.sin(2.0 * albPhase + 0.4));
+      effVelDegS += albAmp * albOmega * (Math.cos(albPhase) + 0.44 * Math.cos(2.0 * albPhase + 0.4));
+    }
 
     savedPos.copy(odCamera.position);
     savedQuat.copy(odCamera.quaternion);
@@ -222,7 +294,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     }
     shadowFrame += 1;
 
-    odCamera.position.copy(savedPos).addScaledVector(rightVec, isNormal ? 0 : EYE_HALF_IPD_M);
+    odCamera.position.copy(savedPos).addScaledVector(rightVec, isNormal ? 0 : EYE_HALF_IPD_M * (domIsOS ? -1 : 1));
     odCamera.quaternion.copy(savedQuat).multiply(mlnQuat);
     odCamera.updateMatrixWorld(true);
 
@@ -233,8 +305,16 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     renderer.render(scene, odCamera);
     renderer.shadowMap.needsUpdate = false;
 
-    // Skip quarter-res blur passes when eyelids are fully closed or in normal comparison mode
-    const needBlur = !isNormal && (state.eyelidClose || 0) < 0.995;
+    // Skip quarter-res blur passes when eyelids are closed, comparing normal, or no blur-using optics/pathology active
+    const needBlur =
+      !isNormal &&
+      (state.eyelidClose || 0) < 0.995 &&
+      (lensProfile === 'aphakic_bifocal' ||
+        glaucoma > 0.01 ||
+        amd > 0.01 ||
+        cataract > 0.01 ||
+        albinism > 0.01 ||
+        Math.max(acuityBlurDom, acuityBlurNonDom) > 0.001);
     if (needBlur) {
       blurUniforms.tSource.value = rtOD.texture;
       blurUniforms.uStep.value = blurStepH;
@@ -256,15 +336,40 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uniforms.uEyelidClose.value = state.eyelidClose || 0.0;
     uniforms.uEyelidLight.value = state.eyelidLight ?? 0.35;
     uniforms.uFatigue.value = state.fatigue || 0.0;
-    uniforms.uOcclOD.value = state.occlOD || 0.0;
+    uniforms.uOcclOD.value = domIsOS ? (state.occlOS || 0.0) : (state.occlOD || 0.0);
     uniforms.uFocusEffort.value = state.focusStrength || 0.0;
     uniforms.uCompareNormal.value = isNormal ? 1.0 : 0.0;
     uniforms.uExposure.value = renderer.toneMappingExposure || 1.0;
     uniforms.uMlnOffsetUV.value.set(mln.dxDeg / 62.0, mln.dyDeg / 62.0);
     uniforms.uMlnVelUV.value = THREE.MathUtils.clamp(Math.abs(effVelDegS) / 900.0, 0.0, 0.015);
 
+    uniforms.uLensProfile.value = lensProfile === 'aphakic_bifocal' ? 1.0 : 0.0;
+    uniforms.uLensPowerD.value = s.lensPowerD ?? 13.0;
+    uniforms.uNearAddD.value = s.nearAddD ?? 4.0;
+    uniforms.uDomIsOS.value = domIsOS ? 1.0 : 0.0;
+    uniforms.uAcuityBlurDom.value = acuityBlurDom;
+    uniforms.uAcuityBlurNonDom.value = acuityBlurNonDom;
+    uniforms.uDiplopiaTan.value.set(
+      Math.tan(THREE.MathUtils.degToRad(s.diplopiaH ?? -1.53)),
+      Math.tan(THREE.MathUtils.degToRad(s.diplopiaV ?? 0.31)),
+    );
+    uniforms.uPhospheneScale.value = s.phosphenes ?? 1.0;
+    uniforms.uFloaterScale.value = s.floaters ?? 1.0;
+    uniforms.uGlaucoma.value = glaucoma;
+    uniforms.uAmd.value = amd;
+    uniforms.uAlbinism.value = albinism;
+    uniforms.uCataract.value = cataract;
+    uniforms.uCvdType.value = CVD_TYPE_MAP[s.cvdType] ?? 0;
+    uniforms.uCvdSeverity.value = s.cvdSeverity || 0.0;
+
     renderer.setRenderTarget(prevTarget);
     renderer.render(quadScene, quadCamera);
+  }
+
+  function setQuality(presetId) {
+    const cap = QUALITY_DPR_CAPS[presetId] ?? 1.75;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
+    resize(window.innerWidth, window.innerHeight);
   }
 
   function resize(w, h) {
@@ -295,5 +400,5 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     quadMaterial.dispose();
   }
 
-  return { odCamera, render, resize, dispose };
+  return { odCamera, render, resize, setQuality, dispose };
 }
