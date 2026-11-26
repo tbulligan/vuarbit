@@ -1170,8 +1170,9 @@ export function createClassroomScene() {
         if (lateralDist > maxLat) return 0;
         return computeOcclusionFromDistance(Math.max(0.01, Math.sqrt(distSq) - r));
       };
-      occlOD = Math.max(occlOD, evalHeldOccl(eyeOD, 0.055));
-      occlOS = Math.max(occlOS, evalHeldOccl(eyeOS, 0.038));
+      const domIsOS = state.settings?.dominantEye === 'OS';
+      occlOD = Math.max(occlOD, evalHeldOccl(eyeOD, domIsOS ? 0.038 : 0.055));
+      occlOS = Math.max(occlOS, evalHeldOccl(eyeOS, domIsOS ? 0.055 : 0.038));
     }
 
     // 2. Per-eye surface occlusion (desk edge, workbook, props, walls, classmate) via short per-eye rays
