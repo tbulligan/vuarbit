@@ -486,7 +486,6 @@ void main() {
 
   float hasLens = step(0.5, uLensProfile);
   float isAphakic = hasLens * (1.0 - step(1.5, uLensProfile));
-  float isSingleVision = step(1.5, uLensProfile) * (1.0 - step(2.5, uLensProfile));
   float isModernBifocal = step(2.5, uLensProfile) * (1.0 - step(3.5, uLensProfile));
   float isProgressive = step(3.5, uLensProfile);
   float isModernLens = step(1.5, uLensProfile);
@@ -612,21 +611,25 @@ void main() {
   float decomp = smoothstep(0.58, 0.96, uFatigue);
 
   if (uEyelidClose < 0.995) {
+    float dimness = 1.0 - clamp(uAmbientLight, 0.0, 1.0);
+    // Pupil dilation in dim light widens blur CoC & tightens DoF (1.0x at bright sunny default -> 1.45x in dark rooms)
+    float pupilScale = 1.0 + 0.45 * smoothstep(0.10, 0.92, dimness);
+
     float depthOD = linearizeDepth(texture2D(tDepthOD, clamp(uvOD, vec2(0.001), vec2(0.999))).x);
     float objVergence = 1.0 / max(depthOD, 0.02);
     // Distance half (+13 D): crisp on ~1.8m..23m blackboard/room;
     // Near half (+17 D = +4 D add): ~22cm childhood aphakic reading distance, crisp ~19..26cm sweet spot
     float nearTargetFocus = 1.0 / max(0.35, 0.5454545 + uNearAddD);
     float targetFocus = mix(3.8, nearTargetFocus, inBifocal);
-    float dofTolerance = mix(0.30, 0.72, inBifocal);
+    float dofTolerance = mix(0.30, 0.72, inBifocal) / pupilScale;
     float aphakicCocD = isAphakic * max(0.0, abs(objVergence - 1.0 / targetFocus) - dofTolerance);
 
-    // Non-aphakic refractive vergence defocus (Myopia far-point, Presbyopia accommodation cap, Single-Vision/Bifocal/PAL correction)
+    // Non-aphakic refractive vergence defocus (Myopia far-point, Presbyopia accommodation cap, pupil-scaled CoC)
     float accAmp = uPresbyopiaD > 0.05 ? max(0.25, 4.5 - uPresbyopiaD * 1.05) : 6.0;
     float minFocusD = uMyopiaD + effModernD;
     float maxFocusD = minFocusD + accAmp;
-    float refDefocusD = (1.0 - isAphakic) * max(0.0, max(minFocusD - objVergence, objVergence - maxFocusD) - 0.22);
-    float refBlur = clamp(refDefocusD * 0.0056, 0.0, 0.036);
+    float refDefocusD = (1.0 - isAphakic) * max(0.0, max(minFocusD - objVergence, objVergence - maxFocusD) - (0.22 / pupilScale));
+    float refBlur = clamp(refDefocusD * 0.0056 * pupilScale, 0.0, 0.036);
 
     // Real Jackson cross-cylinder vector subtraction: eye astigmatism minus toric lens correction (mismatched axis induces oblique astigmatism!)
     vec2 eyeCylVec = uAstigmatismD * vec2(cos(2.0 * uAstigmatismAxisRad), sin(2.0 * uAstigmatismAxisRad));
@@ -639,7 +642,7 @@ void main() {
     // Intrinsic acuity blur (VOD vs VOS) + foveal hypoplasia / cataract / refractive / progressive swim blur
     float baseAcuityBlur = mix(uAcuityBlurDom, uAcuityBlurNonDom, inNonDomOnly * isAphakic) + decomp * 0.0014 * isAphakic;
     baseAcuityBlur = max(baseAcuityBlur, uAlbinism * 0.0032);
-    baseAcuityBlur += uCataract * 0.0095 + refBlur + residualAstigD * 0.0014 + palSwim * 0.0048;
+    baseAcuityBlur += uCataract * 0.0095 + refBlur + residualAstigD * 0.0014 * pupilScale + palSwim * 0.0048;
     float periphBlur = isAphakic * inLens * periphFactor * periphFactor * 0.0055 * powerRatio;
     float correctedBlur = clamp(baseAcuityBlur + periphBlur + aphakicCocD * 0.0060 * powerRatio, 0.0, 0.038);
     float aphakicBlur = isAphakic * 0.044 * powerRatio;
@@ -651,8 +654,7 @@ void main() {
     vec2 astDirOD = isAphakic > 0.5 ? aphakicAstDir : userAstDir;
     float astBlurOD = isAphakic > 0.5
       ? (mix(0.011, 0.0010 + inNonDomOnly * 0.0022 + periphFactor * 0.0032, inLens) + decomp * 0.0014)
-      : (residualAstigD * 0.0046 + palSwim * 0.0055);
-    float dimness = 1.0 - clamp(uAmbientLight, 0.0, 1.0);
+      : (residualAstigD * 0.0046 * pupilScale + palSwim * 0.0055);
     float pupilHoaBoost = 1.0 + dimness * 0.75;
     float hoaOD = (isAphakic > 0.5
       ? mix(0.55, 0.34 + decomp * 0.24, inLens)
@@ -664,16 +666,18 @@ void main() {
     );
     linOD = applyLinearPathologies(linOD, uvOD, p, pFovea);
     vec3 colOD = linearToDisplay(linOD);
-    // Low-acuity & dim-light mesopic contrast loss (guarded so pure-black blind regions never lift to gray)
+    // Low-acuity, dim-light mesopic (Glaucoma / AMD / DR), and scotopic rod desaturation (guarded so pure-black blind zones stay 0)
     float colLuma = dot(colOD, vec3(0.299, 0.587, 0.114));
     float nonBlack = smoothstep(0.004, 0.06, colLuma);
     float lowAcuityDrop = smoothstep(0.010, 0.030, baseAcuityBlur) * 0.24 * nonBlack;
-    float mesopicDrop = dimness * max(uGlaucoma, uAmd) * 0.22 * nonBlack;
+    float mesopicDrop = dimness * max(max(uGlaucoma, uAmd), uDiabeticRetinopathy * 0.85) * 0.22 * nonBlack;
     float contrastDrop = clamp(lowAcuityDrop + mesopicDrop, 0.0, 0.36);
+    float scotopic = smoothstep(0.18, 0.03, uAmbientLight) * nonBlack;
     colOD = mix(colOD, mix(vec3(0.42), colOD, 0.93), inNonDomOnly * nonBlack);
     colOD = mix(colOD, vec3(colLuma), contrastDrop * 0.35);
     colOD = mix(colOD, (colOD - 0.5) * 0.78 + 0.5, contrastDrop);
     colOD *= (1.0 - mesopicDrop * 0.30);
+    colOD = mix(colOD, vec3(colLuma) * vec3(0.88, 0.94, 1.06), scotopic * 0.48);
 
     if (length(uDiplopiaTan) >= 1e-4) {
       // Constant angular diplopia sampled from dominant view
@@ -693,6 +697,7 @@ void main() {
 
       float lumaOD = dot(colOD, vec3(0.299, 0.587, 0.114));
       float lumaOS = dot(colOS, vec3(0.299, 0.587, 0.114));
+      colOS = mix(colOS, vec3(lumaOS) * vec3(0.88, 0.94, 1.06), scotopic * 0.48);
       colOS = mix(colOS, vec3(lumaOS), 0.04) * 0.99;
 
       // Binocular rivalry: dominant eye stays sharp while rivalry term keeps dark-on-light & light-on-dark OS strokes bold

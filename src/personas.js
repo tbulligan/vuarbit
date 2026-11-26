@@ -68,6 +68,13 @@ export const TIME_OF_DAY_PRESETS = Object.freeze({
   }),
 });
 
+export const TIME_OF_DAY_ORDER = Object.freeze(['sunny', 'overcast', 'dusk', 'night']);
+
+export function cycleTimeOfDay(current) {
+  const idx = TIME_OF_DAY_ORDER.indexOf(current);
+  return TIME_OF_DAY_ORDER[(idx + 1) % TIME_OF_DAY_ORDER.length];
+}
+
 export function computeAmbientLight(timeOfDay, lightsOn) {
   const preset = TIME_OF_DAY_PRESETS[timeOfDay] || TIME_OF_DAY_PRESETS.sunny;
   const artLux = lightsOn ? 0.48 : 0.0;

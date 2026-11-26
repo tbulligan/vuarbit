@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { clamp, computeHeldRestOffset, computeMaxYaw, updateHeldRotation } from './state.js';
+import { clamp, computeHeldRestOffset, computeMaxYaw, cycleTimeOfDay, updateHeldRotation } from './state.js';
 
 /**
  * Pointer-lock mouse look, standing collision movement, seating toggle,
@@ -248,6 +248,17 @@ export function createControls(domElement, state, sceneApi) {
     if (!e.repeat && e.code === 'KeyL') {
       if (state.settingsOpen) e.preventDefault();
       state.lightsOn = state.lightsOn === false;
+      return;
+    }
+
+    if (!e.repeat && e.code === 'KeyT') {
+      if (state.settingsOpen) {
+        e.preventDefault();
+        if (document.activeElement?.tagName === 'SELECT') {
+          document.activeElement.blur();
+        }
+      }
+      state.timeOfDay = cycleTimeOfDay(state.timeOfDay);
       return;
     }
 

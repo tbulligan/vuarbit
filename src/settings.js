@@ -284,7 +284,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   const lightSection = makeEl('section', 'setting-group');
   const lightHeading = makeEl('h3', 'setting-group-title', 'Lighting');
   const todRow = makeEl('label', 'setting-row');
-  const todLbl = makeEl('span', 'setting-label', 'Time of Day');
+  const todLbl = makeEl('span', 'setting-label', 'Time of Day (T)');
   const todSelect = makeEl('select', 'setting-select');
   for (const preset of Object.values(TIME_OF_DAY_PRESETS)) {
     const optionEl = makeEl('option', null, preset.label);
@@ -364,6 +364,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       e.code === 'KeyV' ||
       e.code === 'KeyZ' ||
       e.code === 'KeyL' ||
+      e.code === 'KeyT' ||
       e.code === 'KeyC'
     ) {
       return;

@@ -11,6 +11,7 @@
   - [x] Presets (12): `Vuarbit 1994`, `Normal Vision`, `Glaucoma`, `Wet AMD`, `Cataracts`, `Diabetic Retinopathy`, `Retinitis Pigmentosa`, `Ocular Albinism`, `Deuteranopia`, `Myopia (-4 D)`, `Astigmatism`, `Presbyopia`.
   - [x] Unified lens & refractive engine with auto-matched frames: `Aphakic Bifocal` (round amber), `Single-Vision` / `Bifocal` (modern dark rectangular), `Progressive` (slim titanium), `None`; depth-accurate Myopia/Presbyopia vergence CoC, directional Astigmatism + axis, `VOD`/`VOS` MAR acuity with Snellen readouts, dominant eye (`OD`/`OS`), diplopia H/V, nystagmus, phosphenes, floaters, tinnitus.
   - [x] SoTA linear-HDR clinical conditions (0–100% calibrated through end-stage): Crabb (2013) glaucoma, retinal-locked Wet AMD, cataracts, Diabetic Retinopathy, Retinitis Pigmentosa, ocular albinism, Machado (2009) CVD (`Protan`/`Deutan`/`Tritan`).
+  - [x] Environment lighting presets: Time of Day (`T`: Sunny / Overcast / Dusk / Night) + Ceiling Lights (`L`: ON / OFF) driving RP nyctalopia, pupil-dilated DoF/CoC & HOA streaks, mesopic contrast loss (Glaucoma/AMD/DR), albinism/cataract glare, and low-lux scotopic rod shift.
   - [x] Lightweight graphics DPR quality preset (`High 1.75x` / `Balanced 1.25x` / `Performance 1.0x`).
   - [ ] Optional Frame customization dropdown (shape & color) in Optics Details for users representing their own eyewear.
 

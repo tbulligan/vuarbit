@@ -8,6 +8,7 @@ import {
   SETTING_SPECS,
   QUALITY_PRESETS,
   TIME_OF_DAY_PRESETS,
+  LENS_PROFILES,
   getPersonaById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
@@ -17,6 +18,7 @@ import {
   formatSnellenAcuity,
   hasSuppressionMechanics,
   computeAmbientLight,
+  cycleTimeOfDay,
 } from './personas.js';
 
 export {
@@ -24,6 +26,7 @@ export {
   SETTING_SPECS,
   QUALITY_PRESETS,
   TIME_OF_DAY_PRESETS,
+  LENS_PROFILES,
   getPersonaById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
@@ -33,6 +36,7 @@ export {
   formatSnellenAcuity,
   hasSuppressionMechanics,
   computeAmbientLight,
+  cycleTimeOfDay,
 };
 
 export function clamp(value, min, max) {

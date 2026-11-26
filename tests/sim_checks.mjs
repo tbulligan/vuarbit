@@ -14,6 +14,7 @@ import {
   formatSnellenAcuity,
   hasSuppressionMechanics,
   computeAmbientLight,
+  cycleTimeOfDay,
   createSimState,
   computeOcclusionFromDistance,
   computeDiplopiaOffsetDeg,
@@ -492,8 +493,13 @@ stPresby.pitch = -0.4;
 updateSimState(stPresby, 0.016);
 assert.equal(stPresby.activeZone, 'near', 'progressive lens looking down must report near zone');
 
-// Time-of-Day & Ceiling Lights ambient lux ordering + persona independence
+// Time-of-Day & Ceiling Lights ambient lux ordering, cycling + persona independence
 assert.deepEqual(Object.keys(TIME_OF_DAY_PRESETS), ['sunny', 'overcast', 'dusk', 'night']);
+assert.equal(cycleTimeOfDay('sunny'), 'overcast');
+assert.equal(cycleTimeOfDay('overcast'), 'dusk');
+assert.equal(cycleTimeOfDay('dusk'), 'night');
+assert.equal(cycleTimeOfDay('night'), 'sunny');
+assert.equal(cycleTimeOfDay('invalid'), 'sunny');
 const luxSunnyOn = computeAmbientLight('sunny', true);
 const luxSunnyOff = computeAmbientLight('sunny', false);
 const luxDuskOff = computeAmbientLight('dusk', false);
