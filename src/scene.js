@@ -191,6 +191,14 @@ function createBlackboardTexture() {
       jitterY: 2.0,
     });
 
+    drawHandwrittenLine(ctx, 'Classe 2ª B', 1560, 150, {
+      font: chalkFont(40),
+      color: 'rgba(242, 243, 236, 0.85)',
+      chalk: true,
+      seedInit: 98,
+      jitterY: 2.0,
+    });
+
     drawHandwrittenLine(ctx, 'Aritmetica: Proporzioni', 95, 134, {
       font: chalkFont(74, 'bold'),
       color: '#f2f3ec',
@@ -647,10 +655,10 @@ export function createClassroomScene() {
   scene.background = new THREE.Color('#c7ddf0');
 
   // Bright natural Italian classroom daylight + warm fill (matte desktops & cream paper prevent clipping)
-  const hemiLight = new THREE.HemisphereLight('#f5f7fc', '#ad926f', 0.86);
+  const hemiLight = new THREE.HemisphereLight('#f4f6fa', '#8d8a84', 0.9);
   scene.add(hemiLight);
 
-  const sunLight = new THREE.DirectionalLight('#fff8eb', 1.72);
+  const sunLight = new THREE.DirectionalLight('#fffaf2', 1.55);
   sunLight.position.set(-7.5, 4.4, -1.0);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.set(2048, 2048);
@@ -695,9 +703,9 @@ export function createClassroomScene() {
   scene.add(ceiling);
 
   // Wall materials: ochre/mustard lower (#d49234, h=1.25m), off-white upper (#eceae4)
-  const lowerWallMat = new THREE.MeshStandardMaterial({ color: '#d49234', roughness: 0.85 });
+  const lowerWallMat = new THREE.MeshStandardMaterial({ color: '#c9a15c', roughness: 0.85 });
   const upperWallMat = new THREE.MeshStandardMaterial({ color: '#eceae4', roughness: 0.9 });
-  const trimMat = new THREE.MeshStandardMaterial({ color: '#9c6e2c', roughness: 0.7 });
+  const trimMat = new THREE.MeshStandardMaterial({ color: '#8a6a3a', roughness: 0.7 });
 
   function addSolidWall(width, cx, cy, cz, rotY) {
     const low = new THREE.Mesh(new THREE.PlaneGeometry(width, 1.25), lowerWallMat);

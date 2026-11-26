@@ -331,14 +331,14 @@ void main() {
     float depthOD = linearizeDepth(texture2D(tDepthOD, clamp(uvOD, vec2(0.001), vec2(0.999))).x);
     // Distance half: crisp on ~2.1m..23m blackboard/room;
     // Near half (~21cm childhood aphakic reading distance): tight zero-accommodation sweet spot (~19..24cm)
-    float targetFocus = mix(3.8, 0.21, inBifocal);
-    float dofTolerance = mix(0.22, 0.55, inBifocal);
+    float targetFocus = mix(3.8, 0.27, inBifocal);
+    float dofTolerance = mix(0.30, 1.15, inBifocal);
     float cocDiopters = max(0.0, abs(1.0 / max(depthOD, 0.02) - 1.0 / targetFocus) - dofTolerance);
 
     // Intrinsic VOD 0.7 in right lens & binocular overlap vs amblyopic VOS 0.15 in left-only lens (unchanged by Focus)
     float baseAcuityBlur = mix(0.0008, 0.0052, inLeftOnly) + decomp * 0.0014;
     float periphBlur = inLens * periphFactor * periphFactor * 0.0055;
-    float correctedBlur = clamp(baseAcuityBlur + periphBlur + cocDiopters * 0.0064, 0.0, 0.038);
+    float correctedBlur = clamp(baseAcuityBlur + periphBlur + cocDiopters * 0.0045, 0.0, 0.038);
     float aphakicBlur = 0.044;
     float isoBlurOD = mix(aphakicBlur, correctedBlur, inLens);
 
@@ -373,7 +373,7 @@ void main() {
     // Binocular rivalry: OD stays sharp & dominant (>=56% linear), while rivalry term keeps dark-on-light (ink) & light-on-dark (chalk) OS strokes bold
     float odNearSolid = smoothstep(0.95, 0.55, depthOD) * smoothstep(0.08, 0.25, depthOS - depthOD);
     float focusClamped = clamp(uFocusEffort, 0.0, 1.0);
-    float baseOsBlend = mix(0.44, 0.62, clamp(uOcclOD, 0.0, 1.0));
+    float baseOsBlend = mix(0.38, 0.58, clamp(uOcclOD, 0.0, 1.0));
     float osWeight = mix(baseOsBlend * (1.0 - 0.58 * focusClamped), 0.14, odNearSolid * 0.65);
 
     vec3 linMix = mix(colOD, colOS, osWeight);

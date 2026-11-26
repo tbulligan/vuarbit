@@ -52,7 +52,7 @@ export function createHud(rootElement, initialState) {
   const line1 = makeEl(
     'p',
     null,
-    'First-person childhood bilateral aphakia (+13 D straight-cut executive bifocal, zero accommodation) & MLN simulation.',
+    'First-person childhood bilateral aphakia (+13 D / +16.5 D bifocal, zero accommodation) & MLN simulation.',
   );
   const line2 = makeEl(
     'p',

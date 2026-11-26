@@ -99,7 +99,7 @@ function buildBeveledRulerGeometry(length, height, depth) {
 }
 
 /**
- * Build the 4 upgraded interactive desk pickables plus non-pickable temperino on Vuarbit's desk.
+ * Build the 5 upgraded interactive desk pickables (incl. temperino) on Vuarbit's desk.
  */
 export function createUpgradedPickables({ scene, addFocusMesh, makeCanvasTexture }) {
   const makeTex = resolveMakeCanvasTexture(makeCanvasTexture);
@@ -273,18 +273,18 @@ export function createUpgradedPickables({ scene, addFocusMesh, makeCanvasTexture
     ctx.lineTo(w, h * 0.64);
     ctx.stroke();
     ctx.setLineDash([]);
-
-    // Sewn woven label patch
+  });
+  const labelTex = makeTex(512, 128, (ctx, w, h) => {
     ctx.fillStyle = '#eae4d4';
-    ctx.fillRect(w * 0.34, h * 0.14, w * 0.32, h * 0.19);
+    ctx.fillRect(0, 0, w, h);
     ctx.strokeStyle = '#244166';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(w * 0.348, h * 0.155, w * 0.304, h * 0.16);
+    ctx.lineWidth = 6;
+    ctx.strokeRect(10, 10, w - 20, h - 20);
     ctx.fillStyle = '#244166';
-    ctx.font = 'bold 44px Georgia, serif';
+    ctx.font = 'bold 74px Georgia, serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('ASTUCCIO', w * 0.5, h * 0.235);
+    ctx.fillText('SVUARBIT', w * 0.5, h * 0.54);
   });
   const zipperTeethTex = makeTex(512, 64, (ctx, w, h) => {
     ctx.fillStyle = '#1b2c46';
@@ -344,6 +344,20 @@ export function createUpgradedPickables({ scene, addFocusMesh, makeCanvasTexture
   pullTab.rotation.z = -0.18;
 
   pencilCaseGroup.add(caseBody, zipperStrip, slider, pullTab);
+
+  // Sewn "SVUARBIT" patches on both wide faces: bent onto the case ellipse (Yr 0.0211, Zr 0.0339), text reads along the zipper axis
+  const labelMat = new THREE.MeshStandardMaterial({ map: labelTex, roughness: 0.85 });
+  const labelGeo = new THREE.PlaneGeometry(0.075, 0.017, 1, 6);
+  const labelPos = labelGeo.attributes.position;
+  for (let i = 0; i < labelPos.count; i += 1) {
+    const ny = labelPos.getY(i) / 0.0211;
+    labelPos.setZ(i, 0.0339 * Math.sqrt(Math.max(0, 1 - ny * ny)) + 0.0005);
+  }
+  labelGeo.computeVertexNormals();
+  const labelFront = new THREE.Mesh(labelGeo, labelMat);
+  const labelBack = new THREE.Mesh(labelGeo, labelMat);
+  labelBack.rotation.y = Math.PI;
+  pencilCaseGroup.add(labelFront, labelBack);
 
   const pencilCaseRestPos = new THREE.Vector3(-2.06, 0.751, -1.56);
   const pencilCaseRestQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.16, 0));
@@ -503,6 +517,15 @@ export function createUpgradedPickables({ scene, addFocusMesh, makeCanvasTexture
       restQuaternion: rulerRestQuat.clone(),
       occluderRadius: 0.022,
       halfDepth: 0.046,
+    },
+    {
+      id: 'sharpener',
+      name: 'Pencil Sharpener',
+      mesh: temperino,
+      restPosition: temperino.position.clone(),
+      restQuaternion: temperino.quaternion.clone(),
+      occluderRadius: 0.012,
+      halfDepth: 0.02,
     },
   ];
 
@@ -801,7 +824,7 @@ export function populateClassroomProps({ scene, addFocusMesh, colliders, makeCan
 
     ctx.fillStyle = '#1b355c';
     ctx.font = 'bold 24px Georgia, serif';
-    ctx.fillText('REGISTRO DI CLASSE · 2ª M', 34, 46);
+    ctx.fillText('REGISTRO DI CLASSE · 2ª B', 34, 46);
     ctx.fillText('VALUTAZIONI E ASSENZE', w * 0.54, 46);
 
     ctx.font = '14px Georgia, serif';
@@ -939,7 +962,7 @@ export function populateClassroomProps({ scene, addFocusMesh, colliders, makeCan
     ctx.fillStyle = '#243a5e';
     ctx.font = 'bold 40px Georgia, serif';
     ctx.textAlign = 'center';
-    ctx.fillText('ORARIO SCOLASTICO · CLASSE 2ª M', w * 0.5, 76);
+    ctx.fillText('ORARIO SCOLASTICO · CLASSE 2ª B', w * 0.5, 76);
 
     const days = ['ORA', 'LUN', 'MAR', 'MER', 'GIO', 'VEN', 'SAB'];
     const hours = ['8:30', '9:30', '10:30', '11:30', '12:30'];
@@ -1156,7 +1179,7 @@ export function populateClassroomProps({ scene, addFocusMesh, colliders, makeCan
     { z: 0.84, col: '#2d5c8c', label: 'MATEM.' },
     { z: 0.92, col: '#b34136', label: 'SCIENZE' },
     { z: 1.00, col: '#3b6e49', label: 'STORIA' },
-    { z: 1.08, col: '#c98f2e', label: '2ª M' },
+    { z: 1.08, col: '#c98f2e', label: '2ª B' },
   ];
   for (const b of binderSpecs) {
     const binder = createBookGroup({

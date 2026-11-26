@@ -417,8 +417,12 @@ export function populateClassmates({
         const rawBoardYaw = Math.atan2(-dxBoard, -dzBoard) - profile.yaw;
         const boardYawOffset = Math.max(-0.45, Math.min(0.45, rawBoardYaw * 0.7));
 
+        // Lower forearms onto the desk: pitch so the hand stays >= 2.5 cm above the 0.73 m top at this body scale
+        const armCos = Math.min(0.5, Math.max(0.15, (0.885 - (0.755 / profile.scale + 0.03)) / 0.305));
+
         classmates.push({
           ...person,
+          armPitch: Math.acos(armCos),
           phase: idx * 1.37,
           breathFreq: 2.15 + (idx % 4) * 0.16,
           writeFreq: 4.4 + (idx % 5) * 0.35,
@@ -461,9 +465,9 @@ export function populateClassmates({
       c.torso.scale.y = 1 + Math.sin(simTime * c.breathFreq + c.phase) * 0.014;
 
       // Subtle writing hand motion on desk
-      c.rightArm.rotation.x = 1.16 + Math.sin(simTime * c.writeFreq + c.phase) * 0.042;
+      c.rightArm.rotation.x = c.armPitch + Math.sin(simTime * c.writeFreq + c.phase) * 0.042;
       c.rightArm.rotation.y = Math.cos(simTime * (c.writeFreq * 0.74) + c.phase) * 0.048;
-      c.leftArm.rotation.x = 1.15 + Math.sin(simTime * 0.9 + c.phase) * 0.012;
+      c.leftArm.rotation.x = c.armPitch - 0.01 + Math.sin(simTime * 0.9 + c.phase) * 0.012;
       c.leftArm.rotation.y = -0.16;
 
       // Occasional natural glance up toward teacher/blackboard vs down at notebook

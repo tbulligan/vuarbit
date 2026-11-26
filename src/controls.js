@@ -196,6 +196,10 @@ export function createControls(domElement, state, sceneApi) {
         break;
       case 'KeyR':
         state.eyesClosed = !state.eyesClosed;
+        if (!state.eyesClosed) {
+          focusToggle = false;
+          state.focusing = false;
+        }
         break;
       case 'KeyZ':
         state.glassesOn = !state.glassesOn;
