@@ -35,8 +35,11 @@ function glassesLabel(state) {
   if (lp === 'none') return 'None';
   const p = Number.isFinite(state.settings?.lensPowerD) ? state.settings.lensPowerD : 13.0;
   const a = Number.isFinite(state.settings?.nearAddD) ? state.settings.nearAddD : 4.0;
+  const cyl = Number.isFinite(state.settings?.lensCylD) ? state.settings.lensCylD : 0;
+  const ax = Number.isFinite(state.settings?.lensAxisDeg) ? state.settings.lensAxisDeg : 90;
   const hasAdd = lp !== 'single_vision' && a > 0.1;
-  const rx = hasAdd ? `${fmtD(p)} / +${a.toFixed(1)} add` : fmtD(p);
+  const cylStr = lp !== 'aphakic_bifocal' && cyl > 0.1 ? ` / ${cyl.toFixed(2)} cyl ×${Math.round(ax)}°` : '';
+  const rx = hasAdd ? `${fmtD(p)} / +${a.toFixed(1)} add${cylStr}` : `${fmtD(p)}${cylStr}`;
   return state.glassesOn ? `ON (${rx})` : `OFF (${rx}, press Z)`;
 }
 

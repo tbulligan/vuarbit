@@ -7,10 +7,10 @@ import {
 } from './personas.js';
 
 const LENS_PROFILE_OPTIONS = [
-  { value: 'aphakic_bifocal', label: 'Aphakic Bifocal (Round)' },
-  { value: 'single_vision', label: 'Single-Vision (Modern)' },
-  { value: 'bifocal', label: 'Bifocal (Modern)' },
-  { value: 'progressive', label: 'Progressive (Titanium)' },
+  { value: 'aphakic_bifocal', label: 'Aphakic Bifocal (Round Amber)' },
+  { value: 'single_vision', label: 'Single-Vision (Black Rect)' },
+  { value: 'bifocal', label: 'Bifocal (Tortoise D-Seg)' },
+  { value: 'progressive', label: 'Progressive (Semi-Rimless)' },
   { value: 'none', label: 'None (No Glasses)' },
 ];
 
@@ -129,7 +129,9 @@ const ADVANCED_CONTROLS = [
   { key: 'lensProfile', label: 'Glasses / Lens', kind: 'select', options: LENS_PROFILE_OPTIONS },
   { key: 'lensPowerD', label: 'Lens Power', kind: 'range', format: (v) => formatDiopter(v, 2) },
   { key: 'nearAddD', label: 'Near Add', kind: 'range', format: (v) => formatDiopter(v, 2) },
-  { key: 'astigmatismAxisDeg', label: 'Astig. Axis', kind: 'range', format: formatAxis },
+  { key: 'lensCylD', label: 'Glasses Cylinder', kind: 'range', format: (v) => formatDiopter(v, 2) },
+  { key: 'lensAxisDeg', label: 'Glasses Axis', kind: 'range', format: formatAxis },
+  { key: 'astigmatismAxisDeg', label: 'Eye Astig. Axis', kind: 'range', format: formatAxis },
   { key: 'dominantEye', label: 'Dominant Eye', kind: 'select', options: DOMINANT_EYE_OPTIONS },
   { key: 'vodAcuity', label: 'Right Eye (OD)', kind: 'range', format: formatSnellenAcuity },
   { key: 'vosAcuity', label: 'Left Eye (OS)', kind: 'range', format: formatSnellenAcuity },
@@ -209,6 +211,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
         select.appendChild(optionEl);
       }
       listen(select, 'change', () => {
+        lastValues.set(cfg.key, select.value);
         callbacks.onSettingChange?.(cfg.key, select.value);
       });
       row.replaceChildren(lbl, select);
@@ -260,6 +263,16 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   const advDetails = makeEl('details', 'setting-group setting-details');
   const advSummary = makeEl('summary', 'setting-details-summary', 'Optics & Binocular Details');
   const advBody = makeEl('div', 'setting-details-body');
+  const glassesRow = makeEl('div', 'setting-row');
+  const glassesLbl = makeEl('span', 'setting-label', 'Wear Glasses (Z)');
+  const glassesToggleBtn = makeEl('button', 'settings-btn', 'OFF');
+  glassesToggleBtn.type = 'button';
+  glassesToggleBtn.setAttribute('aria-pressed', 'false');
+  listen(glassesToggleBtn, 'click', () => {
+    callbacks.onGlassesToggle?.();
+  });
+  glassesRow.replaceChildren(glassesLbl, glassesToggleBtn);
+  advBody.appendChild(glassesRow);
   for (const cfg of ADVANCED_CONTROLS) {
     advBody.appendChild(buildControlRow(cfg));
   }
@@ -314,14 +327,15 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   listen(drawer, 'click', (e) => e.stopPropagation());
   listen(drawer, 'wheel', (e) => e.stopPropagation(), { passive: true });
   listen(drawer, 'keydown', (e) => {
-    if (e.code === 'KeyP' || e.code === 'Escape') return;
-    if (e.code === 'KeyV' && e.target?.tagName !== 'SELECT') return;
+    if (e.code === 'KeyP' || e.code === 'Escape' || e.code === 'KeyV' || e.code === 'KeyZ') return;
     e.stopPropagation();
   });
 
   let lastOpen = null;
   let lastPersonaId = null;
   let lastCompare = null;
+  let lastGlassesOn = null;
+  let lastGlassesDisabled = null;
   let lastQuality = null;
   let lastAcuityBoth = null;
   const lastValues = new Map();
@@ -368,8 +382,21 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     const s = state.settings || {};
     const lensDisabled = s.lensProfile === 'none';
     const addDisabled = s.lensProfile === 'none' || s.lensProfile === 'single_vision';
+    const cylDisabled = s.lensProfile === 'none' || s.lensProfile === 'aphakic_bifocal';
+    const lensAxisDisabled = cylDisabled || (s.lensCylD || 0) <= 0.05;
     const astigDisabled = (s.astigmatismD || 0) <= 0.05;
     const cvdDisabled = !s.cvdType || s.cvdType === 'none';
+
+    const gOn = Boolean(state.glassesOn) && !lensDisabled;
+    if (force || gOn !== lastGlassesOn || lensDisabled !== lastGlassesDisabled) {
+      lastGlassesOn = gOn;
+      lastGlassesDisabled = lensDisabled;
+      glassesToggleBtn.disabled = lensDisabled;
+      glassesToggleBtn.textContent = lensDisabled ? 'No Lens' : gOn ? 'ON' : 'OFF';
+      glassesToggleBtn.classList.toggle('is-active', gOn);
+      glassesToggleBtn.setAttribute('aria-pressed', gOn ? 'true' : 'false');
+      glassesRow.classList.toggle('is-disabled', lensDisabled);
+    }
 
     if (acuityBothCtrl) {
       const domKey = s.dominantEye === 'OS' ? 'vosAcuity' : 'vodAcuity';
@@ -389,7 +416,8 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       const prevVal = lastValues.get(key);
 
       if (ctrl.kind === 'select') {
-        if (force || rawVal !== prevVal || ctrl.input.value !== String(rawVal)) {
+        const active = document.activeElement === ctrl.input;
+        if (force || (rawVal !== prevVal && !active)) {
           ctrl.input.value = String(rawVal);
           lastValues.set(key, rawVal);
         }
@@ -409,6 +437,10 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
         setDisabled(ctrl, lensDisabled);
       } else if (key === 'nearAddD') {
         setDisabled(ctrl, addDisabled);
+      } else if (key === 'lensCylD') {
+        setDisabled(ctrl, cylDisabled);
+      } else if (key === 'lensAxisDeg') {
+        setDisabled(ctrl, lensAxisDisabled);
       } else if (key === 'astigmatismAxisDeg') {
         setDisabled(ctrl, astigDisabled);
       } else if (key === 'cvdSeverity') {

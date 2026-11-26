@@ -20,6 +20,8 @@ uniform vec2 uResolution;
 uniform float uLensProfile;
 uniform float uLensPowerD;
 uniform float uNearAddD;
+uniform float uLensCylD;
+uniform float uLensAxisRad;
 uniform float uMyopiaD;
 uniform float uPresbyopiaD;
 uniform float uAstigmatismD;
@@ -398,19 +400,19 @@ vec3 applyLinearPathologies(vec3 linCol, vec2 uv, vec2 p, vec2 pFovea) {
     linCol *= (1.0 - smoothstep(0.88, 1.0, dr) * 0.90);
   }
 
-  // 6. Retinitis Pigmentosa: dark concentric tunnel constriction + nyctalopia (low-light shadow collapse); 100% = total blindness
+  // 6. Retinitis Pigmentosa: mid-peripheral ring scotoma -> dark concentric tunnel constriction; gentle shadow dim in daylight; 100% = NLP
   if (uRetinitisPigmentosa > 0.005) {
     float rp = clamp(uRetinitisPigmentosa, 0.0, 1.0);
     float r = length(pFovea);
-    float tunnelR = mix(0.62, 0.0, pow(rp, 0.85));
-    float edgeW = mix(0.16, 0.035, rp);
+    float tunnelR = mix(0.64, 0.0, pow(rp, 0.85));
+    float edgeW = mix(0.15, 0.035, rp);
     float tunnelMask = smoothstep(tunnelR, tunnelR + edgeW, r);
-    // Mid-peripheral ring scotoma nuance at early stages (0.12..0.45)
-    float ringD = (r - 0.34) / 0.11;
-    float ringScotoma = exp(-(ringD * ringD)) * smoothstep(0.08, 0.35, rp) * (1.0 - smoothstep(0.45, 0.75, rp)) * 0.68;
-    // Nyctalopia: dimly lit regions collapse much faster than sunlit areas
+    // Early-to-moderate mid-peripheral ring scotoma (leaves sliver of far periphery until ~55%)
+    float ringD = (r - 0.34) / 0.10;
+    float ringScotoma = exp(-(ringD * ringD)) * smoothstep(0.08, 0.35, rp) * (1.0 - smoothstep(0.45, 0.72, rp)) * 0.70;
+    // Mild daytime shadow contrast loss only in very dark recesses (preserves close held objects in classroom daylight)
     float luma = dot(linCol, vec3(0.2126, 0.7152, 0.0722));
-    float dimCollapse = (1.0 - smoothstep(0.06, 0.42, luma)) * rp * 0.62;
+    float dimCollapse = (1.0 - smoothstep(0.015, 0.16, luma)) * rp * 0.24;
     linCol *= (1.0 - dimCollapse);
     float totalRpBlind = smoothstep(0.93, 1.0, rp);
     linCol *= (1.0 - max(max(tunnelMask * 0.985, ringScotoma), totalRpBlind));
@@ -479,33 +481,38 @@ void main() {
 
   float hasLens = step(0.5, uLensProfile);
   float isAphakic = hasLens * (1.0 - step(1.5, uLensProfile));
-  float isModernLens = step(1.5, uLensProfile);
-  float isBifocalType = isAphakic + step(2.5, uLensProfile) * (1.0 - step(3.5, uLensProfile));
+  float isSingleVision = step(1.5, uLensProfile) * (1.0 - step(2.5, uLensProfile));
+  float isModernBifocal = step(2.5, uLensProfile) * (1.0 - step(3.5, uLensProfile));
   float isProgressive = step(3.5, uLensProfile);
+  float isModernLens = step(1.5, uLensProfile);
   float glassesOn = hasLens * step(0.5, uGlassesOn);
   float powerRatio = clamp(abs(uLensPowerD) / 13.0, 0.35, 1.5);
   float addRatio = clamp(uNearAddD / 4.0, 0.0, 1.35);
 
-  // Auto-matched frame geometry: round thick amber executive bifocal (aphakic) vs slim rectangular modern frames
-  vec2 cL = mix(vec2(-0.38, -0.01), vec2(-0.36, -0.01), isAphakic);
-  vec2 cR = mix(vec2( 0.38, -0.01), vec2( 0.36, -0.01), isAphakic);
+  // Distinct auto-matched frame geometry per lens type:
+  // 1: Aphakic Bifocal (thick round amber executive)
+  // 2: Single-Vision (sharp matte-black rectangular)
+  // 3: Bifocal (taller warm tortoiseshell rounded-rect + flat-top D-segment window)
+  // 4: Progressive (semi-rimless brushed-titanium top-bar + rimless lower glass edge)
+  vec2 cL = isAphakic > 0.5 ? vec2(-0.36, -0.01) : vec2(-0.38, -0.01);
+  vec2 cR = isAphakic > 0.5 ? vec2( 0.36, -0.01) : vec2( 0.38, -0.01);
   float lensR = 0.49;
+  vec2 boxHalf = isModernBifocal > 0.5
+    ? vec2(0.36, 0.34)
+    : (isProgressive > 0.5 ? vec2(0.38, 0.31) : vec2(0.37, 0.26));
+  float boxRad = isModernBifocal > 0.5 ? 0.12 : (isProgressive > 0.5 ? 0.08 : 0.05);
 
-  float dL = isAphakic > 0.5
-    ? sdCircle(p, cL, lensR)
-    : sdRoundedBox(p - cL, vec2(0.36, 0.32), 0.09);
-  float dR = isAphakic > 0.5
-    ? sdCircle(p, cR, lensR)
-    : sdRoundedBox(p - cR, vec2(0.36, 0.32), 0.09);
+  float dL = isAphakic > 0.5 ? sdCircle(p, cL, lensR) : sdRoundedBox(p - cL, boxHalf, boxRad);
+  float dR = isAphakic > 0.5 ? sdCircle(p, cR, lensR) : sdRoundedBox(p - cR, boxHalf, boxRad);
   float dLenses = min(dL, dR);
 
-  // Auto-matched bridge & rim thickness
-  float bridgeY = mix(0.16, 0.325, isAphakic);
-  float bridgeHalfW = mix(0.036, 0.048, isAphakic);
-  float bridgeR = mix(0.010, 0.016, isAphakic);
+  float bridgeY = isAphakic > 0.5 ? 0.325 : (isModernBifocal > 0.5 ? 0.17 : 0.13);
+  float bridgeHalfW = isAphakic > 0.5 ? 0.048 : 0.040;
+  float bridgeR = isAphakic > 0.5 ? 0.016 : (isProgressive > 0.5 ? 0.008 : 0.012);
   float dBridge = sdSegment(p, vec2(-bridgeHalfW, bridgeY), vec2(bridgeHalfW, bridgeY)) - bridgeR;
-  float rimThickness = isAphakic > 0.5 ? 0.025 : mix(0.015, 0.0095, isProgressive);
-  float rimBand = min(abs(dLenses) - rimThickness * 0.5, dBridge);
+  float rimThickness = isAphakic > 0.5 ? 0.025 : (isModernBifocal > 0.5 ? 0.019 : (isProgressive > 0.5 ? 0.011 : 0.015));
+  float dRimFull = abs(dLenses) - rimThickness * 0.5;
+  float rimBand = min(dRimFull, dBridge);
 
   float inLens = glassesOn * (1.0 - smoothstep(-0.004, 0.004, dLenses));
   // Dominant eye (OD or OS via uDomIsOS) + central binocular overlap vs non-dominant-only lens
@@ -513,25 +520,39 @@ void main() {
   float inRightLens = glassesOn * (1.0 - smoothstep(-0.012, 0.012, dR));
   float inDomLens = mix(inRightLens, inLeftLens, step(0.5, uDomIsOS));
   float inNonDomOnly = inLens * (1.0 - inDomLens);
-  float rimMask = glassesOn * (1.0 - smoothstep(-0.004, 0.004, rimBand));
+  // Semi-rimless Progressive shows metallic browline on upper half only, plus delicate lower glass-edge glint
+  float upperHalfMask = smoothstep(-0.04, 0.04, p.y);
+  float rimMask = glassesOn * (1.0 - smoothstep(-0.004, 0.004, rimBand)) * mix(1.0, max(upperHalfMask, 1.0 - smoothstep(-0.004, 0.004, dBridge)), isProgressive);
+  float glassEdgeGlint = glassesOn * isProgressive * (1.0 - upperHalfMask) * (1.0 - smoothstep(0.0, 0.007, abs(dLenses)));
 
-  // Bifocal split (executive aphakic or modern bifocal) vs smooth progressive corridor
-  float splitY = mix(-0.06, -0.02, isAphakic);
+  // Executive straight split (Aphakic) vs Flat-Top D-Segment (Modern Bifocal) vs Smooth Corridor (Progressive)
+  float splitY = -0.02;
   float dSplit = p.y - splitY;
-  float hasBifocal = isBifocalType * smoothstep(0.15, 0.45, uNearAddD);
-  float inBifocal = inLens * hasBifocal * (1.0 - smoothstep(-0.004, 0.004, dSplit));
-  float bifocalLine = inLens * hasBifocal * (1.0 - smoothstep(0.0, 0.0055, abs(dSplit)));
-  float palBlend = inLens * isProgressive * smoothstep(0.08, -0.24, p.y);
-  float palLat = min(abs(p.x - cL.x), abs(p.x - cR.x)) / 0.36;
-  float palSwim = inLens * isProgressive * smoothstep(0.32, 0.92, palLat) * smoothstep(0.10, -0.22, p.y) * clamp(uNearAddD / 2.5, 0.0, 1.5);
+  float hasAphakicSplit = isAphakic * smoothstep(0.15, 0.45, uNearAddD);
+  float inAphakicBifocal = inLens * hasAphakicSplit * (1.0 - smoothstep(-0.004, 0.004, dSplit));
+  float aphakicSplitLine = inLens * hasAphakicSplit * (1.0 - smoothstep(0.0, 0.0055, abs(dSplit)));
 
-  // Optical UV mapping: exact +13/+17 D aphakic mapping vs modern single-vision/bifocal/progressive magnification/minification
+  // Classic D-shaped flat-top reading segment in lower-inner quadrant of each modern bifocal lens
+  float hasModernBifocal = isModernBifocal * smoothstep(0.15, 0.45, uNearAddD);
+  float dSegL = max(p.y - (-0.075), sdRoundedBox(p - vec2(cL.x + 0.055, -0.185), vec2(0.165, 0.115), 0.085));
+  float dSegR = max(p.y - (-0.075), sdRoundedBox(p - vec2(cR.x - 0.055, -0.185), vec2(0.165, 0.115), 0.085));
+  float dSeg = min(dSegL, dSegR);
+  float inModernBifocal = inLens * hasModernBifocal * (1.0 - smoothstep(-0.004, 0.004, dSeg));
+  float dSegLine = inLens * hasModernBifocal * (1.0 - smoothstep(0.0, 0.006, abs(dSeg)));
+
+  float inBifocal = max(inAphakicBifocal, inModernBifocal);
+  float bifocalLine = max(aphakicSplitLine, dSegLine);
+  float palBlend = inLens * isProgressive * smoothstep(0.09, -0.22, p.y);
+  float palLat = min(abs(p.x - cL.x), abs(p.x - cR.x)) / 0.36;
+  float palSwim = inLens * isProgressive * smoothstep(0.24, 0.88, palLat) * smoothstep(0.14, -0.22, p.y) * clamp(uNearAddD / 2.25, 0.0, 1.6);
+
+  // Optical UV mapping: exact +13/+17 D aphakic mapping vs modern single-vision/bifocal/progressive + toric meridional mag
   vec2 pOpt = p - vec2(0.0, -0.02);
   float rLen = length(pOpt);
   float r2 = dot(pOpt, pOpt);
   float rLens = clamp(min(length(p - cL), length(p - cR)) / lensR, 0.0, 1.2);
   float periphFactor = isAphakic * smoothstep(0.42, 0.98, rLens);
-  float effModernD = inLens * isModernLens * (uLensPowerD + uNearAddD * max(inBifocal, palBlend));
+  float effModernD = inLens * isModernLens * (uLensPowerD + uNearAddD * max(inModernBifocal, palBlend));
 
   vec2 uvOD = vUv;
   float scotomaBand = 0.0;
@@ -547,11 +568,19 @@ void main() {
     vec2 uvOutside = vUv + (radialDir * (0.065 * powerRatio) * scotomaBand) / vec2(uAspect, 1.0);
     uvOD = mix(uvOutside, uvLens, inLens);
   } else if (isModernLens > 0.5 && glassesOn > 0.5) {
-    float modMag = clamp(1.0 + effModernD * 0.015, 0.84, 1.18);
-    float modDist = 1.0 + clamp(effModernD * 0.010, -0.10, 0.14) * r2;
-    vec2 pMod = pOpt / (modMag * modDist) + vec2(0.0, -0.02);
-    pMod += vec2(0.0, -0.008 * clamp(uNearAddD / 2.5, 0.0, 1.5)) * inBifocal;
-    pMod += vec2(sin(p.y * 14.0), cos(p.x * 12.0)) * 0.004 * palSwim;
+    float modMag = clamp(1.0 + effModernD * 0.017, 0.82, 1.20);
+    float modDist = 1.0 + clamp(effModernD * 0.011, -0.10, 0.14) * r2;
+    vec2 pMod = pOpt / (modMag * modDist);
+    // Subtle toric meridional magnification (authentic trapezoid feel of astigmatism glasses)
+    if (uLensCylD > 0.1) {
+      vec2 ax = vec2(cos(uLensAxisRad), sin(uLensAxisRad));
+      pMod -= ax * (dot(pMod, ax) * clamp(uLensCylD * 0.0085, 0.0, 0.04));
+    }
+    pMod += vec2(0.0, -0.02);
+    // Distinct flat-top bifocal image jump across D-segment ledge
+    pMod += vec2(0.0, -0.018 * clamp(uNearAddD / 2.5, 0.0, 1.5)) * inModernBifocal;
+    // Noticeable lateral progressive swim warp in lower outer lens corners
+    pMod += vec2(sin(p.y * 16.0) * 0.012, cos(p.x * 13.0) * 0.010) * palSwim;
     vec2 uvMod = clamp(pMod / vec2(uAspect, 1.0) + 0.5, vec2(0.002), vec2(0.998));
     uvOD = mix(vUv, uvMod, inLens);
   }
@@ -594,26 +623,30 @@ void main() {
     float refDefocusD = (1.0 - isAphakic) * max(0.0, max(minFocusD - objVergence, objVergence - maxFocusD) - 0.22);
     float refBlur = clamp(refDefocusD * 0.0056, 0.0, 0.036);
 
-    // Uncorrected corneal astigmatism neutralized inside modern corrective glasses
-    float residualAstigD = (1.0 - isAphakic) * uAstigmatismD * (1.0 - inLens * isModernLens);
+    // Real Jackson cross-cylinder vector subtraction: eye astigmatism minus toric lens correction (mismatched axis induces oblique astigmatism!)
+    vec2 eyeCylVec = uAstigmatismD * vec2(cos(2.0 * uAstigmatismAxisRad), sin(2.0 * uAstigmatismAxisRad));
+    vec2 lensCylVec = (inLens * isModernLens) * uLensCylD * vec2(cos(2.0 * uLensAxisRad), sin(2.0 * uLensAxisRad));
+    vec2 netCylVec = (1.0 - isAphakic) * (eyeCylVec - lensCylVec);
+    float residualAstigD = length(netCylVec);
+    float netAstigAxisRad = residualAstigD > 1e-4 ? (0.5 * atan(netCylVec.y, netCylVec.x)) : uAstigmatismAxisRad;
     float veil = isAphakic * smoothstep(0.45, 0.96, uEyelidLight) * (0.032 + decomp * 0.035);
 
-    // Intrinsic acuity blur (VOD vs VOS) + foveal hypoplasia / cataract / refractive blur
+    // Intrinsic acuity blur (VOD vs VOS) + foveal hypoplasia / cataract / refractive / progressive swim blur
     float baseAcuityBlur = mix(uAcuityBlurDom, uAcuityBlurNonDom, inNonDomOnly * isAphakic) + decomp * 0.0014 * isAphakic;
     baseAcuityBlur = max(baseAcuityBlur, uAlbinism * 0.0032);
-    baseAcuityBlur += uCataract * 0.0095 + refBlur + residualAstigD * 0.0013 + palSwim * 0.0022;
+    baseAcuityBlur += uCataract * 0.0095 + refBlur + residualAstigD * 0.0014 + palSwim * 0.0048;
     float periphBlur = isAphakic * inLens * periphFactor * periphFactor * 0.0055 * powerRatio;
     float correctedBlur = clamp(baseAcuityBlur + periphBlur + aphakicCocD * 0.0060 * powerRatio, 0.0, 0.038);
     float aphakicBlur = isAphakic * 0.044 * powerRatio;
     float inCorrection = mix(1.0, inLens, isAphakic);
     float isoBlurOD = mix(aphakicBlur, correctedBlur, inCorrection);
 
-    vec2 userAstDir = vec2(cos(uAstigmatismAxisRad), sin(uAstigmatismAxisRad));
+    vec2 userAstDir = vec2(cos(netAstigAxisRad), sin(netAstigAxisRad));
     vec2 aphakicAstDir = normalize(mix(vec2(cos(radians(123.0)), sin(radians(123.0))), vec2(1.0, 0.0), inNonDomOnly));
     vec2 astDirOD = isAphakic > 0.5 ? aphakicAstDir : userAstDir;
     float astBlurOD = isAphakic > 0.5
       ? (mix(0.011, 0.0010 + inNonDomOnly * 0.0022 + periphFactor * 0.0032, inLens) + decomp * 0.0014)
-      : (residualAstigD * 0.0046 + palSwim * 0.0028);
+      : (residualAstigD * 0.0046 + palSwim * 0.0055);
     float hoaOD = isAphakic > 0.5
       ? mix(0.55, 0.34 + decomp * 0.24, inLens)
       : clamp(residualAstigD * 0.24, 0.0, 0.85);
@@ -672,20 +705,28 @@ void main() {
       // Dark ring scotoma dead-band transition just outside high-plus aphakic rim
       col *= (1.0 - scotomaBand * 0.28 * powerRatio);
 
-      // Crisp horizontal bifocal ledge reflection (aphakic or modern bifocal)
-      float ledgeShade = mix(-0.06, 0.095, smoothstep(-0.003, 0.003, dSplit));
+      // Crisp bifocal ledge reflection (straight executive split or flat-top D-segment edge)
+      float ledgeShade = isAphakic > 0.5
+        ? mix(-0.06, 0.095, smoothstep(-0.003, 0.003, dSplit))
+        : 0.11;
       col += vec3(ledgeShade) * bifocalLine;
 
-      // Auto-matched frame rim: amber acetate (aphakic) vs dark slate (single-vision/bifocal) vs sleek titanium (progressive)
+      // Delicate specular glass edge along lower half of semi-rimless progressive lens
+      col += vec3(0.11, 0.12, 0.14) * glassEdgeGlint;
+
+      // Distinct auto-matched frames: amber acetate (aphakic), matte charcoal (SV), warm tortoiseshell (D-seg bifocal), brushed silver (semi-rimless PAL)
       if (rimMask > 0.01) {
-        vec3 modernTint = mix(vec3(0.16, 0.14, 0.13), vec3(0.34, 0.37, 0.42), isProgressive);
-        vec3 frameTint = mix(modernTint, vec3(0.72, 0.40, 0.11), isAphakic);
+        vec3 frameTint = isAphakic > 0.5
+          ? vec3(0.72, 0.40, 0.11)
+          : (isModernBifocal > 0.5
+              ? mix(vec3(0.30, 0.16, 0.07), vec3(0.56, 0.33, 0.13), 0.5 + 0.5 * sin(p.x * 42.0 + p.y * 36.0))
+              : (isProgressive > 0.5 ? vec3(0.58, 0.62, 0.68) : vec3(0.11, 0.12, 0.14)));
         float rimBevel = smoothstep(0.0, 0.011, abs(dLenses));
         vec3 rimCol = isAphakic > 0.5
           ? mix(col * frameTint * 1.15 + frameTint * 0.24, frameTint * 0.85, 0.45)
-          : mix(col * 0.18 + frameTint * 0.82, frameTint, 0.70);
-        rimCol += vec3(0.14, 0.12, 0.09) * (1.0 - rimBevel) * mix(0.35, 0.5, isAphakic);
-        col = mix(col, rimCol, rimMask * mix(0.92, 0.88, isAphakic));
+          : mix(col * 0.14 + frameTint * 0.86, frameTint, 0.76);
+        rimCol += vec3(0.18, 0.17, 0.15) * (1.0 - rimBevel) * (isProgressive > 0.5 ? 0.55 : 0.35);
+        col = mix(col, rimCol, rimMask * mix(0.94, 0.88, isAphakic));
       }
     }
 

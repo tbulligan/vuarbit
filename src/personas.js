@@ -25,6 +25,8 @@ export const SETTING_SPECS = Object.freeze({
   lensProfile: Object.freeze({ type: 'enum', values: LENS_PROFILES, default: 'aphakic_bifocal' }),
   lensPowerD: Object.freeze({ type: 'number', min: -12.0, max: 18.0, step: 0.25, default: 13.0 }),
   nearAddD: Object.freeze({ type: 'number', min: 0.0, max: 5.0, step: 0.25, default: 4.0 }),
+  lensCylD: Object.freeze({ type: 'number', min: 0.0, max: 5.0, step: 0.25, default: 0.0 }),
+  lensAxisDeg: Object.freeze({ type: 'number', min: 0, max: 180, step: 5, default: 90 }),
   myopiaD: Object.freeze({ type: 'number', min: 0.0, max: 10.0, step: 0.25, default: 0.0 }),
   presbyopiaD: Object.freeze({ type: 'number', min: 0.0, max: 4.0, step: 0.25, default: 0.0 }),
   astigmatismD: Object.freeze({ type: 'number', min: 0.0, max: 5.0, step: 0.25, default: 0.0 }),
@@ -96,6 +98,8 @@ const EMMETROPIC_BASE = {
   lensProfile: 'none',
   lensPowerD: 0.0,
   nearAddD: 0.0,
+  lensCylD: 0.0,
+  lensAxisDeg: 90,
   myopiaD: 0.0,
   presbyopiaD: 0.0,
   astigmatismD: 0.0,
@@ -261,11 +265,13 @@ export const PERSONAS = Object.freeze([
     defaultGlassesOn: false,
     name: 'Astigmatism (2.75 D Cyl)',
     shortName: 'Astigmatism',
-    description: 'Directional corneal blur and bright-light streaking along the 135° meridian. Press Z to wear corrective toric glasses.',
+    description: 'Directional corneal blur & light streaks at 135°. Press Z for matched 2.75 D × 135° toric glasses (detune lens axis in Optics Details).',
     settings: Object.freeze(sanitizeVisualSettings({
       ...EMMETROPIC_BASE,
       lensProfile: 'single_vision',
       lensPowerD: 0.0,
+      lensCylD: 2.75,
+      lensAxisDeg: 135,
       astigmatismD: 2.75,
       astigmatismAxisDeg: 135,
     })),
@@ -347,6 +353,12 @@ export function updateVisualSetting(state, key, value) {
   state.personaId = 'custom';
   if (key === 'lensProfile') {
     state.glassesOn = validated !== 'none';
+    if ((validated === 'bifocal' || validated === 'progressive') && (state.settings.nearAddD || 0) < 0.5) {
+      state.settings.nearAddD = 2.5;
+    } else if (validated === 'aphakic_bifocal') {
+      if ((state.settings.lensPowerD || 0) < 6) state.settings.lensPowerD = 13.0;
+      if ((state.settings.nearAddD || 0) < 0.5) state.settings.nearAddD = 4.0;
+    }
   } else if (key === 'dominantEye' && state.holding && state.heldOffset) {
     const absX = Math.abs(state.heldOffset.x || 0);
     state.heldOffset.x = validated === 'OS' ? -absX : absX;

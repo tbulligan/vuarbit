@@ -96,6 +96,11 @@ async function init() {
         state.focusStrength = 0;
       }
     },
+    onGlassesToggle() {
+      if (state.settings?.lensProfile !== 'none') {
+        state.glassesOn = !state.glassesOn;
+      }
+    },
     onQualityChange(presetId) {
       if (!QUALITY_PRESETS[presetId]) return;
       state.qualityPreset = presetId;

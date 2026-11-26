@@ -149,6 +149,8 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uLensProfile: { value: 1.0 },
     uLensPowerD: { value: 13.0 },
     uNearAddD: { value: 4.0 },
+    uLensCylD: { value: 0.0 },
+    uLensAxisRad: { value: Math.PI * 0.5 },
     uMyopiaD: { value: 0.0 },
     uPresbyopiaD: { value: 0.0 },
     uAstigmatismD: { value: 0.0 },
@@ -222,6 +224,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     const myopiaD = s.myopiaD || 0;
     const presbyopiaD = s.presbyopiaD || 0;
     const astigmatismD = s.astigmatismD || 0;
+    const lensCylD = s.lensCylD || 0;
     const lensProfileCode = LENS_PROFILE_MAP[lensProfile] ?? 1;
     const vodAcuity = s.vodAcuity ?? 0.70;
     const vosAcuity = s.vosAcuity ?? 0.15;
@@ -315,6 +318,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
         myopiaD > 0.1 ||
         presbyopiaD > 0.1 ||
         astigmatismD > 0.1 ||
+        lensCylD > 0.1 ||
         Math.max(acuityBlurDom, acuityBlurNonDom) > 0.001);
     if (needBlur) {
       blurUniforms.tSource.value = rtOD.texture;
@@ -347,6 +351,8 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uniforms.uLensProfile.value = lensProfileCode;
     uniforms.uLensPowerD.value = s.lensPowerD ?? 13.0;
     uniforms.uNearAddD.value = s.nearAddD ?? 4.0;
+    uniforms.uLensCylD.value = lensCylD;
+    uniforms.uLensAxisRad.value = THREE.MathUtils.degToRad(s.lensAxisDeg ?? 90);
     uniforms.uMyopiaD.value = myopiaD;
     uniforms.uPresbyopiaD.value = presbyopiaD;
     uniforms.uAstigmatismD.value = astigmatismD;

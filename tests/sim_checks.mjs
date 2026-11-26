@@ -285,7 +285,7 @@ const expectedPersonas = {
   albinism: { shortName: 'Ocular Albinism', lensProfile: 'none', vodAcuity: 0.25, vosAcuity: 0.25, albinism: 0.75, mlnScale: 0.0 },
   deuteranopia: { shortName: 'Deuteranopia', lensProfile: 'none', vodAcuity: 1.0, vosAcuity: 1.0, cvdType: 'deutan', cvdSeverity: 1.0 },
   myopia: { shortName: 'Myopia (-4 D)', lensProfile: 'single_vision', lensPowerD: -4.0, myopiaD: 4.0 },
-  astigmatism: { shortName: 'Astigmatism', lensProfile: 'single_vision', astigmatismD: 2.75, astigmatismAxisDeg: 135 },
+  astigmatism: { shortName: 'Astigmatism', lensProfile: 'single_vision', astigmatismD: 2.75, astigmatismAxisDeg: 135, lensCylD: 2.75, lensAxisDeg: 135 },
   presbyopia: { shortName: 'Presbyopia', lensProfile: 'progressive', nearAddD: 2.5, presbyopiaD: 2.75 },
 };
 for (const [id, checks] of Object.entries(expectedPersonas)) {
@@ -474,6 +474,13 @@ assert.equal(stMyo.settings.lensPowerD, -4.0);
 assert.equal(updateVisualSetting(stMyo, 'lensPowerD', -20), -12.0, 'lensPowerD must clamp to min -12 D');
 assert.equal(updateVisualSetting(stMyo, 'lensProfile', 'progressive'), 'progressive');
 assert.equal(stMyo.glassesOn, true, 'selecting progressive lens profile must put glasses on');
+assert.equal(stMyo.settings.nearAddD, 2.5, 'switching to progressive with 0 add must default nearAddD to +2.5 D');
+
+const stBif = createSimState();
+applyPersona(stBif, 'myopia');
+assert.equal(updateVisualSetting(stBif, 'lensProfile', 'bifocal'), 'bifocal');
+assert.equal(stBif.glassesOn, true, 'switching to bifocal must put glasses on');
+assert.equal(stBif.settings.nearAddD, 2.5, 'switching to bifocal with 0 add must default nearAddD to +2.5 D');
 
 const stPresby = createSimState();
 applyPersona(stPresby, 'presbyopia');

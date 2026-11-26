@@ -202,6 +202,7 @@ export function createControls(domElement, state, sceneApi) {
 
   const onKeyDown = (e) => {
     if (!e.repeat && e.code === 'KeyP') {
+      e.preventDefault();
       const opening = !state.settingsOpen;
       state.settingsOpen = opening;
       if (opening) {
@@ -210,22 +211,36 @@ export function createControls(domElement, state, sceneApi) {
         rmbDown = false;
         wheelDeltaAccum = 0;
         state.focusing = focusToggle;
+      } else if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
       }
       return;
     }
 
     if (!e.repeat && e.code === 'Escape' && state.settingsOpen) {
       state.settingsOpen = false;
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
       return;
     }
 
-    if (!e.repeat && e.code === 'KeyV' && (!state.settingsOpen || e.target?.tagName !== 'SELECT')) {
+    if (!e.repeat && e.code === 'KeyV') {
+      if (state.settingsOpen) e.preventDefault();
       state.compareNormal = !state.compareNormal;
       state.fatigue = 0.05;
       if (!state.compareNormal) {
         focusToggle = false;
         state.focusing = state.settingsOpen ? false : keys.has('Space');
         state.focusStrength = 0;
+      }
+      return;
+    }
+
+    if (!e.repeat && e.code === 'KeyZ') {
+      if (state.settingsOpen) e.preventDefault();
+      if (state.settings?.lensProfile !== 'none') {
+        state.glassesOn = !state.glassesOn;
       }
       return;
     }
@@ -250,11 +265,6 @@ export function createControls(domElement, state, sceneApi) {
         state.eyesClosed = !state.eyesClosed;
         focusToggle = false;
         state.focusing = state.eyesClosed ? false : keys.has('Space');
-        break;
-      case 'KeyZ':
-        if (state.settings?.lensProfile !== 'none') {
-          state.glassesOn = !state.glassesOn;
-        }
         break;
       case 'KeyC':
         focusToggle = !focusToggle;
@@ -328,10 +338,10 @@ export function createControls(domElement, state, sceneApi) {
     }
 
     if (state.holding) {
-      // Keep nearest tilted corner outside thick +13 D glasses (~4.2cm front plane) or bare cornea (~2.6cm)
+      // Keep nearest rotated corner outside glasses (~4.8cm) or bare cornea (~4.2cm, clear of 2cm near clip)
       const heldItem = sceneApi.pickables.find((p) => p.id === state.holding);
       const halfDepth = heldItem?.halfDepth || 0.048;
-      const minZ = (state.glassesOn ? 0.042 : 0.026) + halfDepth;
+      const minZ = (state.glassesOn ? 0.048 : 0.042) + halfDepth;
 
       const xySpeed = 0.42;
       const zSpeed = 0.45;
