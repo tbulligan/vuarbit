@@ -10,6 +10,8 @@ import {
   applyPersona,
   updateVisualSetting,
   computeAcuityBlurUV,
+  formatSnellenAcuity,
+  hasSuppressionMechanics,
   createSimState,
   computeOcclusionFromDistance,
   computeDiplopiaOffsetDeg,
@@ -274,10 +276,10 @@ assert.equal(QUALITY_PRESETS.performance.dprCap, 1.0);
 assert.equal(PERSONAS.length, 7, 'must define exactly 7 clinical personas');
 const expectedPersonas = {
   vuarbit_1994: { shortName: 'Vuarbit 1994', lensProfile: 'aphakic_bifocal', vodAcuity: 0.70, vosAcuity: 0.15, mlnScale: 1.0 },
-  normal: { shortName: 'Normal', lensProfile: 'none', vodAcuity: 1.0, vosAcuity: 1.0, mlnScale: 0.0 },
+  normal: { shortName: 'Normal Vision', lensProfile: 'none', vodAcuity: 1.0, vosAcuity: 1.0, mlnScale: 0.0 },
   glaucoma: { shortName: 'Glaucoma', lensProfile: 'none', vodAcuity: 0.90, vosAcuity: 0.85, glaucoma: 0.65 },
   amd: { shortName: 'Wet AMD', lensProfile: 'none', vodAcuity: 0.45, vosAcuity: 0.40, amd: 0.70 },
-  albinism: { shortName: 'Ocular Albinism', lensProfile: 'none', vodAcuity: 0.25, vosAcuity: 0.25, albinism: 0.75, mlnScale: 0.85 },
+  albinism: { shortName: 'Ocular Albinism', lensProfile: 'none', vodAcuity: 0.25, vosAcuity: 0.25, albinism: 0.75, mlnScale: 0.0 },
   cataracts: { shortName: 'Cataracts', lensProfile: 'none', vodAcuity: 0.40, vosAcuity: 0.35, cataract: 0.72 },
   deuteranopia: { shortName: 'Deuteranopia', lensProfile: 'none', vodAcuity: 1.0, vosAcuity: 1.0, cvdType: 'deutan', cvdSeverity: 1.0 },
 };
@@ -328,20 +330,24 @@ assert.equal(sanitized.cvdType, 'protan');
 assert.equal(sanitized.cvdSeverity, 1.0, 'cvdSeverity must clamp to max 1.0');
 assert.equal(Object.hasOwn(sanitized, 'unknownHack'), false, 'unknown keys must be ignored');
 
-// computeAcuityBlurUV endpoints & monotonicity
+// computeAcuityBlurUV MAR calibration, shader cutoff clearance & Snellen formatting
 assert.equal(computeAcuityBlurUV(1.0), 0);
 assert.equal(computeAcuityBlurUV(2.0), 0);
 assert.equal(computeAcuityBlurUV(NaN), 0);
-assert.equal(computeAcuityBlurUV(0.05), 0.014);
-assert.equal(computeAcuityBlurUV(0.01), 0.014);
+assert.ok(computeAcuityBlurUV(0.05) >= 0.025 && computeAcuityBlurUV(0.05) <= 0.034, '0.05 (20/400) must produce strong blur');
+assert.equal(computeAcuityBlurUV(0.01), computeAcuityBlurUV(0.05));
 const blur006 = computeAcuityBlurUV(0.06);
 const blur015 = computeAcuityBlurUV(0.15);
 const blur040 = computeAcuityBlurUV(0.40);
 const blur070 = computeAcuityBlurUV(0.70);
+assert.ok(blur070 > 0.0005, `VOD 0.70 blur (${blur070}) must exceed shader 0.00012 cutoff`);
 assert.ok(
   blur006 > blur015 && blur015 > blur040 && blur040 > blur070 && blur070 > 0,
   'computeAcuityBlurUV must be strictly decreasing with higher acuity'
 );
+assert.equal(formatSnellenAcuity(1.0), '1.00 (20/20)');
+assert.equal(formatSnellenAcuity(0.70), '0.70 (20/29)');
+assert.equal(formatSnellenAcuity(0.05), '0.05 (20/400)');
 
 // dominantEye === 'OS' mirroring & custom diplopia offset
 const heldOD = computeHeldRestOffset(0.21, true, 'OD');
@@ -398,18 +404,61 @@ assert.equal(stNormal.mlnIntensity, 0, 'normal vision must have 0 MLN even under
 assert.ok(stNormal.fatigue < 0.4 && stNormal.fatigue >= 0.05, `normal vision fatigue must relax toward 0.05, got ${stNormal.fatigue}`);
 assert.equal(stNormal.activeZone, 'emmetropic');
 
-// Albinism infantile nystagmus drive (even with mlnScale === 0)
+// Albinism infantile nystagmus drive (mlnScale is 0 by default -> no dual-waveform double counting)
 const stAlb = createSimState();
 applyPersona(stAlb, 'albinism');
-updateVisualSetting(stAlb, 'mlnScale', 0);
 updateSimState(stAlb, 0.016);
 const albUnfocused = stAlb.mlnIntensity;
+assert.equal(stAlb.mlnOnlyIntensity, 0, 'albinism preset must not inject MLN jerk drive');
 assert.ok(albUnfocused > 0.25, `albinism must drive infantile nystagmus, got ${albUnfocused}`);
 stAlb.focusing = true;
 for (let i = 0; i < 30; i++) {
   updateSimState(stAlb, 0.05);
 }
 assert.ok(stAlb.mlnIntensity < albUnfocused, 'focus effort must modestly damp albinism nystagmus');
+
+// Suppression gating: non-aphakic conditions must NOT suffer +13 D uncorrected glasses fatigue penalty
+assert.equal(hasSuppressionMechanics(getPersonaById('vuarbit_1994').settings), true);
+assert.equal(hasSuppressionMechanics(getPersonaById('albinism').settings), true);
+assert.equal(hasSuppressionMechanics(getPersonaById('normal').settings), false);
+assert.equal(hasSuppressionMechanics(getPersonaById('glaucoma').settings), false);
+assert.equal(hasSuppressionMechanics(getPersonaById('amd').settings), false);
+assert.equal(hasSuppressionMechanics(getPersonaById('cataracts').settings), false);
+assert.equal(hasSuppressionMechanics(getPersonaById('deuteranopia').settings), false);
+
+const stGlauc = createSimState();
+applyPersona(stGlauc, 'glaucoma');
+stGlauc.fatigue = 0.25;
+stGlauc.focusing = true;
+for (let i = 0; i < 40; i++) {
+  updateSimState(stGlauc, 0.05);
+}
+assert.ok(stGlauc.fatigue < 0.25, `glaucoma must relax fatigue rather than drain aphakic strain, got ${stGlauc.fatigue}`);
+assert.equal(stGlauc.focusStrength, 0, 'focusStrength must stay 0 when suppression mechanics do not apply');
+
+// Opening settings drawer pauses fatigue accumulation; applyPersona clears focusing & eyesClosed
+const stPaused = createSimState();
+stPaused.focusing = true;
+stPaused.settingsOpen = true;
+const fatigueBefore = stPaused.fatigue;
+for (let i = 0; i < 40; i++) {
+  updateSimState(stPaused, 0.05);
+}
+assert.equal(stPaused.fatigue, fatigueBefore, 'settingsOpen must freeze fatigue drain');
+
+stPaused.eyesClosed = true;
+stPaused.eyelidClose = 1;
+applyPersona(stPaused, 'normal');
+assert.equal(stPaused.focusing, false, 'applyPersona must clear focusing');
+assert.equal(stPaused.eyesClosed, false, 'applyPersona must clear eyesClosed');
+
+// Flipping dominantEye mirrors currently held object X immediately
+const stFlip = createSimState();
+stFlip.holding = 'pencil';
+stFlip.heldOffset = computeHeldRestOffset(0.22, true, 'OD');
+const origX = stFlip.heldOffset.x;
+updateVisualSetting(stFlip, 'dominantEye', 'OS');
+assert.equal(stFlip.heldOffset.x, -origX, 'dominantEye OS swap must mirror active heldOffset.x');
 
 // Bifocal nearAddD=0 stays distance even when looking down
 const stNoAdd = createSimState();

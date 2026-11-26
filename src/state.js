@@ -13,6 +13,8 @@ import {
   applyPersona,
   updateVisualSetting,
   computeAcuityBlurUV,
+  formatSnellenAcuity,
+  hasSuppressionMechanics,
 } from './personas.js';
 
 export {
@@ -25,6 +27,8 @@ export {
   applyPersona,
   updateVisualSetting,
   computeAcuityBlurUV,
+  formatSnellenAcuity,
+  hasSuppressionMechanics,
 };
 
 export function clamp(value, min, max) {
@@ -133,6 +137,7 @@ export function createSimState() {
     focusStrength: 0,
     compareNormal: false,
     mlnIntensity: 0,
+    mlnOnlyIntensity: 0,
     gazeVel: 0,
     activeZone: 'distance',
     focusDistM: 3.8,
@@ -224,17 +229,8 @@ export function computeMlnAngleDeg(wave, elapsed, freqHz, occlusionLevel, mlnSca
 export function updateSimState(state, dt) {
   const step = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.1);
   const s = state.settings || createDefaultVisualSettings();
-  const isImpairmentFree =
-    s.lensProfile === 'none' &&
-    s.vodAcuity >= 0.95 &&
-    s.vosAcuity >= 0.95 &&
-    s.mlnScale <= 0 &&
-    Math.abs(s.diplopiaH) < 0.01 &&
-    Math.abs(s.diplopiaV) < 0.01 &&
-    s.glaucoma <= 0 &&
-    s.amd <= 0 &&
-    s.albinism <= 0 &&
-    s.cataract <= 0;
+  const suppressionActive = hasSuppressionMechanics(s);
+  const paused = Boolean(state.settingsOpen);
 
   // Smooth eyelid transition
   const targetClose = state.eyesClosed ? 1 : 0;
@@ -253,40 +249,48 @@ export function updateSimState(state, dt) {
   // MLN Patching Paradox: triggered by asymmetric monocular occlusion (one eye occluded, NOT both)
   state.occlusionLevel = clamp(Math.abs(state.occlOD - state.occlOS), 0, 1);
 
-  // Cortical focus suppression (C toggle / Space hold): holds steady on reserve, then crashes past tipping point
-  const wantsFocus = Boolean(state.focusing) && !state.eyesClosed && !state.compareNormal;
+  // Cortical focus suppression (C toggle / Space hold): active only when suppression mechanics apply
+  const wantsFocus = suppressionActive && Boolean(state.focusing) && !state.eyesClosed && !state.compareNormal;
   const decomp = computeDecompensation(state.fatigue);
   const fatigueBreakdown = 1.0 - 0.78 * decomp;
   const targetFocusStrength = wantsFocus ? fatigueBreakdown : 0;
   const focusAlpha = 1 - Math.exp(-8 * step);
-  state.focusStrength = clamp(
-    (state.focusStrength || 0) + (targetFocusStrength - (state.focusStrength || 0)) * focusAlpha,
-    0,
-    1
-  );
+  state.focusStrength = suppressionActive
+    ? clamp((state.focusStrength || 0) + (targetFocusStrength - (state.focusStrength || 0)) * focusAlpha, 0, 1)
+    : 0;
 
-  // Two-speed central visual fatigue dynamics (gradual reserve drain, 2.4x faster during Focus)
-  if (state.eyesClosed || isImpairmentFree) {
-    const recovAlpha = 1 - Math.exp(-0.14 * step);
-    state.fatigue = clamp(state.fatigue + (0.05 - state.fatigue) * recovAlpha, 0, 1);
-  } else if (!state.compareNormal) {
-    let rate = 0.0012;
-    if (state.focusDistM > 0 && state.focusDistM < 0.7) rate += 0.0018;
-    if (state.occlusionLevel > 0.05) rate += 0.006 * state.occlusionLevel;
-    if (!state.glassesOn) rate += 0.003;
-    if (wantsFocus) {
-      rate = rate * 2.4 + 0.0035;
+  // Two-speed central visual fatigue dynamics (paused while settings drawer is open; gated to suppression mechanics)
+  if (!paused) {
+    if (state.eyesClosed || !suppressionActive) {
+      const recovAlpha = 1 - Math.exp(-0.14 * step);
+      state.fatigue = clamp(state.fatigue + (0.05 - state.fatigue) * recovAlpha, 0, 1);
+    } else if (!state.compareNormal) {
+      const isAphakic = s.lensProfile === 'aphakic_bifocal';
+      let rate = 0.0012;
+      if ((isAphakic || Math.abs(s.diplopiaH || 0) >= 0.01) && state.focusDistM > 0 && state.focusDistM < 0.7) {
+        rate += 0.0018;
+      }
+      if ((s.mlnScale || 0) > 0.005 && state.occlusionLevel > 0.05) {
+        rate += 0.006 * state.occlusionLevel;
+      }
+      if (isAphakic && !state.glassesOn) {
+        rate += 0.003;
+      }
+      if (wantsFocus) {
+        rate = rate * 2.4 + 0.0035;
+      }
+      state.fatigue = clamp(state.fatigue + rate * step, 0, 1);
     }
-    state.fatigue = clamp(state.fatigue + rate * step, 0, 1);
   }
 
-  // MLN intensity: noticeable unfocused baseline damped by Focus effort; rises sharply on decompensation or monocular occlusion
+  // Separate MLN jerk drive from infantile albinism pendular nystagmus drive (no double-counting in optics.js)
   const postDecomp = computeDecompensation(state.fatigue);
   const unocclDrive = (0.15 + 0.34 * postDecomp) * (state.eyesClosed ? 0.35 : 1.0) * (1 - 0.68 * state.focusStrength);
   const mlnScale = clamp(s.mlnScale ?? 1, 0, 2);
   const mlnDrive = (state.occlusionLevel * 0.95 + unocclDrive) * mlnScale;
   const albinismDrive =
-    clamp(s.albinism || 0, 0, 1) * 0.42 * (state.eyesClosed ? 0.25 : 1.0) * (1 - 0.35 * state.focusStrength);
+    clamp(s.albinism || 0, 0, 1) * 0.48 * (state.eyesClosed ? 0.25 : 1.0) * (1 - 0.35 * state.focusStrength);
+  state.mlnOnlyIntensity = clamp(mlnDrive, 0, 1);
   state.mlnIntensity = clamp(mlnDrive + albinismDrive, 0, 1);
 
   if (state.eyelidClose > 0.8) {

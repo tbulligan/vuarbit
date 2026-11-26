@@ -9,7 +9,7 @@
 ## Module Ownership & Contracts
 
 - `src/personas.js` (pure ES module, zero DOM/Three.js imports):
-  - `PERSONAS`, `SETTING_SPECS`, `QUALITY_PRESETS`, `getPersonaById(id)`, `createDefaultVisualSettings()`, `sanitizeVisualSettings(partial)`, `applyPersona(state, id)`, `updateVisualSetting(state, key, value)`, `computeAcuityBlurUV(acuityDecimal)`.
+  - `PERSONAS`, `SETTING_SPECS`, `QUALITY_PRESETS`, `getPersonaById(id)`, `createDefaultVisualSettings()`, `sanitizeVisualSettings(partial)`, `applyPersona(state, id)`, `updateVisualSetting(state, key, value)`, `computeAcuityBlurUV(acuityDecimal)`, `formatSnellenAcuity(acuityDecimal)`, `hasSuppressionMechanics(settings)`.
 - `src/state.js` (pure ES module, zero DOM/Three.js imports):
   - Re-exports `src/personas.js` API; `createSimState()`, `updateSimState(state, dt)`, `computeOcclusionFromDistance(distMeters)`, `computeDiplopiaOffsetDeg(distMeters, settings)`, `computeMlnAngleDeg(...)`, `computeMlnFreqScale(...)`, `computeHeldRestOffset(zMeters, glassesOn, dominantEye)`, `computeMaxYaw(...)`, `computeDecompensation(fatigue)`.
 - `src/scene.js` (owns helpers `src/scene/{classmates,props,player_shadow}.js`):

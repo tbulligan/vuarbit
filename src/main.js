@@ -88,14 +88,18 @@ async function init() {
     onReset() {
       applyPersona(state, 'vuarbit_1994');
     },
+    onCompareToggle() {
+      state.compareNormal = !state.compareNormal;
+      state.fatigue = 0.05;
+      if (!state.compareNormal) {
+        state.focusing = false;
+        state.focusStrength = 0;
+      }
+    },
     onQualityChange(presetId) {
       if (!QUALITY_PRESETS[presetId]) return;
       state.qualityPreset = presetId;
-      if (optics.setQuality) {
-        optics.setQuality(presetId);
-      } else {
-        onResize();
-      }
+      optics.setQuality(presetId);
     },
     onClose() {
       state.settingsOpen = false;

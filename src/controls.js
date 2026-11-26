@@ -296,6 +296,9 @@ export function createControls(domElement, state, sceneApi) {
   function update(dt, camera) {
     latestCamera = camera;
     const step = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.1);
+    if (!state.focusing && focusToggle) {
+      focusToggle = false;
+    }
 
     // Instantaneous angular velocity (rad/s): drops immediately to 0 the frame mouse movement stops
     const instVel = step > 1e-4 ? angularAccum / step : 0;

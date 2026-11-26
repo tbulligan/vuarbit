@@ -1,4 +1,4 @@
-import { getPersonaById } from './personas.js';
+import { getPersonaById, hasSuppressionMechanics } from './personas.js';
 
 function makeEl(tag, className, text) {
   const el = document.createElement(tag);
@@ -11,7 +11,7 @@ function zoneLabel(state) {
   if (state.eyelidClose > 0.8 || state.activeZone === 'closed') return 'Resting (Closed)';
   if (state.compareNormal || state.activeZone === 'normal') return 'Normal Vision (Compare)';
   if (state.settings?.lensProfile === 'none' || state.activeZone === 'emmetropic') {
-    return 'Emmetropic (No Lens)';
+    return 'No Glasses';
   }
   const p = Number.isFinite(state.settings?.lensPowerD) ? state.settings.lensPowerD : 13.0;
   const a = Number.isFinite(state.settings?.nearAddD) ? state.settings.nearAddD : 4.0;
@@ -24,7 +24,7 @@ function zoneLabel(state) {
 
 function glassesLabel(state) {
   if (state.compareNormal) return 'OFF (Normal Compare)';
-  if (state.settings?.lensProfile === 'none') return 'None (Emmetropic)';
+  if (state.settings?.lensProfile === 'none') return 'None';
   const p = Number.isFinite(state.settings?.lensPowerD) ? state.settings.lensPowerD : 13.0;
   const a = Number.isFinite(state.settings?.nearAddD) ? state.settings.nearAddD : 4.0;
   return state.glassesOn
@@ -52,17 +52,17 @@ export function createHud(rootElement, initialState) {
     const v = makeEl('span', 'hud-val', '-');
     row.replaceChildren(k, v);
     panel.appendChild(row);
-    return v;
+    return { row, val: v };
   }
 
-  const valPersona = makeRow('Persona');
-  const valGlasses = makeRow('Glasses');
-  const valZone = makeRow('Optical Zone');
-  const valFocus = makeRow('Focus Dist');
-  const valEffort = makeRow('Focus Effort');
-  const valMln = makeRow('Occl / MLN');
-  const valFatigue = makeRow('Fatigue');
-  const valTinnitus = makeRow('Tinnitus');
+  const rPersona = makeRow('Preset');
+  const rGlasses = makeRow('Glasses');
+  const rZone = makeRow('Optical Zone');
+  const rFocus = makeRow('Focus Dist');
+  const rEffort = makeRow('Focus Effort');
+  const rNystagmus = makeRow('Nystagmus');
+  const rFatigue = makeRow('Fatigue');
+  const rTinnitus = makeRow('Tinnitus');
 
   const controlsLegend = makeEl(
     'div',
@@ -78,12 +78,12 @@ export function createHud(rootElement, initialState) {
   const line1 = makeEl(
     'p',
     null,
-    'First-person childhood bilateral aphakia (+13 D / +17 D bifocal, zero accommodation) & MLN simulation.',
+    'First-person childhood bilateral aphakia (+13 D / +17 D bifocal, zero accommodation) & nystagmus simulation.',
   );
   const line2 = makeEl(
     'p',
     null,
-    'Explore the 1990s classroom, sit at the front-left desk (X), lean in or hold objects near an eye (F/E) to trigger MLN.',
+    'Explore the 1990s classroom, sit at the front-left desk (X), lean in or hold objects near an eye (F/E), or press P for presets.',
   );
   const cta = makeEl('p', 'hud-cta', 'Click anywhere to enter classroom (Esc releases cursor)');
   card.replaceChildren(cardTitle, line1, line2, cta);
@@ -113,27 +113,41 @@ export function createHud(rootElement, initialState) {
 
     if (!state.hudVisible) return;
 
-    valPersona.textContent = personaLabel(state);
-    valGlasses.textContent = glassesLabel(state);
-    valZone.textContent = zoneLabel(state);
+    const s = state.settings || {};
+    const hasLens = s.lensProfile !== 'none';
+    const hasSuppression = hasSuppressionMechanics(s);
+    const hasNystagmus = (s.mlnScale || 0) > 0.005 || (s.albinism || 0) > 0.005;
+    const hasTinnitus = (s.tinnitus ?? 1) > 0.005;
+
+    rGlasses.row.classList.toggle('is-hidden', !hasLens && !state.compareNormal);
+    rEffort.row.classList.toggle('is-hidden', !hasSuppression);
+    rNystagmus.row.classList.toggle('is-hidden', !hasNystagmus);
+    rFatigue.row.classList.toggle('is-hidden', !hasSuppression);
+    rTinnitus.row.classList.toggle('is-hidden', !hasTinnitus && !state.muted);
+
+    rPersona.val.textContent = personaLabel(state);
+    rGlasses.val.textContent = glassesLabel(state);
+    rZone.val.textContent = zoneLabel(state);
     const isClosed = state.eyelidClose > 0.8 || state.activeZone === 'closed';
-    valFocus.textContent = isClosed ? '0.00 m (Closed)' : `${(state.focusDistM || 0).toFixed(2)} m`;
+    rFocus.val.textContent = isClosed ? '0.00 m (Closed)' : `${(state.focusDistM || 0).toFixed(2)} m`;
     const effortPct = Math.round((state.focusStrength || 0) * 100);
-    valEffort.textContent = isClosed || state.compareNormal
+    rEffort.val.textContent = isClosed || state.compareNormal
       ? 'Inactive'
       : state.focusing
         ? `ACTIVE (${effortPct}%, 2.4x fatigue)`
         : 'Relaxed';
     const occlPct = Math.round((state.occlusionLevel || 0) * 100);
-    const mlnPct = Math.round((state.mlnIntensity || 0) * 100);
-    valMln.textContent = `${occlPct}% / ${mlnPct}%`;
-    valFatigue.textContent = `${Math.round((state.fatigue || 0) * 100)}%`;
-    valTinnitus.textContent =
+    const nystPct = Math.round((state.mlnIntensity || 0) * 100);
+    rNystagmus.val.textContent = (s.mlnScale || 0) > 0.005
+      ? `${occlPct}% occl / ${nystPct}%`
+      : `${nystPct}%`;
+    rFatigue.val.textContent = `${Math.round((state.fatigue || 0) * 100)}%`;
+    rTinnitus.val.textContent =
       state.muted || state.compareNormal
         ? 'MUTED'
-        : (state.settings?.tinnitus ?? 1) <= 0.005
-          ? 'OFF'
-          : 'ON (E7 + C9)';
+        : hasTinnitus
+          ? 'ON'
+          : 'OFF';
   }
 
   function dispose() {

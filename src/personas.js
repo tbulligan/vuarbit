@@ -99,23 +99,26 @@ const EMMETROPIC_BASE = {
 export const PERSONAS = Object.freeze([
   Object.freeze({
     id: 'vuarbit_1994',
+    group: 'vuarbit',
     name: 'Vuarbit 1994 (Childhood Aphakia)',
     shortName: 'Vuarbit 1994',
-    description: 'Bilateral childhood aphakia (+13 D / +4 D bifocal), OD-dominant, OS amblyopia & diplopia, latent nystagmus.',
+    description: 'Bilateral childhood aphakia (+13/+17 D bifocal), OD-dominant, OS amblyopia & diplopia, manifest latent nystagmus (MLN).',
     settings: Object.freeze(createDefaultVisualSettings()),
   }),
   Object.freeze({
     id: 'normal',
+    group: 'vuarbit',
     name: 'Normal Vision',
-    shortName: 'Normal',
-    description: 'Healthy emmetropic binocular vision with 1.0 acuity and no ocular pathology.',
+    shortName: 'Normal Vision',
+    description: 'Healthy 20/20 binocular vision with no refractive error or ocular pathology.',
     settings: Object.freeze(sanitizeVisualSettings(EMMETROPIC_BASE)),
   }),
   Object.freeze({
     id: 'glaucoma',
+    group: 'condition',
     name: 'Primary Open-Angle Glaucoma',
     shortName: 'Glaucoma',
-    description: 'Arcuate visual-field loss with peripheral perceptual filling-in and mild floaters.',
+    description: 'Arcuate & peripheral visual-field loss with Crabb (2013) perceptual filling-in; 100% reaches total blindness.',
     settings: Object.freeze(sanitizeVisualSettings({
       ...EMMETROPIC_BASE,
       vodAcuity: 0.90,
@@ -126,9 +129,10 @@ export const PERSONAS = Object.freeze([
   }),
   Object.freeze({
     id: 'amd',
+    group: 'condition',
     name: 'Macular Degeneration (Wet AMD)',
     shortName: 'Wet AMD',
-    description: 'Retinal-locked central metamorphopsia and macular scotoma reducing central acuity.',
+    description: 'Retinal-locked Amsler metamorphopsia (wavy straight lines) and central macular scotoma.',
     settings: Object.freeze(sanitizeVisualSettings({
       ...EMMETROPIC_BASE,
       vodAcuity: 0.45,
@@ -140,23 +144,25 @@ export const PERSONAS = Object.freeze([
   }),
   Object.freeze({
     id: 'albinism',
+    group: 'condition',
     name: 'Ocular Albinism',
     shortName: 'Ocular Albinism',
-    description: 'Foveal hypoplasia, photophobic iris-transillumination glare, and infantile nystagmus.',
+    description: 'Foveal hypoplasia, iris-transillumination photophobia glare, and ~3.8 Hz infantile nystagmus.',
     settings: Object.freeze(sanitizeVisualSettings({
       ...EMMETROPIC_BASE,
       vodAcuity: 0.25,
       vosAcuity: 0.25,
-      mlnScale: 0.85,
+      mlnScale: 0.0,
       floaters: 0.15,
       albinism: 0.75,
     })),
   }),
   Object.freeze({
     id: 'cataracts',
+    group: 'condition',
     name: 'Nuclear & Cortical Cataracts',
     shortName: 'Cataracts',
-    description: 'Nuclear brunescence yellowing, cortical haze, and forward disability glare.',
+    description: 'Nuclear brunescence yellowing, cortical haze, and forward disability glare; 100% is light-perception only.',
     settings: Object.freeze(sanitizeVisualSettings({
       ...EMMETROPIC_BASE,
       vodAcuity: 0.40,
@@ -167,9 +173,10 @@ export const PERSONAS = Object.freeze([
   }),
   Object.freeze({
     id: 'deuteranopia',
+    group: 'condition',
     name: 'Deuteranopia (Red-Green CVD)',
     shortName: 'Deuteranopia',
-    description: 'Complete M-cone deficiency (red-green color confusion) with normal spatial acuity.',
+    description: 'Complete M-cone deficiency (Machado 2009 red-green shift) with normal spatial acuity.',
     settings: Object.freeze(sanitizeVisualSettings({
       ...EMMETROPIC_BASE,
       cvdType: 'deutan',
@@ -186,6 +193,20 @@ export function getPersonaById(id) {
 }
 
 /**
+ * Whether cortical focus suppression & asthenopia fatigue reserve apply to these settings.
+ */
+export function hasSuppressionMechanics(settings) {
+  const s = settings || createDefaultVisualSettings();
+  return (
+    s.lensProfile === 'aphakic_bifocal' ||
+    (s.mlnScale || 0) > 0.005 ||
+    (s.albinism || 0) > 0.005 ||
+    Math.abs(s.diplopiaH || 0) >= 0.01 ||
+    Math.abs(s.diplopiaV || 0) >= 0.01
+  );
+}
+
+/**
  * Apply a named clinical persona to simulation state. Returns true if applied, false if id unknown.
  */
 export function applyPersona(state, personaId) {
@@ -197,7 +218,10 @@ export function applyPersona(state, personaId) {
   state.personaId = persona.id;
   state.compareNormal = false;
   state.fatigue = 0.08;
+  state.focusing = false;
   state.focusStrength = 0;
+  state.eyesClosed = false;
+  state.eyelidClose = 0;
   state.glassesOn = persona.settings.lensProfile === 'aphakic_bifocal';
   return true;
 }
@@ -218,14 +242,28 @@ export function updateVisualSetting(state, key, value) {
   state.personaId = 'custom';
   if (key === 'lensProfile') {
     state.glassesOn = validated === 'aphakic_bifocal';
+  } else if (key === 'dominantEye' && state.holding && state.heldOffset) {
+    const absX = Math.abs(state.heldOffset.x || 0);
+    state.heldOffset.x = validated === 'OS' ? -absX : absX;
   }
   return validated;
 }
 
 /**
- * Convert Snellen decimal acuity [0.05, 1.0] into normalized UV blur radius [0, 0.014].
+ * Convert Snellen decimal acuity [0.05, 1.0] into MAR-calibrated UV blur radius [0, 0.034].
+ * 1.00 (20/20) -> 0.0, 0.70 (20/29) -> ~0.00065, 0.15 (20/133) -> ~0.0084, 0.05 (20/400) -> ~0.028.
  */
 export function computeAcuityBlurUV(acuityDecimal) {
   const a = clamp(Number.isFinite(acuityDecimal) ? acuityDecimal : 1.0, 0.05, 1.0);
-  return clamp(0.0009 * Math.pow(1.0 / a - 1.0, 0.96), 0, 0.014);
+  const marExcess = 1.0 / a - 1.0;
+  return clamp(0.0015 * Math.pow(marExcess, 0.99), 0, 0.034);
+}
+
+/**
+ * Format Snellen decimal acuity alongside 20/xx equivalent (e.g. "0.70 (20/29)").
+ */
+export function formatSnellenAcuity(acuityDecimal) {
+  const a = clamp(Number.isFinite(acuityDecimal) ? acuityDecimal : 1.0, 0.05, 1.0);
+  const denom = Math.round(20 / a);
+  return `${a.toFixed(2)} (20/${denom})`;
 }

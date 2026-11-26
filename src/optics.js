@@ -212,8 +212,14 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     const cataract = s.cataract || 0;
     const vodAcuity = s.vodAcuity ?? 0.70;
     const vosAcuity = s.vosAcuity ?? 0.15;
-    const acuityBlurDom = computeAcuityBlurUV(domIsOS ? vosAcuity : vodAcuity);
+    const rawDomBlur = computeAcuityBlurUV(domIsOS ? vosAcuity : vodAcuity);
     const acuityBlurNonDom = computeAcuityBlurUV(domIsOS ? vodAcuity : vosAcuity);
+    const hasDiplopia = Math.abs(s.diplopiaH ?? -1.53) >= 0.01 || Math.abs(s.diplopiaV ?? 0.31) >= 0.01;
+    // In emmetropic single-vision mode (no lenses, no diplopia), blend non-dominant acuity via binocular summation so OS acuity stays active
+    const acuityBlurDom =
+      lensProfile === 'none' && !hasDiplopia
+        ? rawDomBlur * 0.75 + acuityBlurNonDom * 0.25
+        : rawDomBlur;
     const mlnUserScale = s.mlnScale ?? 1.0;
 
     // Instantaneous gaze-shift nystagmus: prominent when turning head/mouse (strongest unfocused), stops immediately on 0 speed
@@ -226,23 +232,26 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     mlnElapsed += dt * freqScale;
 
     const wave = sampleLoopingWaveform(waveformData, mlnElapsed, waveSpeedScale);
-    const mlnScale = isNormal
-      ? 0
-      : Math.min(1.25, (state.mlnIntensity || 0) + gazeSpike * 0.55) * mlnUserScale;
-    const mln = isNormal
-      ? { dxDeg: 0, dyDeg: 0, velDegS: 0 }
-      : computeMlnAngleDeg(
-          wave,
-          mlnElapsed,
-          TARGET_MLN_FREQ_HZ,
-          state.occlusionLevel || 0,
-          mlnScale,
-          gazeSpike * mlnUserScale,
-          state.focusStrength || 0,
-        );
+    const mlnBase = state.mlnOnlyIntensity ?? state.mlnIntensity ?? 0;
+    const mlnScale =
+      isNormal || mlnUserScale <= 0.005
+        ? 0
+        : Math.min(1.25, mlnBase + gazeSpike * 0.55 * mlnUserScale);
+    const mln =
+      isNormal || mlnUserScale <= 0.005
+        ? { dxDeg: 0, dyDeg: 0, velDegS: 0 }
+        : computeMlnAngleDeg(
+            wave,
+            mlnElapsed,
+            TARGET_MLN_FREQ_HZ,
+            state.occlusionLevel || 0,
+            mlnScale,
+            gazeSpike * mlnUserScale,
+            state.focusStrength || 0,
+          );
     let effVelDegS = mln.velDegS * freqScale;
 
-    // Continuous ~3.8 Hz infantile horizontal pendular/jerk nystagmus for ocular albinism
+    // Continuous ~3.8 Hz infantile horizontal pendular/jerk nystagmus for ocular albinism (independent of MLN)
     if (!isNormal && albinism > 0.01) {
       const albAmp = albinism * 1.45 * (1.0 - 0.30 * (state.focusStrength || 0)) * (1.0 - 0.65 * (state.eyelidClose || 0));
       const albOmega = 2.0 * Math.PI * 3.8;

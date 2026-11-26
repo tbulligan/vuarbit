@@ -168,12 +168,12 @@ vec3 sampleOD(
     col.b = texture2D(tColorOD, clamp(baseUv - cOff, vec2(0.001), vec2(0.999))).b;
   }
 
-  // Smooth crossfade into pre-blurred quarter-res OD for heavy CoC & uncorrected +13 D aphakia
-  float heavyBlurMix = smoothstep(0.011, 0.032, isoBlurUV);
+  // Smooth crossfade into pre-blurred quarter-res OD for heavy CoC, low acuity (20/200..20/400), & uncorrected +13 D aphakia
+  float heavyBlurMix = smoothstep(0.011, 0.028, isoBlurUV);
   float fineBlurUV = min(isoBlurUV, 0.016);
   float blurDrive = fineBlurUV + motionSmearUV;
 
-  if (heavyBlurMix < 0.995 && blurDrive > 0.0004) {
+  if (heavyBlurMix < 0.995 && blurDrive > 0.00012) {
     vec3 acc = vec3(0.0);
     const int TAPS = 12;
     for (int i = 0; i < TAPS; i++) {
@@ -185,7 +185,7 @@ vec3 sampleOD(
       acc += texture2D(tColorOD, clamp(baseUv + off * invAspect, vec2(0.001), vec2(0.999))).rgb;
     }
     vec3 blurred = acc / float(TAPS);
-    col = mix(col, blurred, smoothstep(0.0004, 0.0018, blurDrive));
+    col = mix(col, blurred, smoothstep(0.00012, 0.0009, blurDrive));
   }
 
   if (heavyBlurMix > 0.005) {
@@ -279,21 +279,23 @@ vec3 sampleOS(vec2 baseUv, float isoBlurUV, float motionSmearUV, float veilAmoun
 vec3 applyLinearPathologies(vec3 linCol, vec2 uv, vec2 p, vec2 pFovea) {
   vec2 invAspect = vec2(1.0 / uAspect, 1.0);
 
-  // 1. Cataracts: wide forward disability-glare scatter, cortical contrast loss, Beer-Lambert nuclear brunescence
+  // 1. Cataracts: wide forward disability-glare scatter, cortical contrast loss, Beer-Lambert nuclear brunescence (100% = light perception only)
   if (uCataract > 0.005) {
     vec3 blurCenter = texture2D(tBlurOD, clamp(uv, vec2(0.003), vec2(0.997))).rgb;
-    vec3 wideScatter = blurCenter * 0.4;
+    vec3 wideScatter = blurCenter * 0.28;
+    float spread = 0.020 + 0.042 * uCataract;
     for (int j = 0; j < 4; j++) {
       float ang = float(j) * 1.5707963 + 0.35;
-      vec2 off = vec2(cos(ang), sin(ang)) * (0.018 + 0.020 * uCataract) * invAspect;
-      wideScatter += texture2D(tBlurOD, clamp(uv + off, vec2(0.003), vec2(0.997))).rgb * 0.15;
+      vec2 off = vec2(cos(ang), sin(ang)) * spread * invAspect;
+      wideScatter += texture2D(tBlurOD, clamp(uv + off, vec2(0.003), vec2(0.997))).rgb * 0.18;
     }
     float scatterLuma = dot(wideScatter, vec3(0.2126, 0.7152, 0.0722));
-    float glareBoost = smoothstep(0.35, 1.4, scatterLuma) * uCataract;
-    linCol = mix(linCol, wideScatter, clamp(uCataract * 0.58, 0.0, 0.72));
-    linCol = mix(linCol, vec3(max(0.05, scatterLuma)), uCataract * 0.22);
-    linCol += wideScatter * (0.28 * uCataract + 0.35 * glareBoost);
-    linCol *= exp(-uCataract * vec3(0.06, 0.22, 0.68));
+    float glareBoost = smoothstep(0.32, 1.35, scatterLuma) * uCataract;
+    float scatterMix = smoothstep(0.0, 0.94, uCataract);
+    linCol = mix(linCol, wideScatter, scatterMix);
+    linCol = mix(linCol, vec3(max(0.04, scatterLuma)), uCataract * 0.36);
+    linCol += wideScatter * (0.28 * uCataract + 0.38 * glareBoost);
+    linCol *= exp(-uCataract * vec3(0.06, 0.24, 0.78));
   }
 
   // 2. Ocular Albinism: iris transillumination photophobia glare driven by tBlurOD luminance & uEyelidLight
@@ -306,24 +308,24 @@ vec3 applyLinearPathologies(vec3 linCol, vec2 uv, vec2 p, vec2 pFovea) {
     linCol += albBlur * (0.28 * uAlbinism) + transillumTint * (lightDrive * uAlbinism * 0.22);
   }
 
-  // 3. Wet AMD: retinal-locked irregular perceptual central scotoma around pFovea
+  // 3. Wet AMD: retinal-locked irregular perceptual central scotoma around pFovea (100% = dense central blindness, intact periphery)
   if (uAmd > 0.005) {
     float rFov = length(pFovea);
     float ang = rFov > 1e-4 ? atan(pFovea.y, pFovea.x) : 0.0;
     float irreg = 1.0 + 0.18 * sin(ang * 3.0 + 0.7) + 0.11 * cos(ang * 5.0 - 1.2);
-    float scotomaR = (0.045 + 0.145 * uAmd) * irreg;
-    float scotomaMask = 1.0 - smoothstep(scotomaR * 0.28, scotomaR, rFov);
-    float coreMask = 1.0 - smoothstep(scotomaR * 0.08, scotomaR * 0.58, rFov);
+    float scotomaR = (0.045 + 0.205 * uAmd) * irreg;
+    float scotomaMask = 1.0 - smoothstep(scotomaR * 0.24, scotomaR, rFov);
+    float coreMask = 1.0 - smoothstep(scotomaR * 0.08, scotomaR * 0.68, rFov);
 
     vec3 fillCol = texture2D(tBlurOD, clamp(uv, vec2(0.003), vec2(0.997))).rgb;
     float fillLuma = max(0.02, dot(fillCol, vec3(0.2126, 0.7152, 0.0722)));
-    vec3 mutedFill = mix(fillCol, vec3(fillLuma * 0.85), 0.45 + 0.35 * uAmd);
+    vec3 mutedFill = mix(fillCol, vec3(fillLuma * 0.75), 0.48 + 0.45 * uAmd);
     linCol = mix(linCol, mutedFill, scotomaMask * smoothstep(0.05, 0.45, uAmd));
-    float coreDark = smoothstep(0.35, 0.95, uAmd) * coreMask;
-    linCol *= (1.0 - coreDark * 0.72);
+    float coreDark = smoothstep(0.32, 0.96, uAmd) * coreMask;
+    linCol *= (1.0 - coreDark * 0.97);
   }
 
-  // 4. Crabb (2013) Glaucoma: Bjerrum arcuate + peripheral perceptual filling-in; outer edge darkens only past 0.75
+  // 4. Crabb (2013) Glaucoma: Bjerrum arcuate + peripheral perceptual filling-in; narrows past 70%, 100% = total blindness (NLP)
   if (uGlaucoma > 0.005) {
     float domSign = mix(1.0, -1.0, step(0.5, uDomIsOS));
     float nasalX = -pFovea.x * domSign;
@@ -333,23 +335,27 @@ vec3 applyLinearPathologies(vec3 linCol, vec2 uv, vec2 p, vec2 pFovea) {
     float bjerrumBand = exp(-(dArc * dArc))
       * smoothstep(-0.18, 0.18, nasalX)
       * smoothstep(0.06, 0.18, abs(pFovea.y) + max(0.0, nasalX) * 0.45);
-    float periphStart = mix(0.56, 0.14, clamp(uGlaucoma, 0.0, 1.0));
-    float periphMask = smoothstep(periphStart, periphStart + 0.24, r);
+    float periphStart = mix(0.58, 0.0, clamp(uGlaucoma / 0.95, 0.0, 1.0));
+    float periphWidth = mix(0.24, 0.06, smoothstep(0.65, 0.98, uGlaucoma));
+    float periphMask = smoothstep(periphStart, periphStart + periphWidth, r);
     float lossMask = clamp(max(periphMask, bjerrumBand * smoothstep(0.15, 0.65, uGlaucoma) * 0.92) * smoothstep(0.02, 0.35, uGlaucoma), 0.0, 1.0);
 
     vec2 dirFov = r > 1e-4 ? (pFovea / r) : vec2(1.0, 0.0);
     vec3 gBlur = 0.5 * (
       texture2D(tBlurOD, clamp(uv, vec2(0.003), vec2(0.997))).rgb +
-      texture2D(tBlurOD, clamp(uv + dirFov * 0.018 * invAspect, vec2(0.003), vec2(0.997))).rgb
+      texture2D(tBlurOD, clamp(uv + dirFov * 0.020 * invAspect, vec2(0.003), vec2(0.997))).rgb
     );
     float gLuma = dot(gBlur, vec3(0.2126, 0.7152, 0.0722));
-    vec3 filled = mix(gBlur, vec3(gLuma), 0.55);
-    filled = mix(filled, vec3(clamp(gLuma, 0.08, 0.55)), 0.28);
-    linCol = mix(linCol, filled, lossMask * 0.88);
+    vec3 filled = mix(gBlur, vec3(gLuma), 0.58);
+    filled = mix(filled, vec3(clamp(gLuma, 0.06, 0.50)), 0.30);
+    linCol = mix(linCol, filled, lossMask * 0.92);
 
-    float endStage = smoothstep(0.75, 1.0, uGlaucoma);
-    float outerDark = smoothstep(0.32, 0.66, r) * endStage;
-    linCol *= (1.0 - outerDark * 0.85);
+    float endStage = smoothstep(0.68, 0.96, uGlaucoma);
+    float darkInner = mix(0.28, 0.015, endStage);
+    float darkOuter = mix(0.62, 0.09, endStage);
+    float outerDark = smoothstep(darkInner, darkOuter, r) * endStage;
+    float totalBlind = smoothstep(0.92, 1.0, uGlaucoma);
+    linCol *= (1.0 - max(outerDark * 0.98, totalBlind));
   }
 
   // 5. Machado (2009) CVD in linear RGB (explicit row-major dot products)
@@ -516,8 +522,11 @@ void main() {
     );
     linOD = applyLinearPathologies(linOD, uvOD, p, pFovea);
     vec3 colOD = linearToDisplay(linOD);
-    // Slightly lower amblyopic contrast in non-dominant-only lens to visually reinforce dominance
+    // Low-acuity spatial contrast loss (<=0.12 / 20/160..20/400) + subtle non-dominant lens contrast drop
+    float lowAcuityDrop = smoothstep(0.010, 0.030, baseAcuityBlur) * 0.24;
     colOD = mix(colOD, mix(vec3(0.42), colOD, 0.93), inNonDomOnly);
+    colOD = mix(colOD, vec3(dot(colOD, vec3(0.299, 0.587, 0.114))), lowAcuityDrop * 0.35);
+    colOD = mix(colOD, (colOD - 0.5) * 0.78 + 0.5, lowAcuityDrop);
 
     if (length(uDiplopiaTan) >= 1e-4) {
       // Constant angular diplopia sampled from dominant view
@@ -600,9 +609,10 @@ void main() {
     col = mix(col + phos, mix(col, phosHue * 0.62, clamp(phosMag * 3.0, 0.0, 0.72)), brightBg);
   }
 
-  // Full-FOV drifting vitreous floaters across entire screen (inside AND outside glasses frames)
+  // Full-FOV drifting vitreous floaters across entire screen (silenced at 100% glaucoma NLP blindness)
   if (uFloaterScale > 0.005) {
-    float speckVis = mix(1.0, 0.25, uEyelidClose);
+    float opticVis = 1.0 - smoothstep(0.92, 1.0, uGlaucoma);
+    float speckVis = mix(1.0, 0.25, uEyelidClose) * opticVis;
     float speckShadow = 0.0;
     float halfW = uAspect * 0.48;
     const int FLOATERS = 10;
