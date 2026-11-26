@@ -29,9 +29,9 @@ float linearizeDepth(float d) {
   return (2.0 * uNear * uFar) / max(0.0001, (uFar + uNear - ndc * (uFar - uNear)));
 }
 
-// ACES Filmic tone mapping + IEC sRGB encoding for linear HDR WebGLRenderTarget output
+// ACES Filmic tone mapping (0.75 pre-scale aligns Narkowicz curve to neutral exposure=1.0) + IEC sRGB encoding
 vec3 linearToDisplay(vec3 lin) {
-  vec3 x = max(lin, vec3(0.0)) * uExposure;
+  vec3 x = max(lin, vec3(0.0)) * (uExposure * 0.75);
   vec3 mapped = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
   vec3 lo = mapped * 12.92;
   vec3 hi = 1.055 * pow(mapped, vec3(1.0 / 2.4)) - 0.055;

@@ -266,13 +266,7 @@ export function createControls(domElement, state, sceneApi) {
         state.lean = clamp(state.lean + leanDelta, -0.25, 1.0);
       }
 
-      if (state.mode === 'seated' && (fwdInput !== 0 || strafeInput !== 0)) {
-        // Seated WASD pans shoulders/torso cleanly over the desk (impact-printer carriage) while mouse stays pure look
-        const panSpeed = 0.55;
-        seatPanX = clamp(seatPanX + strafeInput * panSpeed * step, -0.24, 0.24);
-        seatPanZ = clamp(seatPanZ - fwdInput * panSpeed * step, -0.26, 0.08);
-      } else if (state.mode === 'standing' && (fwdInput !== 0 || strafeInput !== 0)) {
-        const walkSpeed = 2.4;
+      if (fwdInput !== 0 || strafeInput !== 0) {
         forward.set(-Math.sin(state.yaw), 0, -Math.cos(state.yaw));
         right.set(Math.cos(state.yaw), 0, -Math.sin(state.yaw));
         moveDir
@@ -280,14 +274,22 @@ export function createControls(domElement, state, sceneApi) {
           .addScaledVector(forward, fwdInput)
           .addScaledVector(right, strafeInput);
         if (moveDir.lengthSq() > 1e-6) {
-          moveDir.normalize().multiplyScalar(walkSpeed * step);
-          const nextX = standPos.x + moveDir.x;
-          if (!collidesAt(nextX, standPos.z)) {
-            standPos.x = nextX;
-          }
-          const nextZ = standPos.z + moveDir.z;
-          if (!collidesAt(standPos.x, nextZ)) {
-            standPos.z = nextZ;
+          if (state.mode === 'seated') {
+            // Slower fine panning when leaned close over the workbook (~0.24 m/s at 20cm, ~0.16 m/s closest)
+            const panSpeed = 0.32 - 0.16 * clamp(state.lean, 0, 1);
+            moveDir.normalize().multiplyScalar(panSpeed * step);
+            seatPanX = clamp(seatPanX + moveDir.x, -0.30, 0.30);
+            seatPanZ = clamp(seatPanZ + moveDir.z, -0.36, 0.10);
+          } else if (state.mode === 'standing') {
+            moveDir.normalize().multiplyScalar(2.4 * step);
+            const nextX = standPos.x + moveDir.x;
+            if (!collidesAt(nextX, standPos.z)) {
+              standPos.x = nextX;
+            }
+            const nextZ = standPos.z + moveDir.z;
+            if (!collidesAt(standPos.x, nextZ)) {
+              standPos.z = nextZ;
+            }
           }
         }
       }
