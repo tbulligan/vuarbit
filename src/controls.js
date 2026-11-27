@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {
+  applyLookDelta,
   clamp,
   computeHeldRestOffset,
   computeMaxYaw,
@@ -40,7 +41,9 @@ export function createControls(domElement, state, sceneApi) {
   let seatPanZ = 0;
 
   function applySceneInitialPose(targetApi) {
-    const startMode = targetApi.defaultMode || 'standing';
+    // Touch devices start seated in walk-capable scenes (Classroom) so users immediately explore blackboard + desk without thumbsticks
+    const rawStartMode = targetApi.defaultMode || 'standing';
+    const startMode = state.isTouchDevice && rawStartMode === 'standing' ? 'seated' : rawStartMode;
     state.mode = startMode;
     state.lean = 0;
     seatPanX = 0;
@@ -81,6 +84,7 @@ export function createControls(domElement, state, sceneApi) {
     pickableMeshes = activeSceneApi.pickables.map((p) => p.mesh);
     keys.clear();
     rmbDown = false;
+    activeTouchId = null;
     wheelDeltaAccum = 0;
     dxAccum = 0;
     dyAccum = 0;
@@ -198,11 +202,62 @@ export function createControls(domElement, state, sceneApi) {
   let latestCamera = null;
   let wheelDeltaAccum = 0;
   let rmbDown = false;
+  let activeTouchId = null;
+  let lastTouchX = 0;
+  let lastTouchY = 0;
 
   const onCanvasClick = () => {
-    if (state.settingsOpen) return;
+    if (state.settingsOpen || state.isTouchDevice) return;
     if (document.pointerLockElement !== domElement && domElement.requestPointerLock) {
       Promise.resolve(domElement.requestPointerLock()).catch(() => {});
+    }
+  };
+
+  const onTouchStart = (e) => {
+    state.isTouchDevice = true;
+    if (state.settingsOpen || e.touches.length !== 1) {
+      activeTouchId = null;
+      return;
+    }
+    const touch = e.touches[0];
+    activeTouchId = touch.identifier;
+    lastTouchX = touch.clientX;
+    lastTouchY = touch.clientY;
+  };
+
+  const onTouchMove = (e) => {
+    if (state.settingsOpen || activeTouchId === null) return;
+    if (e.touches.length !== 1) {
+      activeTouchId = null;
+      return;
+    }
+    let touch = null;
+    for (let i = 0; i < e.touches.length; i++) {
+      if (e.touches[i].identifier === activeTouchId) {
+        touch = e.touches[i];
+        break;
+      }
+    }
+    if (!touch) return;
+    e.preventDefault();
+    const dx = touch.clientX - lastTouchX;
+    const dy = touch.clientY - lastTouchY;
+    lastTouchX = touch.clientX;
+    lastTouchY = touch.clientY;
+    const touchSens = 0.0042;
+    // Drag-to-pan viewport naturally; invert sign so gaze velocity & eye-in-head lead match turn direction
+    applyLookDelta(state, -dx, -dy, touchSens);
+    dxAccum += -dx * touchSens;
+    dyAccum += dy * touchSens;
+  };
+
+  const onTouchEnd = (e) => {
+    if (activeTouchId === null) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === activeTouchId) {
+        activeTouchId = null;
+        break;
+      }
     }
   };
 
@@ -239,13 +294,7 @@ export function createControls(domElement, state, sceneApi) {
       return;
     }
     const sens = 0.0021;
-    state.yaw -= dx * sens;
-    state.pitch = clamp(state.pitch - dy * sens, -1.48, state.mode === 'seated' ? 1.15 : 1.45);
-
-    const maxYaw = computeMaxYaw(state.mode, state.lean);
-    if (Number.isFinite(maxYaw)) {
-      state.yaw = clamp(state.yaw, -maxYaw, maxYaw);
-    }
+    applyLookDelta(state, dx, dy, sens);
     // Positive dxAccum = mouse moving right (panning right); positive dyAccum = mouse moving up
     dxAccum += dx * sens;
     dyAccum += -dy * sens;
@@ -364,10 +413,15 @@ export function createControls(domElement, state, sceneApi) {
   const onBlur = () => {
     keys.clear();
     rmbDown = false;
+    activeTouchId = null;
     state.glassesPinned = false;
   };
 
   domElement.addEventListener('click', onCanvasClick);
+  domElement.addEventListener('touchstart', onTouchStart, { passive: true });
+  domElement.addEventListener('touchmove', onTouchMove, { passive: false });
+  domElement.addEventListener('touchend', onTouchEnd, { passive: true });
+  domElement.addEventListener('touchcancel', onTouchEnd, { passive: true });
   domElement.addEventListener('mousedown', onMouseDown);
   window.addEventListener('mouseup', onMouseUp);
   domElement.addEventListener('contextmenu', onContextMenu);
@@ -559,6 +613,10 @@ export function createControls(domElement, state, sceneApi) {
 
   function dispose() {
     domElement.removeEventListener('click', onCanvasClick);
+    domElement.removeEventListener('touchstart', onTouchStart);
+    domElement.removeEventListener('touchmove', onTouchMove);
+    domElement.removeEventListener('touchend', onTouchEnd);
+    domElement.removeEventListener('touchcancel', onTouchEnd);
     domElement.removeEventListener('mousedown', onMouseDown);
     window.removeEventListener('mouseup', onMouseUp);
     domElement.removeEventListener('contextmenu', onContextMenu);
@@ -570,5 +628,5 @@ export function createControls(domElement, state, sceneApi) {
     window.removeEventListener('blur', onBlur);
   }
 
-  return { update, setScene, dispose };
+  return { update, setScene, toggleSeatMode, dispose };
 }

@@ -80,6 +80,41 @@ export function smoothstep(edge0, edge1, x) {
 }
 
 /**
+ * Pure touch/coarse-pointer environment detection (accepts mock env in Node tests).
+ */
+export function detectTouchDevice(env) {
+  if (env && typeof env === 'object') {
+    return (Number(env.maxTouchPoints) || 0) > 0 || Boolean(env.coarsePointer);
+  }
+  const points = typeof navigator !== 'undefined' ? (navigator.maxTouchPoints || 0) : 0;
+  const coarse = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(pointer: coarse)').matches
+    : false;
+  return points > 0 || coarse;
+}
+
+/**
+ * Apply pixel look delta to simulation yaw/pitch with anatomical posture clamp.
+ */
+export function applyLookDelta(state, dx, dy, sensitivity = 0.0021) {
+  if (!state || typeof state !== 'object') return state;
+  const sens = Number.isFinite(sensitivity) ? sensitivity : 0.0021;
+  const safeDx = Number.isFinite(dx) ? dx : 0;
+  const safeDy = Number.isFinite(dy) ? dy : 0;
+  state.yaw = (Number.isFinite(state.yaw) ? state.yaw : 0) - safeDx * sens;
+  state.pitch = clamp(
+    (Number.isFinite(state.pitch) ? state.pitch : 0) - safeDy * sens,
+    -1.48,
+    state.mode === 'seated' ? 1.15 : 1.45
+  );
+  const maxYaw = computeMaxYaw(state.mode, state.lean);
+  if (Number.isFinite(maxYaw)) {
+    state.yaw = clamp(state.yaw, -maxYaw, maxYaw);
+  }
+  return state;
+}
+
+/**
  * Reserve-depletion -> tipping-point crash curve:
  * Compensatory reserve masks symptoms up to ~58% fatigue, then decompensates sharply toward 100%.
  */
@@ -224,15 +259,17 @@ export function toggleGlasses(state) {
 /**
  * Create initial simulation state.
  */
-export function createSimState() {
+export function createSimState(env) {
+  const isTouchDevice = detectTouchDevice(env);
   return {
     language: detectDefaultLanguage(),
+    isTouchDevice,
     sceneId: 'classroom',
     sceneLoading: false,
     personaId: 'vuarbit_frut',
     settings: createDefaultVisualSettings(),
     settingsOpen: false,
-    qualityPreset: 'high',
+    qualityPreset: isTouchDevice ? 'balanced' : 'high',
     timeOfDay: 'sunny',
     lightsOn: true,
     glareLightOn: true,

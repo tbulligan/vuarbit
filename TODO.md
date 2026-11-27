@@ -27,9 +27,9 @@
 - [x] Unlocks outdoor clinical optics: aphakic `+13 D` ring scotoma ("jack-in-the-box" passing objects), bilateral OD/OS headlight starbursts & disability glare, RP nyctalopia (`L` rural unlit road), glaucoma/RP peripheral field loss in motion, and traffic-depth diplopia.
 
 ## P5 — Mobile Observer Mode, Code-Splitting & `Vuarbit Grant` (Adult IOL)
-- Lean Mobile Observer Mode on touch devices: touch-drag look + compact action bar (`Settings`, `Compare`, `Glasses`, `Sit`) so phone visitors can immediately explore presets, Friuli Car, Exam Room, and seated Classroom without clunky FPS thumbsticks.
-- Vite dynamic `import()` per-scene code-splitting so initial page load stays fast and lean (<500 kB) on mobile & desktop.
-- `Vuarbit Grant` (adult in Friulian) persona + pseudophakic IOL optical profile (removes `+13 D` magnification/ring scotoma, adds fixed focal plane & mild IOL night halos/dysphotopsia — immediately testable in Friuli Car & Exam Room) + 3-glasses cycle (distance, intermediate, near).
+- [x] Lean Mobile Observer Mode on touch devices: touch-drag look + compact action bar (`Settings`, `Compare`, `Glasses`, `Sit`) so phone visitors can immediately explore presets, Friuli Car, Exam Room, and seated Classroom without clunky FPS thumbsticks.
+- [x] Vite dynamic `import()` per-scene code-splitting so initial page load stays fast and lean (<500 kB) on mobile & desktop.
+- [x] `Vuarbit Grant` (adult in Friulian) persona + pseudophakic IOL optical profile (removes `+13 D` magnification/ring scotoma, adds fixed focal plane & mild IOL night halos/dysphotopsia — immediately testable in Friuli Car & Exam Room) + 3-glasses cycle (distance, intermediate, near).
 
 ## P6 — Fourth Scene: 1990s Home Study (Radiant CRT PC & Intermediate Distance)
 - Autobiographical 1990s bedroom/study desk completing the 90s Friuli quartet (`Classroom` · `Car Passenger` · `Home Study` · `Exam Room`): curved 15" beige CRT monitor running glowing high-contrast text (`0.65 m` intermediate dead zone), warm desk lamp, bookshelf, pickable floppy/book/comic (`0.25 m`), and evening Friuli window (`3.5 m`).

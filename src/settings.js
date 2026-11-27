@@ -448,7 +448,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   let lastPersonaId = null;
   let lastCompare = null;
   let lastGlassesOn = null;
-  let lastGlassesSlot = null;
+  let lastGlassesLabel = null;
   let lastGlassesDisabled = null;
   let lastTimeOfDay = null;
   let lastLightsOn = null;
@@ -498,6 +498,9 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     if (refresh || sceneLoading !== lastSceneLoading) {
       lastSceneLoading = sceneLoading;
       sceneSelect.disabled = sceneLoading;
+      if (!sceneLoading && document.activeElement !== sceneSelect) {
+        sceneSelect.value = sceneId;
+      }
     }
     if (refresh || sceneId !== lastSceneId) {
       lastSceneId = sceneId;
@@ -545,25 +548,26 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
 
     const gOn = Boolean(state.glassesOn) && !lensDisabled;
     const isIol = s.lensProfile === 'pseudophakic_iol';
-    const gSlot = isIol ? (gOn ? state.glassesSlot || 'distance' : 'off') : '';
-    if (refresh || gOn !== lastGlassesOn || gSlot !== lastGlassesSlot || lensDisabled !== lastGlassesDisabled) {
+    let gLabel;
+    if (lensDisabled) {
+      gLabel = t(lang, 'settings.noLens');
+    } else if (isIol) {
+      const iol = resolveIolGlassesOptics(s, state.glassesSlot, gOn);
+      if (!iol.glassesOn || iol.slot === 'off') {
+        gLabel = t(lang, 'settings.off');
+      } else {
+        const sign = iol.lensPowerD > 0.001 ? '+' : '';
+        gLabel = `${t(lang, `hud.glasses.slot.${iol.slot}`)} (${sign}${iol.lensPowerD.toFixed(1)} D)`;
+      }
+    } else {
+      gLabel = gOn ? t(lang, 'settings.on') : t(lang, 'settings.off');
+    }
+    if (refresh || gOn !== lastGlassesOn || gLabel !== lastGlassesLabel || lensDisabled !== lastGlassesDisabled) {
       lastGlassesOn = gOn;
-      lastGlassesSlot = gSlot;
+      lastGlassesLabel = gLabel;
       lastGlassesDisabled = lensDisabled;
       glassesToggleBtn.disabled = lensDisabled;
-      if (lensDisabled) {
-        glassesToggleBtn.textContent = t(lang, 'settings.noLens');
-      } else if (isIol) {
-        if (!gOn || gSlot === 'off') {
-          glassesToggleBtn.textContent = t(lang, 'settings.off');
-        } else {
-          const iol = resolveIolGlassesOptics(s, gSlot, gOn);
-          const sign = iol.lensPowerD > 0.001 ? '+' : '';
-          glassesToggleBtn.textContent = `${t(lang, `hud.glasses.slot.${iol.slot}`)} (${sign}${iol.lensPowerD.toFixed(1)} D)`;
-        }
-      } else {
-        glassesToggleBtn.textContent = gOn ? t(lang, 'settings.on') : t(lang, 'settings.off');
-      }
+      glassesToggleBtn.textContent = gLabel;
       glassesToggleBtn.classList.toggle('is-active', gOn);
       glassesToggleBtn.setAttribute('aria-pressed', gOn ? 'true' : 'false');
       glassesRow.classList.toggle('is-disabled', lensDisabled);

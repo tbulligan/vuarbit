@@ -222,7 +222,14 @@ export const TRANSLATIONS = Object.freeze({
     'hud.help.env': 'Scene: P Settings · T Time · L Lights · M Mute · H Help · F11 Full',
     'hud.overlay.line1': 'First-person childhood bilateral aphakia (+13 D / +17 D bifocal, zero accommodation) & nystagmus simulation.',
     'hud.overlay.line2': 'Explore the 1990s classroom, sit at the front-left desk (X), lean in or pick up objects (F/E), or press P for presets & scenes.',
+    'hud.overlay.line2Touch': 'Drag to look around the 1990s classroom, Friuli road, or exam room. Use the bar below for presets, glasses & posture.',
     'hud.overlay.cta': 'Click anywhere to start (Esc releases cursor)',
+    'hud.overlay.ctaTouch': 'Tap anywhere to start',
+    'hud.mobile.settings': 'Settings',
+    'hud.mobile.compare': 'Compare',
+    'hud.mobile.glasses': 'Glasses',
+    'hud.mobile.sit': 'Sit',
+    'hud.mobile.stand': 'Stand',
   }),
 
   it: Object.freeze({
@@ -414,7 +421,14 @@ export const TRANSLATIONS = Object.freeze({
     'hud.help.env': 'Scena: P Impostazioni · T Ora · L Luci · M Muto · H Aiuto · F11 Schermo intero',
     'hud.overlay.line1': 'Simulazione in prima persona di afachia infantile bilaterale (bifocale +13/+17 D, zero accomodazione) e nistagmo.',
     'hud.overlay.line2': 'Esplora l’aula anni ’90, siediti al banco (X), avvicina gli oggetti (F/E) o premi P per profili e scene.',
+    'hud.overlay.line2Touch': 'Trascina per guardarti intorno in aula, sulla strada del Friuli o nello studio. Usa la barra in basso per profili, occhiali e postura.',
     'hud.overlay.cta': 'Clicca ovunque per iniziare (Esc rilascia il cursore)',
+    'hud.overlay.ctaTouch': 'Tocca ovunque per iniziare',
+    'hud.mobile.settings': 'Impostazioni',
+    'hud.mobile.compare': 'Confronta',
+    'hud.mobile.glasses': 'Occhiali',
+    'hud.mobile.sit': 'Siedi',
+    'hud.mobile.stand': 'Alzati',
   }),
 
   nl: Object.freeze({
@@ -606,7 +620,14 @@ export const TRANSLATIONS = Object.freeze({
     'hud.help.env': 'Scène: P Instellingen · T Tijd · L Licht · M Stil · H Hulp · F11 Volledig',
     'hud.overlay.line1': 'Eerstepersoons simulatie van bilaterale kinderafakie (+13/+17 D bifocaal, geen accommodatie) en nystagmus.',
     'hud.overlay.line2': 'Verken het klaslokaal uit de jaren ’90, ga zitten (X), pak voorwerpen op (F/E) of druk op P voor profielen en scènes.',
+    'hud.overlay.line2Touch': 'Sleep om rond te kijken in het klaslokaal, op de weg in Friuli of de oogmeetkamer. Gebruik de balk onderaan voor profielen en bril.',
     'hud.overlay.cta': 'Klik ergens om te starten (Esc geeft cursor vrij)',
+    'hud.overlay.ctaTouch': 'Tik ergens om te starten',
+    'hud.mobile.settings': 'Instellingen',
+    'hud.mobile.compare': 'Vergelijk',
+    'hud.mobile.glasses': 'Bril',
+    'hud.mobile.sit': 'Zitten',
+    'hud.mobile.stand': 'Staan',
   }),
 });
 

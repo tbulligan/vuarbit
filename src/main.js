@@ -103,7 +103,23 @@ async function init() {
   const optics = createOpticsRenderer(renderer, sceneApi.scene, waveformData);
   const controls = createControls(canvas, state, sceneApi);
   const audio = createTinnitusAudio();
-  const hud = createHud(hudRoot, state);
+  const hud = createHud(hudRoot, state, {
+    onSettingsToggle() {
+      state.settingsOpen = !state.settingsOpen;
+      if (state.settingsOpen) {
+        document.exitPointerLock?.();
+      }
+    },
+    onCompareToggle() {
+      toggleCompareNormal(state);
+    },
+    onGlassesToggle() {
+      toggleGlasses(state);
+    },
+    onSitToggle() {
+      controls.toggleSeatMode();
+    },
+  });
 
   let sceneLoadSeq = 0;
 

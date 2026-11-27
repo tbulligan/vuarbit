@@ -102,12 +102,14 @@ function sceneLabel(state, lang) {
 }
 
 /**
- * Strictly safe DOM HUD telemetry & keybind overlay (DOM APIs only, live EN/IT/NL i18n).
+ * Strictly safe DOM HUD telemetry, mobile action bar & keybind overlay (DOM APIs only, live EN/IT/NL i18n).
  */
-export function createHud(rootElement, initialState) {
+export function createHud(rootElement, initialState, callbacks = {}) {
   let entered = false;
   let lastLang = null;
   let lastLegendKey = null;
+  let lastTouchMode = null;
+  let isTouch = Boolean(initialState?.isTouchDevice);
 
   const panel = makeEl('div', 'hud-panel');
 
@@ -138,6 +140,34 @@ export function createHud(rootElement, initialState) {
   const helpEnvLine = makeEl('div', 'hud-controls-line', '');
   controlsLegend.replaceChildren(helpMoveLine, helpOpticsLine, helpEnvLine);
 
+  const mobileBar = makeEl('div', 'mobile-action-bar is-hidden');
+  mobileBar.setAttribute('role', 'toolbar');
+  const makeActionBtn = () => {
+    const btn = makeEl('button', 'mobile-action-btn', '');
+    btn.type = 'button';
+    btn.setAttribute('aria-pressed', 'false');
+    return btn;
+  };
+  const mobileSettingsBtn = makeActionBtn();
+  const mobileCompareBtn = makeActionBtn();
+  const mobileGlassesBtn = makeActionBtn();
+  const mobileSitBtn = makeActionBtn();
+  mobileBar.replaceChildren(mobileSettingsBtn, mobileCompareBtn, mobileGlassesBtn, mobileSitBtn);
+
+  const stopBarEvent = (e) => e.stopPropagation();
+  const onMobileSettings = () => callbacks.onSettingsToggle?.();
+  const onMobileCompare = () => callbacks.onCompareToggle?.();
+  const onMobileGlasses = () => callbacks.onGlassesToggle?.();
+  const onMobileSit = () => callbacks.onSitToggle?.();
+  mobileBar.addEventListener('touchstart', stopBarEvent, { passive: true });
+  mobileBar.addEventListener('pointerdown', stopBarEvent);
+  mobileBar.addEventListener('mousedown', stopBarEvent);
+  mobileBar.addEventListener('click', stopBarEvent);
+  mobileSettingsBtn.addEventListener('click', onMobileSettings);
+  mobileCompareBtn.addEventListener('click', onMobileCompare);
+  mobileGlassesBtn.addEventListener('click', onMobileGlasses);
+  mobileSitBtn.addEventListener('click', onMobileSit);
+
   const reticle = makeEl('div', 'hud-reticle');
 
   const overlay = makeEl('div', 'hud-overlay');
@@ -152,6 +182,7 @@ export function createHud(rootElement, initialState) {
   const onOverlayClick = () => {
     entered = true;
     overlay.classList.add('is-hidden');
+    if (isTouch) return;
     const canvas = document.getElementById('sim-canvas');
     if (canvas && canvas.requestPointerLock) {
       Promise.resolve(canvas.requestPointerLock()).catch(() => {});
@@ -159,41 +190,79 @@ export function createHud(rootElement, initialState) {
   };
   overlay.addEventListener('click', onOverlayClick);
 
-  rootElement.replaceChildren(panel, controlsLegend, reticle, overlay);
+  rootElement.replaceChildren(panel, controlsLegend, mobileBar, reticle, overlay);
 
-  function updateStaticCopy(lang) {
+  function updateStaticCopy(lang, touchMode) {
     for (const r of Object.values(rows)) {
       r.keyEl.textContent = t(lang, r.labelKey);
     }
     helpOpticsLine.textContent = t(lang, 'hud.help.optics');
     helpEnvLine.textContent = t(lang, 'hud.help.env');
     line1.textContent = t(lang, 'hud.overlay.line1');
-    line2.textContent = t(lang, 'hud.overlay.line2');
-    cta.textContent = t(lang, 'hud.overlay.cta');
+    line2.textContent = t(lang, touchMode ? 'hud.overlay.line2Touch' : 'hud.overlay.line2');
+    cta.textContent = t(lang, touchMode ? 'hud.overlay.ctaTouch' : 'hud.overlay.cta');
+    mobileSettingsBtn.textContent = t(lang, 'hud.mobile.settings');
+    mobileCompareBtn.textContent = t(lang, 'hud.mobile.compare');
   }
 
   function update(state) {
+    isTouch = Boolean(state.isTouchDevice);
     const lang = normalizeLanguage(state.language);
-    if (lang !== lastLang) {
+    if (lang !== lastLang || isTouch !== lastTouchMode) {
       lastLang = lang;
+      lastTouchMode = isTouch;
       lastLegendKey = null;
-      updateStaticCopy(lang);
+      updateStaticCopy(lang, isTouch);
+      rootElement.classList.toggle('is-touch', isTouch);
     }
 
     if (state.pointerLocked) {
       entered = true;
     }
 
+    const sceneId = state.sceneId || 'classroom';
+    const sc = getSceneById?.(sceneId);
+    const s = state.settings || {};
+    const hasLens = s.lensProfile !== 'none';
+
     panel.classList.toggle('is-hidden', !state.hudVisible);
-    controlsLegend.classList.toggle('is-hidden', !state.hudVisible);
-    reticle.classList.toggle('is-hidden', !state.pointerLocked || Boolean(state.settingsOpen));
+    controlsLegend.classList.toggle('is-hidden', !state.hudVisible || isTouch);
+    mobileBar.classList.toggle('is-hidden', !isTouch || !entered);
+    reticle.classList.toggle('is-hidden', isTouch || !state.pointerLocked || Boolean(state.settingsOpen));
     reticle.classList.toggle('is-target', Boolean(state.aimingPickable));
     overlay.classList.toggle('is-hidden', entered);
 
+    if (isTouch && entered) {
+      const settingsOpen = Boolean(state.settingsOpen);
+      const comparing = Boolean(state.compareNormal);
+      const glassesActive = hasLens && Boolean(state.glassesOn);
+      mobileSettingsBtn.classList.toggle('is-active', settingsOpen);
+      mobileSettingsBtn.setAttribute('aria-pressed', settingsOpen ? 'true' : 'false');
+      mobileCompareBtn.classList.toggle('is-active', comparing);
+      mobileCompareBtn.setAttribute('aria-pressed', comparing ? 'true' : 'false');
+      mobileGlassesBtn.disabled = !hasLens;
+      mobileGlassesBtn.classList.toggle('is-active', glassesActive);
+      mobileGlassesBtn.setAttribute('aria-pressed', glassesActive ? 'true' : 'false');
+      if (s.lensProfile === 'pseudophakic_iol') {
+        const iol = resolveIolGlassesOptics(s, state.glassesSlot, state.glassesOn);
+        mobileGlassesBtn.textContent = iol.glassesOn
+          ? t(lang, `hud.glasses.slot.${iol.slot}`)
+          : `${t(lang, 'hud.mobile.glasses')}: ${t(lang, 'settings.off')}`;
+      } else {
+        mobileGlassesBtn.textContent = t(lang, 'hud.mobile.glasses');
+      }
+      const seatedOnly = Boolean(sc?.seatedOnly);
+      mobileSitBtn.classList.toggle('is-hidden', seatedOnly);
+      if (!seatedOnly) {
+        const isSeated = state.mode === 'seated';
+        mobileSitBtn.textContent = t(lang, isSeated ? 'hud.mobile.stand' : 'hud.mobile.sit');
+        mobileSitBtn.classList.toggle('is-active', isSeated);
+        mobileSitBtn.setAttribute('aria-pressed', isSeated ? 'true' : 'false');
+      }
+    }
+
     if (!state.hudVisible) return;
 
-    const s = state.settings || {};
-    const hasLens = s.lensProfile !== 'none';
     const hasSuppression = hasSuppressionMechanics(s);
     const hasNystagmus = (s.mlnScale || 0) > 0.005 || (s.albinism || 0) > 0.005;
     const hasTinnitus = (s.tinnitus ?? 1) > 0.005;
@@ -204,8 +273,6 @@ export function createHud(rootElement, initialState) {
     rows.fatigue.row.classList.toggle('is-hidden', !hasSuppression);
     rows.tinnitus.row.classList.toggle('is-hidden', !hasTinnitus && !state.muted);
 
-    const sceneId = state.sceneId || 'classroom';
-    const sc = getSceneById?.(sceneId);
     const moveKey = sc?.seatedOnly ? 'hud.help.moveSeated' : 'hud.help.moveFull';
     if (moveKey !== lastLegendKey) {
       lastLegendKey = moveKey;
@@ -242,6 +309,15 @@ export function createHud(rootElement, initialState) {
 
   function dispose() {
     overlay.removeEventListener('click', onOverlayClick);
+    mobileBar.removeEventListener('touchstart', stopBarEvent);
+    mobileBar.removeEventListener('pointerdown', stopBarEvent);
+    mobileBar.removeEventListener('mousedown', stopBarEvent);
+    mobileBar.removeEventListener('click', stopBarEvent);
+    mobileSettingsBtn.removeEventListener('click', onMobileSettings);
+    mobileCompareBtn.removeEventListener('click', onMobileCompare);
+    mobileGlassesBtn.removeEventListener('click', onMobileGlasses);
+    mobileSitBtn.removeEventListener('click', onMobileSit);
+    rootElement.classList.remove('is-touch');
     rootElement.replaceChildren();
   }
 

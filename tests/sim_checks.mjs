@@ -23,6 +23,8 @@ import {
   computeAdaptedExposure,
   cycleTimeOfDay,
   createSimState,
+  detectTouchDevice,
+  applyLookDelta,
   computeOcclusionFromDistance,
   computeDiplopiaOffsetDeg,
   computeMlnAngleDeg,
@@ -819,6 +821,26 @@ assert.equal(stGrant.glassesSlot, 'distance');
 // Verify GLSL IOL fixed focal plane & positive dysphotopsia halo invariants
 assert.ok(fragSrc.includes('uIolHalo') && fragSrc.includes('uOsExtraMyopiaD'), 'vision.frag.glsl must define IOL halo & OS residual uniforms');
 assert.ok(fragSrc.includes('isIol > 0.5 ? 0.0'), 'vision.frag.glsl must enforce zero accommodation on monofocal IOL');
+
+// P5: Mobile Observer Mode touch detection, balanced DPR default & shared look-delta clamping
+assert.equal(detectTouchDevice({ maxTouchPoints: 0, coarsePointer: false }), false);
+assert.equal(detectTouchDevice({ maxTouchPoints: 5, coarsePointer: false }), true);
+assert.equal(detectTouchDevice({ maxTouchPoints: 0, coarsePointer: true }), true);
+const stTouch = createSimState({ maxTouchPoints: 5, coarsePointer: true });
+assert.equal(stTouch.isTouchDevice, true);
+assert.equal(stTouch.qualityPreset, 'balanced', 'touch devices should default to balanced 1.25x DPR');
+const stDesk = createSimState({ maxTouchPoints: 0, coarsePointer: false });
+assert.equal(stDesk.isTouchDevice, false);
+assert.equal(stDesk.qualityPreset, 'high', 'desktop should default to high 1.75x DPR');
+
+stTouch.mode = 'seated';
+stTouch.lean = 0;
+applyLookDelta(stTouch, -2000, -2000, 0.0042);
+assert.ok(stTouch.yaw <= computeMaxYaw('seated', 0) + 1e-9, 'touch look yaw must obey seated anatomical clamp');
+assert.equal(stTouch.pitch, 1.15, 'touch look pitch must obey seated upper clamp');
+applyLookDelta(stTouch, NaN, Infinity, NaN);
+assertFiniteNumber(stTouch.yaw, 'non-finite look delta must keep yaw finite');
+assertFiniteNumber(stTouch.pitch, 'non-finite look delta must keep pitch finite');
 
 // 8. Validate P3/P4 Scene Registry & Exam Room Clinical Calibration Math
 assert.equal(SCENES.length, 3, 'must register 3 scenes (classroom, car_passenger, exam_room)');
