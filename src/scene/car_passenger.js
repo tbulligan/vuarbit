@@ -26,6 +26,58 @@ import {
 
 // shortcut: procedural cabin/traffic/Friulian landscape geometry + additive wet-road speculars (no SSR/glTF), upgrade if custom vehicle models are added
 
+function createWetStreakRibbon(width, length, segZ, tex, colorHex) {
+  const geo = new THREE.PlaneGeometry(width, length, 1, segZ);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  const count = pos.count;
+  const baseX = new Float32Array(count);
+  const baseZ = new Float32Array(count);
+  for (let i = 0; i < count; i += 1) {
+    baseX[i] = pos.getX(i);
+    baseZ[i] = pos.getZ(i);
+  }
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex,
+    color: colorHex,
+    transparent: true,
+    opacity: 0.0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.visible = false;
+  return { mesh, geo, mat, baseX, baseZ };
+}
+
+function updateWetStreakRibbon(ribbon, lateralX, centerZ, travelDist, opacity) {
+  const show = opacity > 0.002 && centerZ > -145.0 && centerZ < 14.0;
+  ribbon.mesh.visible = show;
+  if (!show) return;
+  ribbon.mat.opacity = opacity;
+  const { geo, baseX, baseZ } = ribbon;
+  const pos = geo.attributes.position;
+  const count = pos.count;
+  let lastZ = Infinity;
+  let cachedDx = 0;
+  let cachedDy = 0;
+  for (let i = 0; i < count; i += 1) {
+    const wz = centerZ + baseZ[i];
+    if (wz !== lastZ) {
+      lastZ = wz;
+      const off = computeRoadRelativeOffset(wz, travelDist);
+      cachedDx = off.dx;
+      cachedDy = off.dy;
+    }
+    pos.setXYZ(i, lateralX + baseX[i] + cachedDx, cachedDy + 0.035, wz);
+  }
+  pos.needsUpdate = true;
+}
+
 function buildTrafficVehicle({
   bodyColor,
   kind = 'sedan',
@@ -35,6 +87,7 @@ function buildTrafficVehicle({
   taillightMat,
   wetHeadTex,
   wetTailTex,
+  scene,
 }) {
   const group = new THREE.Group();
   const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.36, metalness: 0.40 });
@@ -51,7 +104,7 @@ function buildTrafficVehicle({
   const lower = new THREE.Mesh(new THREE.BoxGeometry(width, isVan ? 0.66 : 0.54, length), bodyMat);
   lower.position.y = isVan ? 0.58 : 0.52;
   lower.castShadow = true;
-  lower.receiveShadow = true;
+  lower.receiveShadow = false;
   group.add(lower);
 
   if (isVan) {
@@ -60,7 +113,7 @@ function buildTrafficVehicle({
     cargo.position.set(0, 1.44, facingViewer ? -0.34 : 0.34);
     cargo.castShadow = true;
     const cabGlass = new THREE.Mesh(new THREE.BoxGeometry(width - 0.16, 0.56, 0.05), glassMat);
-    cabGlass.position.set(0, 1.24, facingViewer ? halfL - 0.54 : -(halfL - 0.54));
+    cabGlass.position.set(0, 1.24, facingViewer ? halfL - 0.78 : -(halfL - 0.78));
     cabGlass.rotation.x = facingViewer ? -0.22 : 0.22;
     group.add(cargo, cabGlass);
   } else {
@@ -71,11 +124,11 @@ function buildTrafficVehicle({
     cabin.castShadow = true;
 
     const windFront = new THREE.Mesh(new THREE.BoxGeometry(width - 0.32, 0.42, 0.04), glassMat);
-    windFront.position.set(0, 1.01, cabinZ + (facingViewer ? cabinLen * 0.5 : -cabinLen * 0.5));
+    windFront.position.set(0, 1.01, cabinZ + (facingViewer ? cabinLen * 0.5 + 0.075 : -(cabinLen * 0.5 + 0.075)));
     windFront.rotation.x = facingViewer ? -0.34 : 0.34;
 
     const windRear = new THREE.Mesh(new THREE.BoxGeometry(width - 0.34, 0.40, 0.04), glassMat);
-    windRear.position.set(0, 1.01, cabinZ + (facingViewer ? -cabinLen * 0.5 : cabinLen * 0.5));
+    windRear.position.set(0, 1.01, cabinZ + (facingViewer ? -(cabinLen * 0.5 + 0.06) : cabinLen * 0.5 + 0.06));
     windRear.rotation.x = facingViewer ? 0.28 : -0.28;
 
     group.add(cabin, windFront, windRear);
@@ -98,7 +151,8 @@ function buildTrafficVehicle({
     }
   }
 
-  const wetStreaks = [];
+  const wetRibbons = [];
+  const halos = [];
   const lampY = isVan ? 0.78 : 0.60;
   const lampX = width * 0.35;
 
@@ -108,22 +162,14 @@ function buildTrafficVehicle({
       const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.04), headlightMat);
       lamp.position.set(lx, lampY, headZ);
       const halo = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.28), headlightHaloMat);
-      halo.position.set(lx, lampY, headZ + 0.03);
+      halo.position.set(lx, lampY, headZ + 0.06);
+      halo.visible = false;
       group.add(lamp, halo);
+      halos.push(halo);
 
-      const streakMat = new THREE.MeshBasicMaterial({
-        map: wetHeadTex,
-        color: '#fff2d8',
-        transparent: true,
-        opacity: 0.0,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      });
-      const streak = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 8.5), streakMat);
-      streak.rotation.x = -Math.PI / 2;
-      streak.position.set(lx, 0.02, headZ + 4.3);
-      group.add(streak);
-      wetStreaks.push(streakMat);
+      const ribbon = createWetStreakRibbon(0.95, 8.5, 6, wetHeadTex, '#fff2d8');
+      scene.add(ribbon.mesh);
+      wetRibbons.push({ ribbon, lx, zOffset: headZ + 4.3 });
     }
   } else {
     const tailZ = halfL + 0.02;
@@ -139,23 +185,13 @@ function buildTrafficVehicle({
       lamp.position.set(lx, 0.62, tailZ);
       group.add(lamp);
 
-      const streakMat = new THREE.MeshBasicMaterial({
-        map: wetTailTex,
-        color: '#ff2b1a',
-        transparent: true,
-        opacity: 0.0,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      });
-      const streak = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 7.2), streakMat);
-      streak.rotation.x = -Math.PI / 2;
-      streak.position.set(lx, 0.02, tailZ + 3.6);
-      group.add(streak);
-      wetStreaks.push(streakMat);
+      const ribbon = createWetStreakRibbon(0.85, 7.2, 6, wetTailTex, '#ff2b1a');
+      scene.add(ribbon.mesh);
+      wetRibbons.push({ ribbon, lx, zOffset: tailZ + 3.6 });
     }
   }
 
-  return { group, wetStreaks };
+  return { group, wetRibbons, halos };
 }
 
 function buildFriulianHouse(plasterColor, windowMat) {
@@ -576,6 +612,7 @@ export function createCarPassengerScene(renderer = null) {
   sunLight.shadow.camera.top = 16;
   sunLight.shadow.camera.bottom = -16;
   sunLight.shadow.bias = -0.0006;
+  sunLight.shadow.normalBias = 0.03;
   scene.add(sunLight);
 
   const ownBeamTargets = [];
@@ -644,6 +681,9 @@ export function createCarPassengerScene(renderer = null) {
     opacity: 0.0,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
   });
   const taillightMat = new THREE.MeshStandardMaterial({
     color: '#991b1b',
@@ -681,21 +721,12 @@ export function createCarPassengerScene(renderer = null) {
     const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.20), streetLampMat);
     bulb.position.set(1.05, 5.91, 0);
 
-    const wetMat = new THREE.MeshBasicMaterial({
-      map: wetStreetTex,
-      color: '#ffba58',
-      transparent: true,
-      opacity: 0.0,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    const wetPool = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 9.5), wetMat);
-    wetPool.rotation.x = -Math.PI / 2;
-    wetPool.position.set(0.6, 0.02, 0);
+    const wetRibbon = createWetStreakRibbon(2.6, 9.5, 6, wetStreetTex, '#ffba58');
+    scene.add(wetRibbon.mesh);
 
-    group.add(pole, arm, head, bulb, wetPool);
+    group.add(pole, arm, head, bulb);
     scene.add(group);
-    streetlights.push({ group, s: i * (ROAD_LOOP_LEN_M / 12), wetMat });
+    streetlights.push({ group, s: i * (ROAD_LOOP_LEN_M / 12), wetRibbon });
   }
 
   // --- COHERENT FRIULI ROUTE SIGNS & CURVE CHEVRONS ---
@@ -800,6 +831,7 @@ export function createCarPassengerScene(renderer = null) {
     taillightMat,
     wetHeadTex,
     wetTailTex,
+    scene,
   });
   scene.add(addFocusMesh(leadCar.group));
 
@@ -819,6 +851,7 @@ export function createCarPassengerScene(renderer = null) {
       taillightMat,
       wetHeadTex,
       wetTailTex,
+      scene,
     });
     scene.add(addFocusMesh(car.group));
     return { ...car, relZ: -25 - idx * (160 / oncomingSpecs.length) };
@@ -992,6 +1025,10 @@ export function createCarPassengerScene(renderer = null) {
 
       headlightMat.emissiveIntensity = currentRoadLight.headlightEmissive;
       headlightHaloMat.opacity = currentRoadLight.wetness * 0.65;
+      const showHalo = currentRoadLight.wetness > 0.001;
+      for (const oc of oncomingCars) {
+        for (const h of oc.halos) h.visible = showHalo;
+      }
       taillightMat.emissiveIntensity = currentRoadLight.taillightEmissive;
       dashFaceMat.emissiveIntensity = currentRoadLight.dashEmissive;
       consoleFaceMat.emissiveIntensity = currentRoadLight.dashEmissive * 0.9;
@@ -1003,29 +1040,40 @@ export function createCarPassengerScene(renderer = null) {
         b.intensity = currentRoadLight.ownBeamIntensity;
       }
 
-      const wetHeadOp = currentRoadLight.wetness * 0.30;
-      const wetTailOp = currentRoadLight.wetness * 0.28;
-      const wetStreetOp = currentRoadLight.streetlightsOn ? currentRoadLight.wetness * 0.14 : 0.0;
-      for (const oc of oncomingCars) {
-        for (const sm of oc.wetStreaks) sm.opacity = wetHeadOp;
-      }
-      for (const sm of leadCar.wetStreaks) sm.opacity = wetTailOp;
-      for (const s of streetlights) s.wetMat.opacity = wetStreetOp;
-
       reflectorRedMat.emissiveIntensity = todId === 'night' || todId === 'dusk' ? 1.8 : 0.2;
       reflectorWhiteMat.emissiveIntensity = todId === 'night' || todId === 'dusk' ? 1.4 : 0.15;
       scene.environmentIntensity = 0.04 + todPreset.outdoorLux * 0.28 + (currentRoadLight.streetlightsOn ? 0.08 : 0.0);
     }
 
+    // Update road-conforming wet reflections (follows roadGlobalX/Y spline to eliminate hill-clipping & Z-fighting flicker)
+    const wetHeadOp = currentRoadLight.wetness * 0.30;
+    const wetTailOp = currentRoadLight.wetness * 0.28;
+    const wetStreetOp = currentRoadLight.streetlightsOn ? currentRoadLight.wetness * 0.14 : 0.0;
+    for (const st of streetlights) {
+      const stZ = st.group.visible ? st.group.position.z : -999;
+      updateWetStreakRibbon(st.wetRibbon, 0.6, stZ, travelDist, wetStreetOp);
+    }
+    for (const wr of leadCar.wetRibbons) {
+      updateWetStreakRibbon(wr.ribbon, wr.lx, leadZ + wr.zOffset, travelDist, wetTailOp);
+    }
+    for (const oc of oncomingCars) {
+      for (const wr of oc.wetRibbons) {
+        updateWetStreakRibbon(wr.ribbon, -3.90 + wr.lx, oc.relZ + wr.zOffset, travelDist, wetHeadOp);
+      }
+    }
+
+    const poolFade = (pz) =>
+      Math.min(1, Math.max(0, (4.0 - pz) / 5.0)) * Math.min(1, Math.max(0, (pz + 55.0) / 8.0));
     streetPools[0].position.set(near1X, 5.5, near1Z > -900 ? near1Z : -25);
-    streetPools[0].intensity = near1Z > -900 ? currentRoadLight.streetlightPoolIntensity : 0;
+    streetPools[0].intensity = near1Z > -900 ? currentRoadLight.streetlightPoolIntensity * poolFade(near1Z) : 0;
     streetPools[1].position.set(near2X, 5.5, near2Z > -900 ? near2Z : -45);
-    streetPools[1].intensity = near2Z > -900 ? currentRoadLight.streetlightPoolIntensity : 0;
+    streetPools[1].intensity = near2Z > -900 ? currentRoadLight.streetlightPoolIntensity * poolFade(near2Z) : 0;
 
     if (closestOncomingZ > -900 && currentRoadLight.headlightEmissive > 2.0) {
       oncomingFlashLight.position.set(closestOncomingX, 0.85, closestOncomingZ + 2.2);
       const prox = Math.max(0, 1.0 - Math.abs(closestOncomingZ) / 48.0);
-      oncomingFlashLight.intensity = prox * prox * currentRoadLight.headlightEmissive * 0.85;
+      const nearFade = Math.min(1, Math.max(0, (-closestOncomingZ - 1.0) / 4.5));
+      oncomingFlashLight.intensity = prox * prox * nearFade * currentRoadLight.headlightEmissive * 0.85;
     } else {
       oncomingFlashLight.intensity = 0;
     }

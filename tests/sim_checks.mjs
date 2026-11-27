@@ -451,7 +451,8 @@ const blur006 = computeAcuityBlurUV(0.06);
 const blur015 = computeAcuityBlurUV(0.15);
 const blur040 = computeAcuityBlurUV(0.40);
 const blur070 = computeAcuityBlurUV(0.70);
-assert.ok(blur070 > 0.0005, `VOD 0.70 blur (${blur070}) must exceed shader 0.00012 cutoff`);
+assert.ok(blur070 > 0.0011, `VOD 0.70 blur (${blur070}) must produce visible softness above full-blur ramp`);
+assert.ok(blur015 > 0.0085, `VOS 0.15 blur (${blur015}) must produce strong amblyopic blur`);
 assert.ok(
   blur006 > blur015 && blur015 > blur040 && blur040 > blur070 && blur070 > 0,
   'computeAcuityBlurUV must be strictly decreasing with higher acuity'
@@ -833,9 +834,15 @@ assert.equal(stSwitchIol.settings.lensPowerD, -1.0);
 assert.equal(stSwitchIol.settings.myopiaD, 1.0);
 assert.equal(stSwitchIol.settings.nearAddD, 4.0);
 
-// Verify GLSL IOL fixed focal plane & positive dysphotopsia halo invariants
+// Verify GLSL IOL fixed focal plane, OD/OS acuity parity & positive dysphotopsia halo invariants
 assert.ok(fragSrc.includes('uIolHalo') && fragSrc.includes('uOsExtraMyopiaD'), 'vision.frag.glsl must define IOL halo & OS residual uniforms');
 assert.ok(fragSrc.includes('isIol > 0.5 ? 0.0'), 'vision.frag.glsl must enforce zero accommodation on monofocal IOL');
+assert.ok(!fragSrc.includes('inNonDomOnly * isAphakic'), 'left-lens non-dominant acuity blur must also apply to Vuarbit Grant IOL');
+assert.ok(!fragSrc.includes('mix(0.22, 0.52'), 'non-dominant OS acuity blur must not be slashed to 22%-52%');
+assert.ok(fragSrc.includes('osAcuityFactor'), 'OS acuity blur must preserve genuine VOS acuity including monocular fallback');
+const carSceneSrc = fs.readFileSync(new URL('../src/scene/car_passenger.js', import.meta.url), 'utf8');
+assert.ok(carSceneSrc.includes('createWetStreakRibbon') && carSceneSrc.includes('polygonOffset: true'), 'car wet reflections must conform to road spline with polygonOffset');
+assert.ok(carSceneSrc.includes('normalBias'), 'car sunLight shadow must set normalBias to prevent grazing self-shadow acne');
 
 // P5: Mobile Observer Mode touch detection (hybrid touchscreen laptops stay desktop), balanced DPR default & look clamp
 assert.equal(detectTouchDevice({ maxTouchPoints: 0, coarsePointer: false, finePointer: true }), false);

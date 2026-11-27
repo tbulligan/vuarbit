@@ -611,12 +611,12 @@ export function updateVisualSetting(state, key, value) {
 
 /**
  * Convert Snellen decimal acuity [0.05, 1.0] into MAR-calibrated UV blur radius [0, 0.034].
- * 1.00 (20/20) -> 0.0, 0.70 (20/29) -> ~0.00065, 0.15 (20/133) -> ~0.0084, 0.05 (20/400) -> ~0.028.
+ * 1.00 (20/20) -> 0.0, 0.70 (20/29) -> ~0.00134, 0.15 (20/133) -> ~0.0100, 0.05 (20/400) -> ~0.0258.
  */
 export function computeAcuityBlurUV(acuityDecimal) {
   const a = clamp(Number.isFinite(acuityDecimal) ? acuityDecimal : 1.0, 0.05, 1.0);
   const marExcess = 1.0 / a - 1.0;
-  return clamp(0.0015 * Math.pow(marExcess, 0.99), 0, 0.034);
+  return clamp(0.0026 * Math.pow(marExcess, 0.78), 0, 0.034);
 }
 
 /**

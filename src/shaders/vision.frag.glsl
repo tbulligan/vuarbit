@@ -187,9 +187,9 @@ vec3 sampleIolHalo(vec2 baseUv, float iolHalo, bool useNonDom, float angleSeed) 
   float ringR = 0.0175 + 0.0025 * sin(jitter * 6.2831853);
   for (int k = 0; k < IOL_TAPS; k++) {
     float ang = (float(k) + jitter) * (6.2831853 / float(IOL_TAPS));
-    vec2 uvR = clamp(baseUv + vec2(cos(ang), sin(ang)) * ringR * invAspect, vec2(0.002), vec2(0.998));
-    vec3 cR = useNonDom ? texture2D(tColorNonDom, uvR).rgb : texture2D(tColorOD, uvR).rgb;
-    float bR = pow(smoothstep(iolLo, iolHi, dot(cR, vec3(0.2126, 0.7152, 0.0722))), 1.6);
+    vec2 uvR = clamp(baseUv + vec2(cos(ang), sin(ang)) * ringR * invAspect, vec2(0.003), vec2(0.997));
+    vec3 cR = useNonDom ? texture2D(tColorNonDom, uvR).rgb : texture2D(tBlurOD, uvR).rgb;
+    float bR = pow(smoothstep(iolLo * 0.65, iolHi * 0.90, dot(cR, vec3(0.2126, 0.7152, 0.0722))), 1.5);
     ringAcc += cR * bR;
   }
   float gB = pow(smoothstep(iolLo * 0.55, iolHi * 0.90, glowLuma), 1.5);
@@ -251,7 +251,7 @@ vec3 sampleOD(
       wSum += w;
     }
     vec3 blurred = wSum > 0.001 ? (acc / wSum) : col;
-    col = mix(col, blurred, smoothstep(0.00012, 0.0009, blurDrive));
+    col = mix(col, blurred, smoothstep(0.00012, 0.00045, blurDrive));
   }
 
   if (heavyBlurMix > 0.005) {
@@ -336,8 +336,8 @@ vec3 sampleOS(vec2 baseUv, float isoBlurUV, float motionSmearUV, vec2 astDirOS, 
     }
     col /= float(QTAPS);
   } else {
-    float heavyBlurMix = smoothstep(0.014, 0.034, isoBlurUV);
-    float fineBlurUV = min(isoBlurUV, 0.018);
+    float heavyBlurMix = smoothstep(0.0085, 0.022, isoBlurUV);
+    float fineBlurUV = min(isoBlurUV, 0.014);
 
     if (heavyBlurMix < 0.995) {
       const int TAPS = 8;
@@ -619,7 +619,7 @@ vec3 sampleClosedEyelidGlare(vec2 baseUv, float angleSeed) {
 
 void main() {
   vec2 px = vUv * uResolution;
-  float noiseAngle = ign(px + fract(uTime * 17.3) * 100.0) * 6.2831853;
+  float noiseAngle = ign(px) * 6.2831853;
 
   // Aspect-normalized screen space centered at (0, 0), height = 1.0
   vec2 p = (vUv - 0.5) * vec2(uAspect, 1.0);
@@ -814,7 +814,7 @@ void main() {
     // Gate scotopic rod vision on surrounding ~1-2 deg area luminance so black letters on a bright backlit chart stay 100% photopic cone-sharp!
     float pixelDarkMask = 1.0 - smoothstep(0.04, 0.28, localLinLuma);
     float scotopicBlur = smoothstep(0.22, 0.03, uAmbientLight) * pixelDarkMask * 0.0022;
-    float baseAcuityBlur = mix(uAcuityBlurDom, uAcuityBlurNonDom, inNonDomOnly * isAphakic) + decomp * 0.0014 * isAphakic + scotopicBlur;
+    float baseAcuityBlur = mix(uAcuityBlurDom, uAcuityBlurNonDom, inNonDomOnly) + decomp * 0.0014 * max(isAphakic, isIol) + scotopicBlur;
     baseAcuityBlur = max(baseAcuityBlur, uAlbinism * 0.0032);
     baseAcuityBlur += uCataract * 0.0095 + refBlur + residualAstigD * 0.0014 * pupilScale + palSwim * 0.0048;
     float periphBlur = isAphakic * inLens * periphFactor * periphFactor * 0.0055 * powerRatio;
@@ -850,7 +850,7 @@ void main() {
     // Low-acuity contrast compression (pivot anchored to local brightness so dark scenes never brighten!) + luminance-gated scotopic rod shift
     float colLuma = dot(colOD, vec3(0.299, 0.587, 0.114));
     float nonBlack = smoothstep(0.004, 0.06, colLuma);
-    float lowAcuityDrop = smoothstep(0.010, 0.030, baseAcuityBlur) * 0.24 * nonBlack;
+    float lowAcuityDrop = smoothstep(0.008, 0.026, baseAcuityBlur) * 0.24 * nonBlack;
     float scotopic = smoothstep(0.20, 0.03, uAmbientLight) * pixelDarkMask * nonBlack;
     float pivot = min(0.5, colLuma * 0.95);
     colOD = mix(colOD, mix(vec3(0.42), colOD, 0.93), inNonDomOnly * nonBlack);
@@ -874,14 +874,20 @@ void main() {
       }
 
       float focusClamped = clamp(uFocusEffort, 0.0, 1.0);
+      float occlDom = clamp(uOcclOD, 0.0, 1.0);
+      float occlNonDom = clamp(uOcclNonDom, 0.0, 1.0);
+      float nonDomOpen = 1.0 - smoothstep(0.15, 0.85, occlNonDom);
+      float domBlocked = uHasNonDomRT * smoothstep(0.45, 0.92, occlDom) * nonDomOpen;
+
       float osVerg = 1.0 / max(depthOS, 0.02);
       float cocOS = isAphakic * max(0.0, abs(osVerg - targetVergence) - dofTolerance);
       float osMinFocusD = uMyopiaD + uOsExtraMyopiaD + effModernD;
       float osMaxFocusD = osMinFocusD + accAmp;
       float osRefDefocusD = (1.0 - isAphakic) * max(0.0, max(osMinFocusD - osVerg, osVerg - osMaxFocusD) - refDofTol);
       float osRefBlur = clamp(osRefDefocusD * 0.0056 * pupilScale, 0.0, 0.036);
-      // Unfocused fake OS contour registers crisper/sharper ("two sharp images"); Focus attentionally softens & deprioritizes OS
-      float nonDomBlur = max(0.00035, uAcuityBlurNonDom * mix(0.22, 0.52, focusClamped)) + uCataract * 0.0095 + uAlbinism * 0.0025 + osRefBlur;
+      // Genuine non-dominant acuity (e.g. VOS 0.15); slightly crisper contour when unfocused, full acuity when focused or monocular
+      float osAcuityFactor = mix(mix(0.75, 1.0, focusClamped), 1.0, domBlocked);
+      float nonDomBlur = max(0.00035, uAcuityBlurNonDom * osAcuityFactor) + uCataract * 0.0095 + uAlbinism * 0.0025 + osRefBlur;
       float isoBlurOS = mix(aphakicBlur, nonDomBlur + clamp(cocOS * 0.0072 * powerRatio, 0.0, 0.028), inCorrection);
       vec2 astDirOS = isAphakic > 0.5 ? vec2(1.0, 0.0) : userAstDir;
       float hoaOS = hoaOD * mix(0.98, 0.80, focusClamped);
@@ -899,10 +905,6 @@ void main() {
       colOS = mix(colOS, vec3(lumaOS), 0.04) * 0.99;
 
       // Binocular rivalry & per-eye occlusion: covering non-dom removes ghost; genuine obstacle cover of dom switches to stereo OS
-      float occlDom = clamp(uOcclOD, 0.0, 1.0);
-      float occlNonDom = clamp(uOcclNonDom, 0.0, 1.0);
-      float nonDomOpen = 1.0 - smoothstep(0.15, 0.85, occlNonDom);
-      float domBlocked = uHasNonDomRT * smoothstep(0.45, 0.92, occlDom) * nonDomOpen;
       float odNearSolid = smoothstep(0.95, 0.55, depthOD) * smoothstep(0.08, 0.25, depthOS - depthOD) * (1.0 - domBlocked);
 
       // Keep OS image clearly present even in Focus (attentional OD preference, not total disappearance)
