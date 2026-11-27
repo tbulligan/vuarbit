@@ -327,17 +327,17 @@ vec3 sampleOS(vec2 baseUv, float isoBlurUV, float motionSmearUV, vec2 astDirOS, 
     }
   }
 
-  // Bilateral OS HOA glare (continuous 5-step IGN-jittered streak along OS meridian + smooth pre-blurred halo)
+  // Bilateral OS HOA glare (continuous 8-step IGN-jittered streak matching OD density + smooth pre-blurred halo)
   if (hoaOS > 0.01) {
     float hoaLo = mix(1.05, 1.65, clamp(uAmbientLight, 0.0, 1.0));
     float hoaHi = mix(2.20, 2.75, clamp(uAmbientLight, 0.0, 1.0));
     float jitter = fract(angleSeed * 0.15915494);
     vec3 flareOS = vec3(0.0);
-    const int OS_STREAKS = 5;
+    const int OS_STREAKS = 8;
     for (int s = 0; s < OS_STREAKS; s++) {
       float t = (float(s) + 0.35 + jitter * 0.65) / float(OS_STREAKS);
-      float rad = 0.003 + t * t * 0.032;
-      float w = exp(-t * 2.3) * 0.085;
+      float rad = 0.0025 + t * t * 0.036;
+      float w = exp(-t * 2.4) * 0.078;
       vec2 dA = astDirOS * rad * invAspect;
       vec2 uvP = clamp(baseUv + dA, vec2(0.002), vec2(0.998));
       vec2 uvN = clamp(baseUv - dA, vec2(0.002), vec2(0.998));
@@ -351,7 +351,7 @@ vec3 sampleOS(vec2 baseUv, float isoBlurUV, float motionSmearUV, vec2 astDirOS, 
       ? texture2D(tColorNonDom, clamp(baseUv, vec2(0.003), vec2(0.997))).rgb
       : texture2D(tBlurOD, clamp(baseUv, vec2(0.003), vec2(0.997))).rgb;
     float haloB = pow(smoothstep(hoaLo * 0.45, hoaHi * 0.85, dot(haloOS, vec3(0.2126, 0.7152, 0.0722))), 1.5);
-    flareOS += haloOS * haloB * 0.24;
+    flareOS += haloOS * haloB * 0.28;
     col += flareOS * hoaOS;
   }
 
@@ -842,7 +842,7 @@ void main() {
       float nonDomBlur = max(0.00035, uAcuityBlurNonDom * mix(0.22, 0.52, focusClamped)) + uCataract * 0.0095 + uAlbinism * 0.0025 + refBlur;
       float isoBlurOS = mix(aphakicBlur, nonDomBlur + clamp(cocOS * 0.0072 * powerRatio, 0.0, 0.028), inCorrection);
       vec2 astDirOS = isAphakic > 0.5 ? vec2(1.0, 0.0) : userAstDir;
-      float hoaOS = hoaOD * mix(0.90, 0.65, focusClamped);
+      float hoaOS = hoaOD * mix(0.98, 0.80, focusClamped);
       vec3 linOS = sampleOS(uvOS, isoBlurOS, uMlnVelUV, astDirOS, hoaOS, veil, noiseAngle + 1.57);
       linOS = applyLinearPathologies(linOS, uvOS, p, pFovea, uHasNonDomRT > 0.5);
       linOS *= (1.0 - mesopicPath * 0.48);
@@ -872,10 +872,11 @@ void main() {
       float bgBright = smoothstep(0.32, 0.62, localBg);
       vec3 rival = mix(max(colOD, colOS), min(colOD, colOS), bgBright);
       float edgeStrength = smoothstep(0.03, 0.28, abs(lumaOS - lumaOD));
-      // Preserve crisp dark OD ink on bright paper (prevents bright shifted OS paper washing black letters to gray)
+      // Preserve crisp dark OD ink on bright paper, while bright OS glare breaks through suppression on dark backgrounds
       float odDarkInk = bgBright * smoothstep(0.06, 0.30, lumaOS - lumaOD) * (1.0 - domBlocked);
+      float osGlareBreak = (1.0 - bgBright) * smoothstep(0.08, 0.42, lumaOS - lumaOD) * mix(0.84, 0.60, focusClamped) * (1.0 - domBlocked);
       float baseRivalMix = edgeStrength * mix(0.44, 0.22, focusClamped);
-      float rivalMix = max(baseRivalMix, odDarkInk * mix(0.55, 0.82, focusClamped)) * (1.0 - odNearSolid * 0.65) * nonDomOpen * (1.0 - domBlocked * 0.85);
+      float rivalMix = max(max(baseRivalMix, odDarkInk * mix(0.55, 0.82, focusClamped)), osGlareBreak) * (1.0 - odNearSolid * 0.65) * nonDomOpen * (1.0 - domBlocked * 0.85);
       col = mix(linMix, rival, rivalMix);
     } else {
       col = colOD;

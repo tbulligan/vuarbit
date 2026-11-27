@@ -87,57 +87,60 @@ export function createControls(domElement, state, sceneApi) {
     applySceneInitialPose(activeSceneApi);
   }
 
+  const MAX_PICKUP_ANGLE = 0.38; // ~22 deg crosshair cone: forgiving for nystagmus/low vision, never grabs off-axis items
+
+  function findAimedPickable(camera) {
+    if (!camera || activeSceneApi.pickables.length === 0) return null;
+    const horizDistToDesk = Math.hypot(
+      standPos.x - activeSceneApi.deskPos.x,
+      standPos.z - activeSceneApi.deskPos.z
+    );
+    if (state.mode !== 'seated' && horizDistToDesk > 1.65) {
+      return null;
+    }
+
+    camera.getWorldDirection(forward);
+    raycaster.set(camera.position, forward);
+    raycaster.near = 0.02;
+    raycaster.far = 2.0;
+    const hits = raycaster.intersectObjects(pickableMeshes, true);
+    if (hits.length > 0) {
+      const hitObj = hits[0].object;
+      const direct = activeSceneApi.pickables.find((item) => {
+        let cur = hitObj;
+        while (cur) {
+          if (cur === item.mesh) return true;
+          cur = cur.parent;
+        }
+        return false;
+      });
+      if (direct) return direct;
+    }
+
+    let chosen = null;
+    let bestScore = Infinity;
+    for (const item of activeSceneApi.pickables) {
+      toItem.copy(item.mesh.position).sub(camera.position);
+      const dist = toItem.length();
+      if (dist > 2.0 || dist < 1e-4) continue;
+      const angle = forward.angleTo(toItem.divideScalar(dist));
+      if (angle > MAX_PICKUP_ANGLE) continue;
+      const score = angle + dist * 0.05;
+      if (score < bestScore) {
+        bestScore = score;
+        chosen = item;
+      }
+    }
+    return chosen;
+  }
+
   function tryTogglePickup(camera) {
     if (state.holding) {
       placeBackHeldObject();
       return;
     }
 
-    // Allow pickup when seated or within 1.65m of active desk/tray anchor
-    const horizDistToDesk = Math.hypot(
-      standPos.x - activeSceneApi.deskPos.x,
-      standPos.z - activeSceneApi.deskPos.z
-    );
-    if (state.mode !== 'seated' && horizDistToDesk > 1.65) {
-      return;
-    }
-
-    // Prefer direct view-ray hit on pickable mesh, fallback to angle-dominant nearest item
-    let chosen = null;
-    if (camera) {
-      camera.getWorldDirection(forward);
-      raycaster.set(camera.position, forward);
-      raycaster.near = 0.02;
-      raycaster.far = 2.0;
-      const hits = raycaster.intersectObjects(pickableMeshes, true);
-      if (hits.length > 0) {
-        const hitObj = hits[0].object;
-        chosen = activeSceneApi.pickables.find((item) => {
-          let cur = hitObj;
-          while (cur) {
-            if (cur === item.mesh) return true;
-            cur = cur.parent;
-          }
-          return false;
-        }) || null;
-      }
-      if (!chosen) {
-        let bestScore = Infinity;
-        for (const item of activeSceneApi.pickables) {
-          toItem.copy(item.mesh.position).sub(camera.position);
-          const dist = toItem.length();
-          const angle = forward.angleTo(toItem.normalize());
-          const score = angle + dist * 0.05;
-          if (score < bestScore) {
-            bestScore = score;
-            chosen = item;
-          }
-        }
-      }
-    } else {
-      chosen = activeSceneApi.pickables[0] || null;
-    }
-
+    const chosen = findAimedPickable(camera);
     if (chosen) {
       state.holding = chosen.id;
       const isAphakic = state.settings?.lensProfile === 'aphakic_bifocal';
@@ -550,6 +553,7 @@ export function createControls(domElement, state, sceneApi) {
         );
       }
       camera.updateMatrixWorld(true);
+      state.aimingPickable = !state.holding && !state.settingsOpen && Boolean(findAimedPickable(camera));
     }
   }
 

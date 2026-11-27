@@ -130,6 +130,13 @@ body {
   margin: -3px 0 0 -3px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.45);
+  transition: transform 0.12s ease, background-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.hud-reticle.is-target {
+  transform: scale(1.45);
+  background: rgba(245, 211, 140, 0.92);
+  box-shadow: 0 0 0 2px rgba(245, 211, 140, 0.35);
 }
 
 .settings-drawer {

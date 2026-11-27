@@ -20,13 +20,6 @@ export const SCENES = Object.freeze([
     shortName: '1994 Classroom',
     description: 'Mid-1990s Italian classroom with 3.8 m blackboard, quadretti math workbook, classmates, and desk props.',
     defaultMode: 'standing',
-  }),
-  Object.freeze({
-    id: 'exam_room',
-    label: 'Optometry Exam Room',
-    shortName: 'Exam Room',
-    description: '4.0 m clinical exam lane with backlit ETDRS acuity chart, Pelli-Robson contrast, Amsler grid, Ishihara plates, near Jaeger card, and HDR glare lamp.',
-    defaultMode: 'seated',
     seatedOnly: false,
   }),
   Object.freeze({
@@ -36,6 +29,14 @@ export const SCENES = Object.freeze([
     description: 'Seated cabin cruising the curving Friuli moraine road (Udine → Fagagna → San Daniele) with Julian Prealps horizon, day sun glare, and wet-road night headlights.',
     defaultMode: 'seated',
     seatedOnly: true,
+  }),
+  Object.freeze({
+    id: 'exam_room',
+    label: 'Optometry Exam Room',
+    shortName: 'Exam Room',
+    description: '4.0 m clinical exam lane with backlit ETDRS acuity chart, Pelli-Robson contrast, Amsler grid, Ishihara plates, near Jaeger card, and HDR glare lamp.',
+    defaultMode: 'seated',
+    seatedOnly: false,
   }),
 ]);
 
