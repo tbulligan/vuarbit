@@ -7,20 +7,30 @@ import {
   getSceneById,
   updateVisualSetting,
 } from './personas.js';
-import { createClassroomScene } from './scene.js';
-import { createExamRoomScene } from './scene/exam_room.js';
-import { createCarPassengerScene } from './scene/car_passenger.js';
 import { createControls } from './controls.js';
 import { createOpticsRenderer } from './optics.js';
 import { createTinnitusAudio } from './audio.js';
 import { createHud } from './hud.js';
 import { createSettingsDrawer } from './settings.js';
 
-const SCENE_FACTORIES = {
-  classroom: createClassroomScene,
-  exam_room: createExamRoomScene,
-  car_passenger: createCarPassengerScene,
+// Explicit allow-list dynamic scene loaders for Vite per-scene code-splitting
+const SCENE_LOADERS = {
+  classroom: () => import('./scene.js').then((m) => m.createClassroomScene),
+  exam_room: () => import('./scene/exam_room.js').then((m) => m.createExamRoomScene),
+  car_passenger: () => import('./scene/car_passenger.js').then((m) => m.createCarPassengerScene),
 };
+
+const loadedSceneFactories = new Map();
+
+async function loadSceneFactory(sceneId) {
+  if (!Object.hasOwn(SCENE_LOADERS, sceneId)) return null;
+  if (loadedSceneFactories.has(sceneId)) {
+    return loadedSceneFactories.get(sceneId);
+  }
+  const factory = await SCENE_LOADERS[sceneId]();
+  loadedSceneFactories.set(sceneId, factory);
+  return factory;
+}
 
 // shortcut: 180-sample synthetic sawtooth fallback when JSON unavailable, upgrade by bundling default waveform
 function buildFallbackWaveform() {
@@ -77,30 +87,55 @@ async function init() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
 
-  const waveformData = await loadWaveform();
   const state = createSimState();
+  const initDprCap = QUALITY_PRESETS[state.qualityPreset]?.dprCap ?? 1.75;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, initDprCap));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+
+  const [waveformData, initialSceneFactory] = await Promise.all([
+    loadWaveform(),
+    loadSceneFactory(state.sceneId),
+  ]);
+  if (!initialSceneFactory) return;
+
   document.documentElement.lang = state.language;
-  let sceneApi = SCENE_FACTORIES[state.sceneId](renderer);
+  let sceneApi = initialSceneFactory(renderer);
   const optics = createOpticsRenderer(renderer, sceneApi.scene, waveformData);
   const controls = createControls(canvas, state, sceneApi);
   const audio = createTinnitusAudio();
   const hud = createHud(hudRoot, state);
 
-  function switchScene(nextSceneId) {
-    if (!getSceneById(nextSceneId) || !SCENE_FACTORIES[nextSceneId] || nextSceneId === state.sceneId) {
+  let sceneLoadSeq = 0;
+
+  async function switchScene(nextSceneId) {
+    if (!getSceneById(nextSceneId) || !Object.hasOwn(SCENE_LOADERS, nextSceneId) || nextSceneId === state.sceneId) {
       return;
     }
-    const prevSceneApi = sceneApi;
-    const nextSceneApi = SCENE_FACTORIES[nextSceneId](renderer);
-    sceneApi = nextSceneApi;
-    state.sceneId = nextSceneId;
-    state.occlOD = 0;
-    state.occlOS = 0;
-    state.occlusionLevel = 0;
-    state.squint = 0;
-    controls.setScene(nextSceneApi);
-    optics.setScene(nextSceneApi.scene, nextSceneApi.farClip);
-    prevSceneApi.dispose?.();
+    const loadToken = ++sceneLoadSeq;
+    state.sceneLoading = true;
+    try {
+      const factory = await loadSceneFactory(nextSceneId);
+      if (!factory || loadToken !== sceneLoadSeq || nextSceneId === state.sceneId) {
+        return;
+      }
+      const prevSceneApi = sceneApi;
+      const nextSceneApi = factory(renderer);
+      sceneApi = nextSceneApi;
+      state.sceneId = nextSceneId;
+      state.occlOD = 0;
+      state.occlOS = 0;
+      state.occlusionLevel = 0;
+      state.squint = 0;
+      controls.setScene(nextSceneApi);
+      optics.setScene(nextSceneApi.scene, nextSceneApi.farClip);
+      prevSceneApi.dispose?.();
+    } catch {
+      // Keep active scene running if dynamic chunk fetch fails
+    } finally {
+      if (loadToken === sceneLoadSeq) {
+        state.sceneLoading = false;
+      }
+    }
   }
 
   const onResize = () => {
