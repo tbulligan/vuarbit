@@ -521,13 +521,27 @@ export function createCarPassengerScene(renderer = null) {
   paintSky('#357bd1', '#86bbea', '#e5eef8');
 
   const skyDome = new THREE.Mesh(
-    new THREE.SphereGeometry(128, 24, 16),
+    new THREE.SphereGeometry(132, 24, 16),
     new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false })
   );
+  skyDome.renderOrder = -3;
   scene.add(skyDome);
 
   const horizonPivot = new THREE.Group();
   scene.add(horizonPivot);
+
+  const sunDiskMat = new THREE.MeshStandardMaterial({
+    color: '#fffef5',
+    emissive: '#fff4d4',
+    emissiveIntensity: 16.0,
+    roughness: 0.1,
+    fog: false,
+    depthWrite: false,
+  });
+  const sunDisk = new THREE.Mesh(new THREE.SphereGeometry(3.0, 16, 12), sunDiskMat);
+  sunDisk.position.set(-32, 26, -118);
+  sunDisk.renderOrder = -2;
+  horizonPivot.add(sunDisk);
 
   const mtnCanvas = document.createElement('canvas');
   mtnCanvas.width = 1024;
@@ -538,23 +552,14 @@ export function createCarPassengerScene(renderer = null) {
   paintMountainHorizonCanvas(mtnCtx, 1024, 256, '#3b5246', '#6b85a3');
   mtnTex.needsUpdate = true;
 
+  // Render mountains AFTER sunDisk (and closer at r=114 < sun r=124) so Prealps cleanly silhouette in front of setting sun
   const mountainRing = new THREE.Mesh(
-    new THREE.CylinderGeometry(118, 118, 34, 48, 1, true),
+    new THREE.CylinderGeometry(114, 114, 34, 48, 1, true),
     new THREE.MeshBasicMaterial({ map: mtnTex, transparent: true, side: THREE.BackSide, fog: false, depthWrite: false })
   );
   mountainRing.position.y = 11.5;
+  mountainRing.renderOrder = -1;
   horizonPivot.add(mountainRing);
-
-  const sunDiskMat = new THREE.MeshStandardMaterial({
-    color: '#fffef5',
-    emissive: '#fff4d4',
-    emissiveIntensity: 16.0,
-    roughness: 0.1,
-    fog: false,
-  });
-  const sunDisk = new THREE.Mesh(new THREE.SphereGeometry(4.0, 16, 12), sunDiskMat);
-  sunDisk.position.set(-28, 22, -110);
-  horizonPivot.add(sunDisk);
 
   // --- LIGHTS ---
   const hemiLight = new THREE.HemisphereLight('#d9eaff', '#5d5548', 0.9);
