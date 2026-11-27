@@ -5,6 +5,7 @@
 
 import {
   PERSONAS,
+  SCENES,
   SETTING_SPECS,
   QUALITY_PRESETS,
   TIME_OF_DAY_PRESETS,
@@ -12,6 +13,7 @@ import {
   FRAME_SHAPES,
   FRAME_COLORS,
   getPersonaById,
+  getSceneById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
   applyPersona,
@@ -26,6 +28,7 @@ import {
 
 export {
   PERSONAS,
+  SCENES,
   SETTING_SPECS,
   QUALITY_PRESETS,
   TIME_OF_DAY_PRESETS,
@@ -33,6 +36,7 @@ export {
   FRAME_SHAPES,
   FRAME_COLORS,
   getPersonaById,
+  getSceneById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
   applyPersona,
@@ -185,12 +189,14 @@ export function toggleGlasses(state) {
  */
 export function createSimState() {
   return {
+    sceneId: 'classroom',
     personaId: 'vuarbit_1994',
     settings: createDefaultVisualSettings(),
     settingsOpen: false,
     qualityPreset: 'high',
     timeOfDay: 'sunny',
     lightsOn: true,
+    glareLightOn: true,
     ambientLight: 1.0,
     mode: 'standing',
     glassesOn: true,

@@ -9,15 +9,15 @@
 ## Module Ownership & Contracts
 
 - `src/personas.js` (pure ES module, zero DOM/Three.js imports):
-  - `PERSONAS`, `SETTING_SPECS`, `QUALITY_PRESETS`, `LENS_PROFILES`, `TIME_OF_DAY_PRESETS`, `getPersonaById(id)`, `createDefaultVisualSettings()`, `sanitizeVisualSettings(partial)`, `applyPersona(state, id)`, `updateVisualSetting(state, key, value)`, `computeAcuityBlurUV(acuityDecimal)`, `formatSnellenAcuity(acuityDecimal)`, `hasSuppressionMechanics(settings)`, `computeAmbientLight(timeOfDay, lightsOn)`, `cycleTimeOfDay(current)`.
+  - `PERSONAS`, `SCENES`, `SETTING_SPECS`, `QUALITY_PRESETS`, `LENS_PROFILES`, `TIME_OF_DAY_PRESETS`, `getPersonaById(id)`, `getSceneById(id)`, `createDefaultVisualSettings()`, `sanitizeVisualSettings(partial)`, `applyPersona(state, id)`, `updateVisualSetting(state, key, value)`, `computeAcuityBlurUV(acuityDecimal)`, `formatSnellenAcuity(acuityDecimal)`, `hasSuppressionMechanics(settings)`, `computeAmbientLight(timeOfDay, lightsOn)`, `cycleTimeOfDay(current)`.
 - `src/state.js` (pure ES module, zero DOM/Three.js imports):
   - Re-exports `src/personas.js` API; `createSimState()`, `updateSimState(state, dt)`, `computeOcclusionFromDistance(distMeters)`, `computeDiplopiaOffsetDeg(distMeters, settings)`, `computeMlnAngleDeg(...)`, `computeMlnFreqScale(...)`, `computeHeldRestOffset(zMeters, glassesOn, dominantEye)`, `computeMaxYaw(...)`, `computeDecompensation(fatigue)`.
-- `src/scene.js` (owns helpers `src/scene/{classmates,props,player_shadow}.js`):
-  - `createClassroomScene()` -> `{ scene, deskPos, seatPose, standPose, pickables, colliders, updateScene(dt, state, camera) }` (includes dynamic `timeOfDay` + `lightsOn` lighting rig and emissive ceiling tubes).
+- `src/scene.js` (owns helpers `src/scene/{classmates,props,player_shadow}.js`) & `src/scene/exam_room.js` (owns `src/scene/{exam_calibration,exam_charts}.js`):
+  - `createClassroomScene(renderer)` and `createExamRoomScene(renderer)` -> `{ id, defaultMode, bounds, scene, deskPos, seatPose, standPose, pickables, colliders, updateScene(dt, state, camera), dispose() }` (dynamic `timeOfDay` + `lightsOn` lighting rigs; Exam Room adds 4.0 m backlit ETDRS, Pelli-Robson, Amsler, Machado-calibrated Ishihara, pickable near Jaeger/Amsler/Ishihara cards, and toggleable HDR glare source).
 - `src/controls.js`:
-  - `createControls(domElement, state, sceneApi)` -> `{ update(dt, camera), dispose() }` (`P`/`Esc` drawer, live `V`/`Z`/`C`/`L`/`T` toggles inside and outside Pause menu).
+  - `createControls(domElement, state, sceneApi)` -> `{ update(dt, camera), setScene(nextSceneApi), dispose() }` (`P`/`Esc` drawer, live `V`/`Z`/`C`/`L`/`T`/`G` toggles inside and outside Pause menu).
 - `src/optics.js` & `src/shaders/vision.frag.glsl`:
-  - `createOpticsRenderer(renderer, scene, waveformData)` -> `{ odCamera, render(dt, state), resize(w, h), setQuality(presetId), dispose() }`.
+  - `createOpticsRenderer(renderer, scene, waveformData)` -> `{ odCamera, render(dt, state), resize(w, h), setQuality(presetId), setScene(nextScene), dispose() }`.
   - Single 4x MSAA full-res OD `WebGLRenderTarget` (`±0.029 m` by dominant eye) with `THREE.DepthTexture` (`near = 0.02`, `far = 30.0`), quarter-res separable Gaussian blur targets (`rtBlurH`/`rtBlurV`), constant-angle dominant-derived diplopia, 5.5 Hz MLN + 3.8 Hz albinism nystagmus, unified lens profiles (`aphakic_bifocal`, `single_vision`, `bifocal` D-segment, `progressive` semi-rimless, `none`) with Jackson cross-cylinder toric optics & pupil-dilated DoF/CoC, and linear-HDR clinical conditions (Crabb 2013 glaucoma, retinal-locked Wet AMD, cataracts, Diabetic Retinopathy, Retinitis Pigmentosa nyctalopia, ocular albinism, Machado 2009 CVD, low-lux scotopic rod shift).
 - `src/audio.js`:
   - `createTinnitusAudio()` -> `{ start(), update(state), dispose() }`.

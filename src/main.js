@@ -4,14 +4,21 @@ import {
   QUALITY_PRESETS,
   TIME_OF_DAY_PRESETS,
   applyPersona,
+  getSceneById,
   updateVisualSetting,
 } from './personas.js';
 import { createClassroomScene } from './scene.js';
+import { createExamRoomScene } from './scene/exam_room.js';
 import { createControls } from './controls.js';
 import { createOpticsRenderer } from './optics.js';
 import { createTinnitusAudio } from './audio.js';
 import { createHud } from './hud.js';
 import { createSettingsDrawer } from './settings.js';
+
+const SCENE_FACTORIES = {
+  classroom: createClassroomScene,
+  exam_room: createExamRoomScene,
+};
 
 // shortcut: 180-sample synthetic sawtooth fallback when JSON unavailable, upgrade by bundling default waveform
 function buildFallbackWaveform() {
@@ -70,11 +77,28 @@ async function init() {
 
   const waveformData = await loadWaveform();
   const state = createSimState();
-  const sceneApi = createClassroomScene(renderer);
+  let sceneApi = SCENE_FACTORIES[state.sceneId](renderer);
   const optics = createOpticsRenderer(renderer, sceneApi.scene, waveformData);
   const controls = createControls(canvas, state, sceneApi);
   const audio = createTinnitusAudio();
   const hud = createHud(hudRoot, state);
+
+  function switchScene(nextSceneId) {
+    if (!getSceneById(nextSceneId) || !SCENE_FACTORIES[nextSceneId] || nextSceneId === state.sceneId) {
+      return;
+    }
+    const prevSceneApi = sceneApi;
+    const nextSceneApi = SCENE_FACTORIES[nextSceneId](renderer);
+    sceneApi = nextSceneApi;
+    state.sceneId = nextSceneId;
+    state.occlOD = 0;
+    state.occlOS = 0;
+    state.occlusionLevel = 0;
+    state.squint = 0;
+    controls.setScene(nextSceneApi);
+    optics.setScene(nextSceneApi.scene);
+    prevSceneApi.dispose?.();
+  }
 
   const onResize = () => {
     const dprCap = QUALITY_PRESETS[state.qualityPreset]?.dprCap ?? 1.75;
@@ -84,6 +108,9 @@ async function init() {
   };
 
   const settings = createSettingsDrawer(hudRoot, state, {
+    onSceneChange(sceneId) {
+      switchScene(sceneId);
+    },
     onSelectPersona(id) {
       applyPersona(state, id);
     },
@@ -105,6 +132,9 @@ async function init() {
     },
     onLightsToggle() {
       state.lightsOn = state.lightsOn === false;
+    },
+    onGlareLightToggle() {
+      state.glareLightOn = state.glareLightOn === false;
     },
     onQualityChange(presetId) {
       if (!QUALITY_PRESETS[presetId]) return;

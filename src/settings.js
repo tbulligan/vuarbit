@@ -1,10 +1,12 @@
 import {
   PERSONAS,
   QUALITY_PRESETS,
+  SCENES,
   SETTING_SPECS,
   TIME_OF_DAY_PRESETS,
   formatSnellenAcuity,
   getPersonaById,
+  getSceneById,
 } from './personas.js';
 
 const LENS_PROFILE_OPTIONS = [
@@ -190,6 +192,32 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   // Scrollable body
   const body = makeEl('div', 'settings-body');
 
+  const listeners = [];
+
+  function listen(target, type, handler, options) {
+    target.addEventListener(type, handler, options);
+    listeners.push({ target, type, handler });
+  }
+
+  // Scene switcher section (extensible across P3-P5 environments)
+  const sceneSection = makeEl('section', 'setting-group');
+  const sceneHeading = makeEl('h3', 'setting-group-title', 'Scene');
+  const sceneRow = makeEl('label', 'setting-row');
+  const sceneLbl = makeEl('span', 'setting-label', 'Environment');
+  const sceneSelect = makeEl('select', 'setting-select');
+  for (const sc of SCENES) {
+    const optionEl = makeEl('option', null, sc.label);
+    optionEl.value = sc.id;
+    sceneSelect.appendChild(optionEl);
+  }
+  listen(sceneSelect, 'change', () => {
+    callbacks.onSceneChange?.(sceneSelect.value);
+  });
+  sceneRow.replaceChildren(sceneLbl, sceneSelect);
+  const sceneDesc = makeEl('p', 'persona-desc', '');
+  sceneSection.replaceChildren(sceneHeading, sceneRow, sceneDesc);
+  body.appendChild(sceneSection);
+
   // Presets section (split cleanly into Vuarbit Profiles vs Eye Conditions)
   const presetSection = makeEl('section', 'setting-group');
   const presetHeading = makeEl('h3', 'setting-group-title', 'Presets');
@@ -214,12 +242,6 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
 
   const settingControls = new Map();
   let acuityBothCtrl = null;
-  const listeners = [];
-
-  function listen(target, type, handler, options) {
-    target.addEventListener(type, handler, options);
-    listeners.push({ target, type, handler });
-  }
 
   function buildControlRow(cfg) {
     const row = makeEl('label', 'setting-row');
@@ -328,7 +350,18 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     callbacks.onLightsToggle?.();
   });
   lightsRow.replaceChildren(lightsLbl, lightsBtn);
-  lightSection.replaceChildren(lightHeading, todRow, lightsRow);
+
+  const glareRow = makeEl('div', 'setting-row is-hidden');
+  const glareLbl = makeEl('span', 'setting-label', 'Glare Lamp (G)');
+  const glareBtn = makeEl('button', 'settings-btn', 'ON');
+  glareBtn.type = 'button';
+  glareBtn.setAttribute('aria-pressed', 'true');
+  listen(glareBtn, 'click', () => {
+    callbacks.onGlareLightToggle?.();
+  });
+  glareRow.replaceChildren(glareLbl, glareBtn);
+
+  lightSection.replaceChildren(lightHeading, todRow, lightsRow, glareRow);
   body.appendChild(lightSection);
 
   // Graphics Quality section
@@ -387,6 +420,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       e.code === 'KeyZ' ||
       e.code === 'KeyL' ||
       e.code === 'KeyT' ||
+      e.code === 'KeyG' ||
       e.code === 'KeyC'
     ) {
       return;
@@ -395,12 +429,14 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   });
 
   let lastOpen = null;
+  let lastSceneId = null;
   let lastPersonaId = null;
   let lastCompare = null;
   let lastGlassesOn = null;
   let lastGlassesDisabled = null;
   let lastTimeOfDay = null;
   let lastLightsOn = null;
+  let lastGlareLightOn = null;
   let lastQuality = null;
   let lastAcuityBoth = null;
   const lastValues = new Map();
@@ -421,6 +457,17 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       drawer.classList.toggle('is-hidden', !open);
     }
     if (!open && !force) return;
+
+    const sceneId = state.sceneId || 'classroom';
+    if (force || sceneId !== lastSceneId) {
+      lastSceneId = sceneId;
+      if (document.activeElement !== sceneSelect) {
+        sceneSelect.value = sceneId;
+      }
+      const sc = getSceneById(sceneId);
+      sceneDesc.textContent = sc ? sc.description : '';
+      glareRow.classList.toggle('is-hidden', sceneId !== 'exam_room');
+    }
 
     const comparing = Boolean(state.compareNormal);
     if (force || comparing !== lastCompare) {
@@ -525,6 +572,14 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       lightsBtn.textContent = lightsOn ? 'ON' : 'OFF';
       lightsBtn.classList.toggle('is-active', lightsOn);
       lightsBtn.setAttribute('aria-pressed', lightsOn ? 'true' : 'false');
+    }
+
+    const glareOn = state.glareLightOn !== false;
+    if (force || glareOn !== lastGlareLightOn) {
+      lastGlareLightOn = glareOn;
+      glareBtn.textContent = glareOn ? 'ON' : 'OFF';
+      glareBtn.classList.toggle('is-active', glareOn);
+      glareBtn.setAttribute('aria-pressed', glareOn ? 'true' : 'false');
     }
 
     const quality = state.qualityPreset || 'high';

@@ -16,9 +16,9 @@
   - [x] Optional Frame customization dropdown (shape & color) in Optics Details for users representing their own eyewear.
 
 ## P3 — Second Scene: Optometry Exam Room (Diagnostic & Calibration)
-- Scene switcher architecture (`1994 Classroom` ↔ `Exam Room`, extensible to later scenes).
-- Compact clinical exam room with angular-calibrated targets: 4 m backlit ETDRS/Snellen acuity chart, Pelli-Robson contrast chart, Amsler grid (Wet AMD metamorphopsia), Ishihara plates (CVD), handheld near Jaeger reading card (bifocal/presbyopia), and point-light glare source (astigmatism/cataract/IOL halos).
-- Validates MAR acuity and pathology calibration across all presets without breaking 1994 classroom immersion.
+- [x] Scene switcher architecture (`1994 Classroom` ↔ `Exam Room`, extensible to later scenes).
+- [x] Compact clinical exam room with angular-calibrated targets: 4 m backlit ETDRS/Snellen acuity chart, Pelli-Robson contrast chart, Amsler grid (Wet AMD metamorphopsia), Ishihara plates (CVD), handheld near Jaeger reading card (bifocal/presbyopia), and point-light glare source (astigmatism/cataract/IOL halos).
+- [x] Validates MAR acuity and pathology calibration across all presets without breaking 1994 classroom immersion.
 
 ## P4 — Third Scene: Car Passenger (Outdoor / Night & Daylight Motion)
 - Seated cabin camera (dashboard, windshield, side mirror/window) with head look & posture lean.

@@ -1,4 +1,4 @@
-import { getPersonaById, hasSuppressionMechanics } from './personas.js';
+import { getPersonaById, getSceneById, hasSuppressionMechanics } from './personas.js';
 
 function makeEl(tag, className, text) {
   const el = document.createElement(tag);
@@ -57,11 +57,21 @@ function personaLabel(state) {
   return persona ? persona.shortName : 'Vuarbit 1994';
 }
 
+function sceneLabel(state) {
+  const sc = getSceneById?.(state.sceneId || 'classroom');
+  return sc ? sc.shortName : '1994 Classroom';
+}
+
+const BASE_CONTROLS_TEXT =
+  'WASD Move/Adjust | E/Q/Wheel Lean/Near-Far | X Sit | F Pick | RMB Rotate | C Focus | Space Slide Up/Pin | Shift Slide Down (Near) | Z Glasses | L Lights | T Time | R Rest | V Compare | M Mute | P Settings | H Help | F11 Fullscreen';
+const EXAM_CONTROLS_TEXT = `${BASE_CONTROLS_TEXT} | G Glare`;
+
 /**
  * Strictly safe DOM HUD telemetry & keybind overlay (DOM APIs only, no raw HTML strings).
  */
 export function createHud(rootElement, initialState) {
   let entered = false;
+  let lastLegendSceneId = null;
 
   const panel = makeEl('div', 'hud-panel');
 
@@ -74,6 +84,7 @@ export function createHud(rootElement, initialState) {
     return { row, val: v };
   }
 
+  const rScene = makeRow('Scene');
   const rPersona = makeRow('Preset');
   const rGlasses = makeRow('Glasses');
   const rZone = makeRow('Optical Zone');
@@ -83,11 +94,7 @@ export function createHud(rootElement, initialState) {
   const rFatigue = makeRow('Fatigue (10x)');
   const rTinnitus = makeRow('Tinnitus');
 
-  const controlsLegend = makeEl(
-    'div',
-    'hud-controls',
-    'WASD Move/Adjust | E/Q/Wheel Lean/Near-Far | X Sit | F Pick | RMB Rotate | C Focus | Space Slide Up/Pin | Shift Slide Down (Near) | Z Glasses | L Lights | T Time | R Rest | V Compare | M Mute | P Settings | H HUD | F11 Fullscreen',
-  );
+  const controlsLegend = makeEl('div', 'hud-controls', BASE_CONTROLS_TEXT);
 
   const reticle = makeEl('div', 'hud-reticle');
 
@@ -144,6 +151,13 @@ export function createHud(rootElement, initialState) {
     rFatigue.row.classList.toggle('is-hidden', !hasSuppression);
     rTinnitus.row.classList.toggle('is-hidden', !hasTinnitus && !state.muted);
 
+    const sceneId = state.sceneId || 'classroom';
+    if (sceneId !== lastLegendSceneId) {
+      lastLegendSceneId = sceneId;
+      controlsLegend.textContent = sceneId === 'exam_room' ? EXAM_CONTROLS_TEXT : BASE_CONTROLS_TEXT;
+    }
+
+    rScene.val.textContent = sceneLabel(state);
     rPersona.val.textContent = personaLabel(state);
     rGlasses.val.textContent = glassesLabel(state);
     rZone.val.textContent = zoneLabel(state);

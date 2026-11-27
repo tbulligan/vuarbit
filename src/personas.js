@@ -13,6 +13,27 @@ export const QUALITY_PRESETS = Object.freeze({
   performance: Object.freeze({ id: 'performance', label: 'Performance (1.0x)', dprCap: 1.0 }),
 });
 
+export const SCENES = Object.freeze([
+  Object.freeze({
+    id: 'classroom',
+    label: '1994 Classroom',
+    shortName: '1994 Classroom',
+    description: 'Mid-1990s Italian classroom with 3.8 m blackboard, quadretti math workbook, classmates, and desk props.',
+    defaultMode: 'standing',
+  }),
+  Object.freeze({
+    id: 'exam_room',
+    label: 'Optometry Exam Room',
+    shortName: 'Exam Room',
+    description: '4.0 m clinical exam lane with backlit ETDRS acuity chart, Pelli-Robson contrast, Amsler grid, Ishihara plates, near Jaeger card, and HDR glare lamp.',
+    defaultMode: 'seated',
+  }),
+]);
+
+export function getSceneById(id) {
+  return SCENES.find((scene) => scene.id === id);
+}
+
 export const TIME_OF_DAY_PRESETS = Object.freeze({
   sunny: Object.freeze({
     id: 'sunny',

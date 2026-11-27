@@ -16,9 +16,14 @@ import {
  */
 export function createControls(domElement, state, sceneApi) {
   const keys = new Set();
-  const colliders = sceneApi.colliders || [];
-  const standPos = sceneApi.standPose.position.clone();
-  const seatPos = sceneApi.seatPose.position;
+  const DEFAULT_BOUNDS = { minX: -3.8, maxX: 3.8, minZ: -4.15, maxZ: 4.2 };
+  let activeSceneApi = sceneApi;
+  let colliders = activeSceneApi.colliders || [];
+  let bounds = activeSceneApi.bounds || DEFAULT_BOUNDS;
+  const standPos = activeSceneApi.standPose.position.clone();
+  let standEyeY = activeSceneApi.standPose.position.y || 1.40;
+  let seatPos = activeSceneApi.seatPose.position;
+  let pickableMeshes = activeSceneApi.pickables.map((p) => p.mesh);
   const playerRadius = 0.30;
 
   let dxAccum = 0;
@@ -30,21 +35,35 @@ export function createControls(domElement, state, sceneApi) {
   const right = new THREE.Vector3();
   const moveDir = new THREE.Vector3();
   const toItem = new THREE.Vector3();
-  const pickableMeshes = sceneApi.pickables.map((p) => p.mesh);
 
-  // Initialize camera & head pose from standPose
-  state.yaw = sceneApi.standPose.yaw;
-  state.pitch = sceneApi.standPose.pitch;
-  state.headYaw = state.yaw;
-  state.headPitch = state.pitch;
-  state.eyeYaw = 0;
-  state.eyePitch = 0;
+  let seatPanX = 0;
+  let seatPanZ = 0;
+
+  function applySceneInitialPose(targetApi) {
+    const startMode = targetApi.defaultMode || 'standing';
+    state.mode = startMode;
+    state.lean = 0;
+    seatPanX = 0;
+    seatPanZ = 0;
+    standPos.copy(targetApi.standPose.position);
+    standEyeY = targetApi.standPose.position.y || 1.40;
+    seatPos = targetApi.seatPose.position;
+    const pose = startMode === 'seated' ? targetApi.seatPose : targetApi.standPose;
+    state.yaw = pose.yaw;
+    state.pitch = pose.pitch;
+    state.headYaw = state.yaw;
+    state.headPitch = state.pitch;
+    state.eyeYaw = 0;
+    state.eyePitch = 0;
+  }
+
+  applySceneInitialPose(activeSceneApi);
 
   function placeBackHeldObject() {
     state.heldRot.yaw = 0;
     state.heldRot.pitch = 0;
     if (!state.holding) return;
-    const item = sceneApi.pickables.find((p) => p.id === state.holding);
+    const item = activeSceneApi.pickables.find((p) => p.id === state.holding);
     if (item) {
       item.mesh.position.copy(item.restPosition);
       item.mesh.quaternion.copy(item.restQuaternion);
@@ -53,16 +72,31 @@ export function createControls(domElement, state, sceneApi) {
     state.holding = null;
   }
 
+  function setScene(nextSceneApi) {
+    if (!nextSceneApi) return;
+    placeBackHeldObject();
+    activeSceneApi = nextSceneApi;
+    colliders = activeSceneApi.colliders || [];
+    bounds = activeSceneApi.bounds || DEFAULT_BOUNDS;
+    pickableMeshes = activeSceneApi.pickables.map((p) => p.mesh);
+    keys.clear();
+    rmbDown = false;
+    wheelDeltaAccum = 0;
+    dxAccum = 0;
+    dyAccum = 0;
+    applySceneInitialPose(activeSceneApi);
+  }
+
   function tryTogglePickup(camera) {
     if (state.holding) {
       placeBackHeldObject();
       return;
     }
 
-    // Allow pickup when seated or within 1.6m of Vuarbit's desk
+    // Allow pickup when seated or within 1.65m of active desk/tray anchor
     const horizDistToDesk = Math.hypot(
-      standPos.x - sceneApi.deskPos.x,
-      standPos.z - sceneApi.deskPos.z
+      standPos.x - activeSceneApi.deskPos.x,
+      standPos.z - activeSceneApi.deskPos.z
     );
     if (state.mode !== 'seated' && horizDistToDesk > 1.65) {
       return;
@@ -78,7 +112,7 @@ export function createControls(domElement, state, sceneApi) {
       const hits = raycaster.intersectObjects(pickableMeshes, true);
       if (hits.length > 0) {
         const hitObj = hits[0].object;
-        chosen = sceneApi.pickables.find((item) => {
+        chosen = activeSceneApi.pickables.find((item) => {
           let cur = hitObj;
           while (cur) {
             if (cur === item.mesh) return true;
@@ -89,7 +123,7 @@ export function createControls(domElement, state, sceneApi) {
       }
       if (!chosen) {
         let bestScore = Infinity;
-        for (const item of sceneApi.pickables) {
+        for (const item of activeSceneApi.pickables) {
           toItem.copy(item.mesh.position).sub(camera.position);
           const dist = toItem.length();
           const angle = forward.angleTo(toItem.normalize());
@@ -101,20 +135,19 @@ export function createControls(domElement, state, sceneApi) {
         }
       }
     } else {
-      chosen = sceneApi.pickables[0] || null;
+      chosen = activeSceneApi.pickables[0] || null;
     }
 
     if (chosen) {
       state.holding = chosen.id;
-      // Start centered in dominant eye's lower bifocal reading sweet spot (~22cm for +17 D)
-      state.heldOffset = computeHeldRestOffset(0.22, state.glassesOn, state.settings?.dominantEye, state.glassesSlide);
+      const isAphakic = state.settings?.lensProfile === 'aphakic_bifocal';
+      const initZ = !isAphakic && Number.isFinite(chosen.defaultHoldZ) ? chosen.defaultHoldZ : 0.22;
+      // Start centered in dominant eye's lower bifocal reading sweet spot (~22cm for +17 D, or clinical distance for exam cards)
+      state.heldOffset = computeHeldRestOffset(initZ, state.glassesOn, state.settings?.dominantEye, state.glassesSlide);
       state.heldRot.yaw = 0;
       state.heldRot.pitch = 0;
     }
   }
-
-  let seatPanX = 0;
-  let seatPanZ = 0;
 
   function toggleSeatMode() {
     if (state.mode === 'standing') {
@@ -122,8 +155,8 @@ export function createControls(domElement, state, sceneApi) {
       state.lean = 0;
       seatPanX = 0;
       seatPanZ = 0;
-      state.yaw = sceneApi.seatPose.yaw;
-      state.pitch = sceneApi.seatPose.pitch;
+      state.yaw = activeSceneApi.seatPose.yaw;
+      state.pitch = activeSceneApi.seatPose.pitch;
       state.headYaw = state.yaw;
       state.headPitch = state.pitch;
       state.eyeYaw = 0;
@@ -134,7 +167,7 @@ export function createControls(domElement, state, sceneApi) {
       state.lean = 0;
       seatPanX = 0;
       seatPanZ = 0;
-      standPos.copy(sceneApi.standPose.position);
+      standPos.copy(activeSceneApi.standPose.position);
       state.headYaw = state.yaw;
       state.headPitch = state.pitch;
       state.eyeYaw = 0;
@@ -143,8 +176,8 @@ export function createControls(domElement, state, sceneApi) {
   }
 
   function collidesAt(x, z) {
-    if (x < -3.8 + playerRadius || x > 3.8 - playerRadius) return true;
-    if (z < -4.15 + playerRadius || z > 4.2 - playerRadius) return true;
+    if (x < bounds.minX + playerRadius || x > bounds.maxX - playerRadius) return true;
+    if (z < bounds.minZ + playerRadius || z > bounds.maxZ - playerRadius) return true;
     for (const c of colliders) {
       if (
         x + playerRadius > c.minX &&
@@ -279,6 +312,12 @@ export function createControls(domElement, state, sceneApi) {
       return;
     }
 
+    if (!e.repeat && e.code === 'KeyG' && state.sceneId === 'exam_room') {
+      if (state.settingsOpen) e.preventDefault();
+      state.glareLightOn = state.glareLightOn === false;
+      return;
+    }
+
     if (!e.repeat && e.code === 'KeyC') {
       if (state.settingsOpen) e.preventDefault();
       state.focusing = !state.focusing;
@@ -395,7 +434,7 @@ export function createControls(domElement, state, sceneApi) {
 
     if (state.holding) {
       // Keep nearest rotated corner outside glasses (~4.8cm) or bare cornea (~4.2cm, clear of 2cm near clip)
-      const heldItem = sceneApi.pickables.find((p) => p.id === state.holding);
+      const heldItem = activeSceneApi.pickables.find((p) => p.id === state.holding);
       const halfDepth = heldItem?.halfDepth || 0.048;
       const minZ = (state.glassesOn ? 0.048 : 0.042) + halfDepth;
 
@@ -505,7 +544,7 @@ export function createControls(domElement, state, sceneApi) {
         const dropLean = Math.max(0, state.lean) * 0.08;
         camera.position.set(
           standPos.x - Math.sin(state.yaw) * fwdLean,
-          1.40 - dropLean,
+          standEyeY - dropLean,
           standPos.z - Math.cos(state.yaw) * fwdLean
         );
       }
@@ -526,5 +565,5 @@ export function createControls(domElement, state, sceneApi) {
     window.removeEventListener('blur', onBlur);
   }
 
-  return { update, dispose };
+  return { update, setScene, dispose };
 }

@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   PERSONAS,
+  SCENES,
   SETTING_SPECS,
   QUALITY_PRESETS,
   TIME_OF_DAY_PRESETS,
   FRAME_SHAPES,
   FRAME_COLORS,
   getPersonaById,
+  getSceneById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
   applyPersona,
@@ -32,6 +34,23 @@ import {
   toggleGlasses,
   updateSimState,
 } from '../src/state.js';
+import {
+  AMSLER_SPEC,
+  ETDRS_ROWS,
+  EXAM_VIEW_DISTANCE_M,
+  ISHIHARA_PLATES,
+  JAEGER_ROWS,
+  MACHADO_CVD_MATRICES,
+  PELLI_ROBSON_TRIPLETS,
+  SLOAN_GLYPHS,
+  applyMachadoCvd,
+  computeAmslerAngularDeg,
+  computeJaegerHeightM,
+  computeOptotypeHeightM,
+  computePelliRobsonInkByte,
+  computeWeberContrast,
+  rgbDistance,
+} from '../src/scene/exam_calibration.js';
 
 function assertFiniteNumber(value, label) {
   assert.equal(typeof value, 'number', `${label} must be a number`);
@@ -694,6 +713,113 @@ assert.equal(toggleGlasses(stToggle), true, 'toggleGlasses turns glasses back on
 assert.equal(stToggle.glassesSlide, 0, 'putting glasses on resets slide');
 assert.ok(stToggle.glassesBounce < 0, 'putting glasses on sets tactile bounce');
 
+// 8. Validate P3 Scene Registry & Exam Room Clinical Calibration Math
+assert.equal(SCENES.length, 2, 'must register 2 scenes (classroom and exam_room)');
+assert.equal(getSceneById('classroom')?.defaultMode, 'standing');
+assert.equal(getSceneById('exam_room')?.defaultMode, 'seated');
+assert.equal(getSceneById('nonexistent_scene'), undefined);
+
+const stScene = createSimState();
+assert.equal(stScene.sceneId, 'classroom', 'initial scene must be 1994 classroom');
+assert.equal(stScene.glareLightOn, true, 'exam glare lamp starts enabled');
+stScene.sceneId = 'exam_room';
+stScene.glareLightOn = false;
+applyPersona(stScene, 'amd');
+assert.equal(stScene.sceneId, 'exam_room', 'applyPersona must preserve active sceneId');
+assert.equal(stScene.glareLightOn, false, 'applyPersona must preserve glareLightOn');
+
+// ETDRS 4.00 m angular calibration (5 arcmin for 20/20 -> 5.818 mm; 50 arcmin for 20/200 -> 58.18 mm)
+assert.equal(EXAM_VIEW_DISTANCE_M, 4.0);
+const h20_20 = computeOptotypeHeightM(1.0, 4.0);
+const h20_200 = computeOptotypeHeightM(0.10, 4.0);
+assert.ok(Math.abs(h20_20 - 0.0058178) < 1e-5, `20/20 @ 4m expected 5.818 mm, got ${h20_20 * 1000} mm`);
+assert.ok(Math.abs(h20_200 - 0.05818) < 2e-4, `20/200 @ 4m expected 58.18 mm, got ${h20_200 * 1000} mm`);
+assert.equal(ETDRS_ROWS.length, 12, 'ETDRS chart must define 12 logMAR rows (20/200..20/16)');
+for (let i = 0; i < ETDRS_ROWS.length; i++) {
+  const row = ETDRS_ROWS[i];
+  assert.equal(row.letters.length, 5, `ETDRS row ${row.snellen} must have 5 Sloan letters`);
+  for (const ch of row.letters) {
+    const glyph = SLOAN_GLYPHS[ch];
+    assert.ok(glyph && glyph.length === 5 && glyph.every((r) => r.length === 5), `invalid 5x5 Sloan glyph ${ch}`);
+  }
+  if (i > 0) {
+    assert.ok(row.heightM < ETDRS_ROWS[i - 1].heightM, 'ETDRS letter heights must strictly decrease down chart');
+  }
+}
+
+// Pelli-Robson 16 triplets: 0.00 -> 2.25 logCS in 0.15 steps, strictly decreasing Weber contrast & rising sRGB ink
+assert.equal(PELLI_ROBSON_TRIPLETS.length, 16);
+assert.equal(PELLI_ROBSON_TRIPLETS[0].logCS, 0.0);
+assert.equal(PELLI_ROBSON_TRIPLETS[15].logCS, 2.25);
+assert.ok(Math.abs(computeWeberContrast(0) - 1.0) < 1e-9);
+assert.ok(Math.abs(computeWeberContrast(1.0) - 0.1) < 1e-9);
+assert.equal(computePelliRobsonInkByte(0.0, 242), 0);
+for (let i = 1; i < PELLI_ROBSON_TRIPLETS.length; i++) {
+  assert.ok(
+    PELLI_ROBSON_TRIPLETS[i].weberContrast < PELLI_ROBSON_TRIPLETS[i - 1].weberContrast,
+    'Pelli-Robson Weber contrast must strictly decrease'
+  );
+  assert.ok(
+    PELLI_ROBSON_TRIPLETS[i].inkByte >= PELLI_ROBSON_TRIPLETS[i - 1].inkByte && PELLI_ROBSON_TRIPLETS[i].inkByte <= 242,
+    'Pelli-Robson sRGB ink byte must rise monotonically toward chart background'
+  );
+}
+
+// Amsler grid angular calibration (~19-20 deg total field, ~1 deg/square at 30 cm)
+const amslerDeg = computeAmslerAngularDeg(AMSLER_SPEC.gridSizeM, AMSLER_SPEC.testDistM);
+const amslerWallDeg = computeAmslerAngularDeg(AMSLER_SPEC.wallGridSizeM, AMSLER_SPEC.wallTestDistM);
+assert.ok(amslerDeg > 18.5 && amslerDeg < 19.5, `handheld Amsler @ 30cm expected ~18.92 deg, got ${amslerDeg}`);
+assert.ok(Math.abs(amslerDeg - amslerWallDeg) < 0.05, 'wall Amsler must match handheld 20-deg angular geometry');
+
+// Jaeger near card M-unit calibration (1 M = 1.454 mm at 1 m)
+assert.ok(Math.abs(computeJaegerHeightM(1.0) - 0.0014544) < 1e-5, '1 M print height must equal 1.454 mm');
+assert.equal(JAEGER_ROWS.length, 6);
+for (let i = 1; i < JAEGER_ROWS.length; i++) {
+  assert.ok(JAEGER_ROWS[i].heightM < JAEGER_ROWS[i - 1].heightM, 'Jaeger print rows must strictly decrease J10->J1');
+}
+
+// Machado (2009) matrix sync with vision.frag.glsl & Ishihara pseudoisochromatic confusion verification
+for (const coeff of ['0.367322', '0.152286', '1.255528', '0.691367']) {
+  assert.ok(fragSrc.includes(coeff), `vision.frag.glsl missing Machado matrix coefficient ${coeff}`);
+}
+assert.equal(Object.keys(MACHADO_CVD_MATRICES).length, 3);
+assert.equal(ISHIHARA_PLATES.length, 4);
+
+const plateById = Object.fromEntries(ISHIHARA_PLATES.map((p) => [p.id, p]));
+// Control "12" stays strongly visible across Normal + all 3 CVD types
+for (const mode of ['none', 'deutan', 'protan', 'tritan']) {
+  const fg = applyMachadoCvd(plateById.control.fgMeanLin, mode);
+  const bg = applyMachadoCvd(plateById.control.bgMeanLin, mode);
+  assert.ok(rgbDistance(fg, bg) > 0.30, `Control Ishihara plate must remain legible under ${mode}`);
+}
+// Deutan "8" pops in Normal, vanishes identically under Machado Deutanopia
+assert.ok(rgbDistance(plateById.deutan.fgMeanLin, plateById.deutan.bgMeanLin) > 0.35);
+assert.ok(
+  rgbDistance(
+    applyMachadoCvd(plateById.deutan.fgMeanLin, 'deutan'),
+    applyMachadoCvd(plateById.deutan.bgMeanLin, 'deutan')
+  ) < 0.002,
+  'Deutan Ishihara plate must collapse along Machado deutan confusion axis'
+);
+// Protan "6" pops in Normal, vanishes identically under Machado Protanopia
+assert.ok(rgbDistance(plateById.protan.fgMeanLin, plateById.protan.bgMeanLin) > 0.35);
+assert.ok(
+  rgbDistance(
+    applyMachadoCvd(plateById.protan.fgMeanLin, 'protan'),
+    applyMachadoCvd(plateById.protan.bgMeanLin, 'protan')
+  ) < 0.002,
+  'Protan Ishihara plate must collapse along Machado protan confusion axis'
+);
+// Tritan "5" pops in Normal, collapses >5x under Machado Tritanopia
+const tritanNormDist = rgbDistance(plateById.tritan.fgMeanLin, plateById.tritan.bgMeanLin);
+const tritanCvdDist = rgbDistance(
+  applyMachadoCvd(plateById.tritan.fgMeanLin, 'tritan'),
+  applyMachadoCvd(plateById.tritan.bgMeanLin, 'tritan')
+);
+assert.ok(tritanNormDist > 0.45 && tritanCvdDist < 0.095 && tritanNormDist / tritanCvdDist > 5.0,
+  `Tritan Ishihara plate must collapse >5x under Machado tritan (${tritanNormDist.toFixed(3)} -> ${tritanCvdDist.toFixed(3)})`
+);
+
 console.log(
-  `sim_checks.mjs PASSED: waveform=${wf.waveform.samples_x_deg.length} samples @ ${wf.waveform.sample_rate_hz} Hz (MLN p2p=${wf.phases.mln_occluded.peak_to_peak_deg} deg, SPV=${wf.phases.mln_occluded.slow_phase_velocity_deg_s} deg/s, exo=${wf.exotropia_estimate_deg} deg); all state/persona/MLN/diplopia assertions green.`
+  `sim_checks.mjs PASSED: waveform=${wf.waveform.samples_x_deg.length} samples @ ${wf.waveform.sample_rate_hz} Hz (MLN p2p=${wf.phases.mln_occluded.peak_to_peak_deg} deg, SPV=${wf.phases.mln_occluded.slow_phase_velocity_deg_s} deg/s, exo=${wf.exotropia_estimate_deg} deg); all state/persona/MLN/diplopia/exam-room assertions green.`
 );

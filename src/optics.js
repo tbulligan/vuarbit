@@ -109,6 +109,7 @@ function sampleLoopingWaveform(waveform, timeSec, speedScale) {
  * 5.5 Hz MLN oscillopsia, constant-angle VOS 0.15 diplopia, and straight-cut executive aphakic bifocal.
  */
 export function createOpticsRenderer(renderer, scene, waveformData) {
+  let activeScene = scene;
   const size = new THREE.Vector2();
   renderer.getDrawingBufferSize(size);
   const initW = Math.max(1, size.x);
@@ -347,7 +348,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
 
     renderer.setRenderTarget(rtOD);
     renderer.clear();
-    renderer.render(scene, odCamera);
+    renderer.render(activeScene, odCamera);
     renderer.shadowMap.needsUpdate = false;
 
     // Keep physiological vergence smoothly tracked down to 6 cm (no 22 cm wall that flips OS to the right!)
@@ -375,7 +376,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
 
       renderer.setRenderTarget(rtNonDom);
       renderer.clear();
-      renderer.render(scene, nonDomCamera);
+      renderer.render(activeScene, nonDomCamera);
     }
 
     // Skip quarter-res blur passes only when no blur-, boundary-, diplopia-, or phosphene-edge consumer reads tBlurOD
@@ -480,6 +481,13 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     renderer.render(quadScene, quadCamera);
   }
 
+  function setScene(nextScene) {
+    if (!nextScene) return;
+    activeScene = nextScene;
+    shadowFrame = 0;
+    renderer.shadowMap.needsUpdate = true;
+  }
+
   function setQuality(presetId) {
     const cap = QUALITY_PRESETS[presetId]?.dprCap ?? 1.75;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
@@ -518,5 +526,5 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     quadMaterial.dispose();
   }
 
-  return { odCamera, render, resize, setQuality, dispose };
+  return { odCamera, render, resize, setQuality, setScene, dispose };
 }
