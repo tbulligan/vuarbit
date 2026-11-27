@@ -746,10 +746,10 @@ void main() {
     float netAstigAxisRad = residualAstigD > 1e-4 ? (0.5 * atan(netCylVec.y, netCylVec.x)) : uAstigmatismAxisRad;
     float veil = isAphakic * smoothstep(0.45, 0.96, uEyelidLight) * (0.032 + decomp * 0.035);
 
-    // Intrinsic acuity blur (VOD vs VOS) + foveal hypoplasia / cataract / refractive / progressive swim / pixel-luminance-gated scotopic rod blur
-    vec3 rawOdLin = texture2D(tColorOD, clamp(uvOD, vec2(0.001), vec2(0.999))).rgb;
-    float localLinLuma = dot(rawOdLin, vec3(0.2126, 0.7152, 0.0722));
-    // Only genuinely dark unlit pixels drop into scotopic rod vision; self-lit backlit charts/screens stay photopic cone-sharp!
+    // Intrinsic acuity blur (VOD vs VOS) + foveal hypoplasia / cataract / refractive / progressive swim / area-luminance-gated scotopic rod blur
+    vec3 areaOdLin = texture2D(tBlurOD, clamp(uvOD, vec2(0.003), vec2(0.997))).rgb;
+    float localLinLuma = dot(areaOdLin, vec3(0.2126, 0.7152, 0.0722));
+    // Gate scotopic rod vision on surrounding ~1-2 deg area luminance so black letters on a bright backlit chart stay 100% photopic cone-sharp!
     float pixelDarkMask = 1.0 - smoothstep(0.04, 0.28, localLinLuma);
     float scotopicBlur = smoothstep(0.22, 0.03, uAmbientLight) * pixelDarkMask * 0.0022;
     float baseAcuityBlur = mix(uAcuityBlurDom, uAcuityBlurNonDom, inNonDomOnly * isAphakic) + decomp * 0.0014 * isAphakic + scotopicBlur;

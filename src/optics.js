@@ -396,6 +396,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
         presbyopiaD > 0.1 ||
         astigmatismD > 0.1 ||
         lensCylD > 0.1 ||
+        (state.ambientLight ?? 1.0) < 0.25 ||
         Math.max(acuityBlurDom, acuityBlurNonDom) > 0.001);
     if (needBlur) {
       blurUniforms.tSource.value = rtOD.texture;
