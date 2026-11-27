@@ -54,12 +54,17 @@ import {
 import {
   CAR_CRUISE_SPEED_MPS,
   CAR_FAR_CLIP,
+  FRIULI_ROUTE_SIGNS,
   ONCOMING_CLOSING_SPEED_MPS,
   ROAD_LOOP_LEN_M,
   ROAD_Z_MIN,
   ROAD_Z_MAX,
   computeLeadCarZ,
+  computeRoadHeadingRad,
   computeRoadLighting,
+  computeRoadRelativeOffset,
+  computeSteeringWheelAngle,
+  roadGlobalCurvatureX,
   wrapLoopZ,
 } from '../src/scene/car_math.js';
 
@@ -844,8 +849,29 @@ assert.equal(wrapLoopZ(NaN), ROAD_Z_MIN);
 
 for (let t = 0; t < 20; t += 1.3) {
   const lz = computeLeadCarZ(t);
-  assert.ok(lz <= -18.9 && lz >= -25.1, `lead car Z must stay in [-25, -19] m, got ${lz}`);
+  assert.ok(lz <= -19.9 && lz >= -26.1, `lead car Z must stay in [-26, -20] m, got ${lz}`);
 }
+
+// Friuli curving & rolling road spline tangent invariance + sign coherence with actual curvature
+for (const s0 of [0, 42, 95, 170, 240, 315]) {
+  const atCar = computeRoadRelativeOffset(0, s0);
+  assert.ok(Math.abs(atCar.dx) < 1e-9 && Math.abs(atCar.dy) < 1e-9 && Math.abs(atCar.yaw) < 1e-9,
+    'road tangent frame must anchor exact dx=dy=yaw=0 under car wheels');
+  assertFiniteNumber(computeRoadHeadingRad(s0), 'roadHeadingRad');
+  const steer = computeSteeringWheelAngle(s0);
+  assert.ok(steer >= -0.55 && steer <= 0.55, 'steering angle must stay within anatomical clamp');
+}
+// Left bend (~80-110 m) has negative curvature (curves -X left); right bend (~230-260 m) has positive curvature (+X right)
+assert.ok(roadGlobalCurvatureX(90) < 0, 'Friuli left bend at s=90m must curve left (curvature < 0)');
+assert.ok(roadGlobalCurvatureX(240) > 0, 'Friuli right bend at s=240m must curve right (curvature > 0)');
+assert.ok(computeSteeringWheelAngle(90) > 0, 'left bend must steer counterclockwise (+Z)');
+assert.ok(computeSteeringWheelAngle(240) < 0, 'right bend must steer clockwise (-Z)');
+// Coherent Friuli signage: curve warnings precede their actual bends
+const warnLeft = FRIULI_ROUTE_SIGNS.find((s) => s.kind === 'warning_curve_left');
+const warnRight = FRIULI_ROUTE_SIGNS.find((s) => s.kind === 'warning_curve_right');
+assert.ok(warnLeft && warnLeft.s < 82, 'left-curve warning sign must precede left bend chevrons');
+assert.ok(warnRight && warnRight.s < 226, 'right-curve warning sign must precede right bend chevrons');
+assert.ok(FRIULI_ROUTE_SIGNS.some((s) => s.kind === 'hamlet_fagagna') && FRIULI_ROUTE_SIGNS.some((s) => s.kind === 'dir_san_daniele'));
 
 const roadSunny = computeRoadLighting('sunny', true);
 const roadOvercast = computeRoadLighting('overcast', true);
@@ -864,9 +890,10 @@ assert.equal(roadNightOff.streetlightEmissive, 0);
 assert.ok(roadNightOff.ownBeamIntensity > 8, 'own car headlights stay ON at night even with rural streetlights OFF');
 assert.ok(roadOvercast.wetness > 0 && roadDuskOn.wetness > roadOvercast.wetness);
 
-// Verify GLSL photopic-aware scotopic gating & continuous HOA streak invariants
+// Verify GLSL photopic-aware scotopic gating, continuous HOA streaks & bilateral OS glare invariants
 assert.ok(fragSrc.includes('pixelDarkMask'), 'vision.frag.glsl must gate scotopic rod blur/shift on local pixel luminance');
 assert.ok(fragSrc.includes('STREAK_STEPS = 8'), 'vision.frag.glsl must use continuous multi-step HOA streaks (no 3-tap pearls)');
+assert.ok(fragSrc.includes('OS_STREAKS = 5'), 'vision.frag.glsl sampleOS must render bilateral OS HOA glare streaks');
 
 console.log(
   `sim_checks.mjs PASSED: waveform=${wf.waveform.samples_x_deg.length} samples @ ${wf.waveform.sample_rate_hz} Hz (MLN p2p=${wf.phases.mln_occluded.peak_to_peak_deg} deg, SPV=${wf.phases.mln_occluded.slow_phase_velocity_deg_s} deg/s, exo=${wf.exotropia_estimate_deg} deg); all state/persona/MLN/diplopia/exam-room assertions green.`

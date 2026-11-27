@@ -288,13 +288,13 @@ vec3 sampleOD(
   return col;
 }
 
-// Uniform Vogel disk for amblyopic non-dominant eye (4 taps on pre-filtered quarter-res stereo tColorNonDom, 8 taps on full-res fallback)
-vec3 sampleOS(vec2 baseUv, float isoBlurUV, float motionSmearUV, float veilAmount, float angleSeed) {
+// Uniform Vogel disk for amblyopic non-dominant eye + bilateral HOA glare streaks/halo on bright night lights
+vec3 sampleOS(vec2 baseUv, float isoBlurUV, float motionSmearUV, vec2 astDirOS, float hoaOS, float veilAmount, float angleSeed) {
   vec2 invAspect = vec2(1.0 / uAspect, 1.0);
+  vec3 col = vec3(0.0);
   if (uHasNonDomRT > 0.5) {
     float rx = clamp(isoBlurUV, 0.001, 0.036) + motionSmearUV;
     float ry = clamp(isoBlurUV, 0.001, 0.036);
-    vec3 col = vec3(0.0);
     const int QTAPS = 4;
     for (int i = 0; i < QTAPS; i++) {
       float fi = float(i);
@@ -304,31 +304,57 @@ vec3 sampleOS(vec2 baseUv, float isoBlurUV, float motionSmearUV, float veilAmoun
       col += texture2D(tColorNonDom, clamp(baseUv + off * invAspect, vec2(0.003), vec2(0.997))).rgb;
     }
     col /= float(QTAPS);
-    col += vec3(0.98, 0.96, 0.92) * veilAmount;
-    return col;
-  }
+  } else {
+    float heavyBlurMix = smoothstep(0.014, 0.034, isoBlurUV);
+    float fineBlurUV = min(isoBlurUV, 0.018);
 
-  float heavyBlurMix = smoothstep(0.014, 0.034, isoBlurUV);
-  float fineBlurUV = min(isoBlurUV, 0.018);
-
-  vec3 col = vec3(0.0);
-  if (heavyBlurMix < 0.995) {
-    const int TAPS = 8;
-    float rx = fineBlurUV + motionSmearUV;
-    float ry = fineBlurUV;
-    for (int i = 0; i < TAPS; i++) {
-      float fi = float(i);
-      float r = sqrt((fi + 0.5) / float(TAPS));
-      float theta = fi * 2.39996323 + angleSeed;
-      vec2 off = vec2(cos(theta) * rx, sin(theta) * ry) * r;
-      col += texture2D(tColorOD, clamp(baseUv + off * invAspect, vec2(0.002), vec2(0.998))).rgb;
+    if (heavyBlurMix < 0.995) {
+      const int TAPS = 8;
+      float rx = fineBlurUV + motionSmearUV;
+      float ry = fineBlurUV;
+      for (int i = 0; i < TAPS; i++) {
+        float fi = float(i);
+        float r = sqrt((fi + 0.5) / float(TAPS));
+        float theta = fi * 2.39996323 + angleSeed;
+        vec2 off = vec2(cos(theta) * rx, sin(theta) * ry) * r;
+        col += texture2D(tColorOD, clamp(baseUv + off * invAspect, vec2(0.002), vec2(0.998))).rgb;
+      }
+      col /= float(TAPS);
     }
-    col /= float(TAPS);
+    if (heavyBlurMix > 0.005) {
+      vec3 heavy = texture2D(tBlurOD, clamp(baseUv, vec2(0.003), vec2(0.997))).rgb;
+      col = mix(col, heavy, heavyBlurMix);
+    }
   }
-  if (heavyBlurMix > 0.005) {
-    vec3 heavy = texture2D(tBlurOD, clamp(baseUv, vec2(0.003), vec2(0.997))).rgb;
-    col = mix(col, heavy, heavyBlurMix);
+
+  // Bilateral OS HOA glare (continuous 5-step IGN-jittered streak along OS meridian + smooth pre-blurred halo)
+  if (hoaOS > 0.01) {
+    float hoaLo = mix(1.05, 1.65, clamp(uAmbientLight, 0.0, 1.0));
+    float hoaHi = mix(2.20, 2.75, clamp(uAmbientLight, 0.0, 1.0));
+    float jitter = fract(angleSeed * 0.15915494);
+    vec3 flareOS = vec3(0.0);
+    const int OS_STREAKS = 5;
+    for (int s = 0; s < OS_STREAKS; s++) {
+      float t = (float(s) + 0.35 + jitter * 0.65) / float(OS_STREAKS);
+      float rad = 0.003 + t * t * 0.032;
+      float w = exp(-t * 2.3) * 0.085;
+      vec2 dA = astDirOS * rad * invAspect;
+      vec2 uvP = clamp(baseUv + dA, vec2(0.002), vec2(0.998));
+      vec2 uvN = clamp(baseUv - dA, vec2(0.002), vec2(0.998));
+      vec3 cPos = uHasNonDomRT > 0.5 ? texture2D(tColorNonDom, uvP).rgb : texture2D(tColorOD, uvP).rgb;
+      vec3 cNeg = uHasNonDomRT > 0.5 ? texture2D(tColorNonDom, uvN).rgb : texture2D(tColorOD, uvN).rgb;
+      float bPos = pow(smoothstep(hoaLo, hoaHi, dot(cPos, vec3(0.2126, 0.7152, 0.0722))), 1.5);
+      float bNeg = pow(smoothstep(hoaLo, hoaHi, dot(cNeg, vec3(0.2126, 0.7152, 0.0722))), 1.5);
+      flareOS += (cPos * bPos + cNeg * bNeg) * w;
+    }
+    vec3 haloOS = uHasNonDomRT > 0.5
+      ? texture2D(tColorNonDom, clamp(baseUv, vec2(0.003), vec2(0.997))).rgb
+      : texture2D(tBlurOD, clamp(baseUv, vec2(0.003), vec2(0.997))).rgb;
+    float haloB = pow(smoothstep(hoaLo * 0.45, hoaHi * 0.85, dot(haloOS, vec3(0.2126, 0.7152, 0.0722))), 1.5);
+    flareOS += haloOS * haloB * 0.24;
+    col += flareOS * hoaOS;
   }
+
   col += vec3(0.98, 0.96, 0.92) * veilAmount;
   return col;
 }
@@ -815,7 +841,9 @@ void main() {
       // Unfocused fake OS contour registers crisper/sharper ("two sharp images"); Focus attentionally softens & deprioritizes OS
       float nonDomBlur = max(0.00035, uAcuityBlurNonDom * mix(0.22, 0.52, focusClamped)) + uCataract * 0.0095 + uAlbinism * 0.0025 + refBlur;
       float isoBlurOS = mix(aphakicBlur, nonDomBlur + clamp(cocOS * 0.0072 * powerRatio, 0.0, 0.028), inCorrection);
-      vec3 linOS = sampleOS(uvOS, isoBlurOS, uMlnVelUV, veil, noiseAngle + 1.57);
+      vec2 astDirOS = isAphakic > 0.5 ? vec2(1.0, 0.0) : userAstDir;
+      float hoaOS = hoaOD * mix(0.90, 0.65, focusClamped);
+      vec3 linOS = sampleOS(uvOS, isoBlurOS, uMlnVelUV, astDirOS, hoaOS, veil, noiseAngle + 1.57);
       linOS = applyLinearPathologies(linOS, uvOS, p, pFovea, uHasNonDomRT > 0.5);
       linOS *= (1.0 - mesopicPath * 0.48);
       vec3 colOS = linearToDisplay(linOS);

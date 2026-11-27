@@ -31,9 +31,9 @@ export const SCENES = Object.freeze([
   }),
   Object.freeze({
     id: 'car_passenger',
-    label: 'Car Passenger (Road)',
+    label: 'Car Passenger (Friuli Road)',
     shortName: 'Car Passenger',
-    description: 'Seated cabin cruising an outdoor road (day sun glare, dusk, wet-road night headlights/streetlights/taillights) testing ring scotoma motion, glare starbursts, and RP nyctalopia.',
+    description: 'Seated cabin cruising the curving Friuli moraine road (Udine → Fagagna → San Daniele) with Julian Prealps horizon, day sun glare, and wet-road night headlights.',
     defaultMode: 'seated',
     seatedOnly: true,
   }),
