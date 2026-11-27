@@ -8,6 +8,8 @@
 
 ## Module Ownership & Contracts
 
+- `src/i18n.js` (pure ES module, zero DOM/Three.js imports):
+  - `LANGUAGES` (`en`, `it`, `nl`), `LANGUAGE_OPTIONS`, `TRANSLATIONS`, `normalizeLanguage(raw)`, `detectDefaultLanguage(navLang)`, `t(lang, key, vars)`.
 - `src/personas.js` (pure ES module, zero DOM/Three.js imports):
   - `PERSONAS`, `SCENES`, `SETTING_SPECS`, `QUALITY_PRESETS`, `LENS_PROFILES`, `TIME_OF_DAY_PRESETS`, `getPersonaById(id)`, `getSceneById(id)`, `createDefaultVisualSettings()`, `sanitizeVisualSettings(partial)`, `applyPersona(state, id)`, `updateVisualSetting(state, key, value)`, `computeAcuityBlurUV(acuityDecimal)`, `formatSnellenAcuity(acuityDecimal)`, `hasSuppressionMechanics(settings)`, `computeAmbientLight(timeOfDay, lightsOn)`, `cycleTimeOfDay(current)`.
 - `src/state.js` (pure ES module, zero DOM/Three.js imports):

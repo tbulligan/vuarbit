@@ -67,6 +67,14 @@ import {
   roadGlobalCurvatureX,
   wrapLoopZ,
 } from '../src/scene/car_math.js';
+import {
+  LANGUAGES,
+  LANGUAGE_OPTIONS,
+  TRANSLATIONS,
+  detectDefaultLanguage,
+  normalizeLanguage,
+  t,
+} from '../src/i18n.js';
 
 function assertFiniteNumber(value, label) {
   assert.equal(typeof value, 'number', `${label} must be a number`);
@@ -643,7 +651,21 @@ stNoAdd.pitch = -0.5;
 updateSimState(stNoAdd, 0.016);
 assert.equal(stNoAdd.activeZone, 'distance', 'zero nearAddD must not enter near bifocal zone');
 
-// Glasses nose-slip increases while worn (faster looking down) and resets when glasses removed or persona switched
+// Glasses nose-slip: zero slip when looking up, minimal creep upright, realistic slip when pitched down
+const stSlideUp = createSimState();
+stSlideUp.pitch = 0.45;
+for (let i = 0; i < 60; i++) {
+  updateSimState(stSlideUp, 0.05);
+}
+assert.equal(stSlideUp.glassesSlide, 0, 'looking up must not slide glasses down the nose');
+
+const stSlideLevel = createSimState();
+stSlideLevel.pitch = 0.0;
+for (let i = 0; i < 60; i++) {
+  updateSimState(stSlideLevel, 0.05);
+}
+assert.ok(stSlideLevel.glassesSlide > 0 && stSlideLevel.glassesSlide < 0.01, `upright still creep should stay minimal over 3s, got ${stSlideLevel.glassesSlide}`);
+
 const stSlide = createSimState();
 stSlide.pitch = -0.6;
 for (let i = 0; i < 60; i++) {
@@ -730,7 +752,8 @@ assert.equal(stToggle.glassesSlide, 0, 'putting glasses on resets slide');
 assert.ok(stToggle.glassesBounce < 0, 'putting glasses on sets tactile bounce');
 
 // 8. Validate P3/P4 Scene Registry & Exam Room Clinical Calibration Math
-assert.equal(SCENES.length, 3, 'must register 3 scenes (classroom, exam_room, car_passenger)');
+assert.equal(SCENES.length, 3, 'must register 3 scenes (classroom, car_passenger, exam_room)');
+assert.deepEqual(SCENES.map((s) => s.id), ['classroom', 'car_passenger', 'exam_room'], 'scenes ordered by impact');
 assert.equal(getSceneById('classroom')?.defaultMode, 'standing');
 assert.equal(getSceneById('exam_room')?.defaultMode, 'seated');
 assert.equal(getSceneById('car_passenger')?.defaultMode, 'seated');
@@ -893,7 +916,42 @@ assert.ok(roadOvercast.wetness > 0 && roadDuskOn.wetness > roadOvercast.wetness)
 // Verify GLSL photopic-aware scotopic gating, continuous HOA streaks & bilateral OS glare invariants
 assert.ok(fragSrc.includes('pixelDarkMask'), 'vision.frag.glsl must gate scotopic rod blur/shift on local pixel luminance');
 assert.ok(fragSrc.includes('STREAK_STEPS = 8'), 'vision.frag.glsl must use continuous multi-step HOA streaks (no 3-tap pearls)');
-assert.ok(fragSrc.includes('OS_STREAKS = 5'), 'vision.frag.glsl sampleOS must render bilateral OS HOA glare streaks');
+assert.ok(fragSrc.includes('OS_STREAKS = 8'), 'vision.frag.glsl sampleOS must match 8-step OD streak density');
+assert.ok(fragSrc.includes('osGlareBreak'), 'vision.frag.glsl must allow bright OS glare to break through dark rivalry');
+
+// 10. Validate EN / IT / NL localization key parity and interpolation
+assert.deepEqual(LANGUAGES, ['en', 'it', 'nl']);
+assert.equal(LANGUAGE_OPTIONS.length, 3);
+assert.equal(normalizeLanguage('it-IT'), 'it');
+assert.equal(normalizeLanguage('nl-NL'), 'nl');
+assert.equal(normalizeLanguage('fr-FR'), 'en');
+assert.equal(detectDefaultLanguage('it-CH'), 'it');
+assert.equal(detectDefaultLanguage('nl-BE'), 'nl');
+assert.equal(detectDefaultLanguage('de-DE'), 'en');
+assert.ok(LANGUAGES.includes(createSimState().language), 'initial state.language must be supported');
+
+const enKeys = Object.keys(TRANSLATIONS.en).sort();
+for (const lang of ['it', 'nl']) {
+  const keys = Object.keys(TRANSLATIONS[lang]).sort();
+  assert.deepEqual(keys, enKeys, `TRANSLATIONS.${lang} keys must exactly match TRANSLATIONS.en`);
+  for (const k of enKeys) {
+    assert.ok(typeof TRANSLATIONS[lang][k] === 'string' && TRANSLATIONS[lang][k].length > 0, `empty translation ${lang}.${k}`);
+  }
+}
+for (const sc of SCENES) {
+  for (const lang of LANGUAGES) {
+    assert.notEqual(t(lang, `scene.${sc.id}.label`), `scene.${sc.id}.label`);
+    assert.notEqual(t(lang, `scene.${sc.id}.desc`), `scene.${sc.id}.desc`);
+  }
+}
+for (const p of PERSONAS) {
+  for (const lang of LANGUAGES) {
+    assert.notEqual(t(lang, `persona.${p.id}.short`), `persona.${p.id}.short`);
+    assert.notEqual(t(lang, `persona.${p.id}.desc`), `persona.${p.id}.desc`);
+  }
+}
+assert.equal(t('it', 'hud.effort.focused', { pct: 85 }), 'Concentrato (85%, 2.0x)');
+assert.equal(t('nl', 'hud.glasses.slipped', { mm: 6 }), ', 6mm afgezakt (Spatie)');
 
 console.log(
   `sim_checks.mjs PASSED: waveform=${wf.waveform.samples_x_deg.length} samples @ ${wf.waveform.sample_rate_hz} Hz (MLN p2p=${wf.phases.mln_occluded.peak_to_peak_deg} deg, SPV=${wf.phases.mln_occluded.slow_phase_velocity_deg_s} deg/s, exo=${wf.exotropia_estimate_deg} deg); all state/persona/MLN/diplopia/exam-room assertions green.`

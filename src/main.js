@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createSimState, toggleCompareNormal, toggleGlasses, updateSimState } from './state.js';
+import { createSimState, normalizeLanguage, toggleCompareNormal, toggleGlasses, updateSimState } from './state.js';
 import {
   QUALITY_PRESETS,
   TIME_OF_DAY_PRESETS,
@@ -79,6 +79,7 @@ async function init() {
 
   const waveformData = await loadWaveform();
   const state = createSimState();
+  document.documentElement.lang = state.language;
   let sceneApi = SCENE_FACTORIES[state.sceneId](renderer);
   const optics = createOpticsRenderer(renderer, sceneApi.scene, waveformData);
   const controls = createControls(canvas, state, sceneApi);
@@ -112,6 +113,10 @@ async function init() {
   const settings = createSettingsDrawer(hudRoot, state, {
     onSceneChange(sceneId) {
       switchScene(sceneId);
+    },
+    onLanguageChange(lang) {
+      state.language = normalizeLanguage(lang);
+      document.documentElement.lang = state.language;
     },
     onSelectPersona(id) {
       applyPersona(state, id);

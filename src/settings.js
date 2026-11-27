@@ -8,45 +8,46 @@ import {
   getPersonaById,
   getSceneById,
 } from './personas.js';
+import { LANGUAGE_OPTIONS, normalizeLanguage, t } from './i18n.js';
 
 const LENS_PROFILE_OPTIONS = [
-  { value: 'aphakic_bifocal', label: 'Aphakic Bifocal (+13/+17 D)' },
-  { value: 'single_vision', label: 'Single-Vision' },
-  { value: 'bifocal', label: 'Bifocal (D-Segment)' },
-  { value: 'progressive', label: 'Progressive (PAL)' },
-  { value: 'none', label: 'None (No Glasses)' },
+  { value: 'aphakic_bifocal', key: 'opt.lens.aphakic_bifocal' },
+  { value: 'single_vision', key: 'opt.lens.single_vision' },
+  { value: 'bifocal', key: 'opt.lens.bifocal' },
+  { value: 'progressive', key: 'opt.lens.progressive' },
+  { value: 'none', key: 'opt.lens.none' },
 ];
 
 const FRAME_SHAPE_OPTIONS = [
-  { value: 'auto', label: 'Auto (Match Lens)' },
-  { value: 'round', label: 'Round' },
-  { value: 'rect', label: 'Rectangular' },
-  { value: 'rounded_rect', label: 'Rounded Rect' },
-  { value: 'semi_rimless', label: 'Semi-Rimless' },
-  { value: 'rimless', label: 'Rimless' },
+  { value: 'auto', key: 'opt.shape.auto' },
+  { value: 'round', key: 'opt.shape.round' },
+  { value: 'rect', key: 'opt.shape.rect' },
+  { value: 'rounded_rect', key: 'opt.shape.rounded_rect' },
+  { value: 'semi_rimless', key: 'opt.shape.semi_rimless' },
+  { value: 'rimless', key: 'opt.shape.rimless' },
 ];
 
 const FRAME_COLOR_OPTIONS = [
-  { value: 'auto', label: 'Auto (Match Lens)' },
-  { value: 'amber', label: 'Amber Acetate' },
-  { value: 'charcoal', label: 'Matte Charcoal' },
-  { value: 'tortoise', label: 'Tortoiseshell' },
-  { value: 'titanium', label: 'Brushed Titanium' },
-  { value: 'gold', label: 'Satin Gold' },
-  { value: 'navy', label: 'Deep Navy' },
-  { value: 'burgundy', label: 'Burgundy' },
+  { value: 'auto', key: 'opt.color.auto' },
+  { value: 'amber', key: 'opt.color.amber' },
+  { value: 'charcoal', key: 'opt.color.charcoal' },
+  { value: 'tortoise', key: 'opt.color.tortoise' },
+  { value: 'titanium', key: 'opt.color.titanium' },
+  { value: 'gold', key: 'opt.color.gold' },
+  { value: 'navy', key: 'opt.color.navy' },
+  { value: 'burgundy', key: 'opt.color.burgundy' },
 ];
 
 const DOMINANT_EYE_OPTIONS = [
-  { value: 'OD', label: 'Right (OD)' },
-  { value: 'OS', label: 'Left (OS)' },
+  { value: 'OD', key: 'opt.eye.OD' },
+  { value: 'OS', key: 'opt.eye.OS' },
 ];
 
 const CVD_TYPE_OPTIONS = [
-  { value: 'none', label: 'None' },
-  { value: 'deutan', label: 'Deuteranopia (Red-Green)' },
-  { value: 'protan', label: 'Protanopia (Red-Green)' },
-  { value: 'tritan', label: 'Tritanopia (Blue-Yellow)' },
+  { value: 'none', key: 'opt.cvd.none' },
+  { value: 'deutan', key: 'opt.cvd.deutan' },
+  { value: 'protan', key: 'opt.cvd.protan' },
+  { value: 'tritan', key: 'opt.cvd.tritan' },
 ];
 
 function makeEl(tag, className, text) {
@@ -60,45 +61,45 @@ function formatPct(value) {
   return `${Math.round(value * 100)}%`;
 }
 
-function formatGlaucoma(value) {
+function formatGlaucoma(value, lang) {
   const pct = Math.round(value * 100);
   if (pct <= 0) return '0%';
-  if (pct >= 98) return '100% Blind';
-  if (pct >= 75) return `${pct}% Tunnel`;
-  if (pct >= 45) return `${pct}% Mod.`;
-  return `${pct}% Early`;
+  if (pct >= 98) return `100% ${t(lang, 'stage.blind')}`;
+  if (pct >= 75) return `${pct}% ${t(lang, 'stage.tunnel')}`;
+  if (pct >= 45) return `${pct}% ${t(lang, 'stage.mod')}`;
+  return `${pct}% ${t(lang, 'stage.early')}`;
 }
 
-function formatAmd(value) {
+function formatAmd(value, lang) {
   const pct = Math.round(value * 100);
   if (pct <= 0) return '0%';
-  if (pct >= 95) return `${pct}% Dense`;
-  if (pct >= 55) return `${pct}% Scotoma`;
-  return `${pct}% Warp`;
+  if (pct >= 95) return `${pct}% ${t(lang, 'stage.dense')}`;
+  if (pct >= 55) return `${pct}% ${t(lang, 'stage.scotoma')}`;
+  return `${pct}% ${t(lang, 'stage.warp')}`;
 }
 
-function formatCataract(value) {
+function formatCataract(value, lang) {
   const pct = Math.round(value * 100);
   if (pct <= 0) return '0%';
-  if (pct >= 95) return `${pct}% Light`;
-  if (pct >= 55) return `${pct}% Glare`;
-  return `${pct}% Haze`;
+  if (pct >= 95) return `${pct}% ${t(lang, 'stage.light')}`;
+  if (pct >= 55) return `${pct}% ${t(lang, 'stage.glare')}`;
+  return `${pct}% ${t(lang, 'stage.haze')}`;
 }
 
-function formatDr(value) {
+function formatDr(value, lang) {
   const pct = Math.round(value * 100);
   if (pct <= 0) return '0%';
-  if (pct >= 95) return `${pct}% Heme`;
-  if (pct >= 55) return `${pct}% Blotch`;
-  return `${pct}% Mild`;
+  if (pct >= 95) return `${pct}% ${t(lang, 'stage.heme')}`;
+  if (pct >= 55) return `${pct}% ${t(lang, 'stage.blotch')}`;
+  return `${pct}% ${t(lang, 'stage.mild')}`;
 }
 
-function formatRp(value) {
+function formatRp(value, lang) {
   const pct = Math.round(value * 100);
   if (pct <= 0) return '0%';
-  if (pct >= 98) return '100% Blind';
-  if (pct >= 65) return `${pct}% Tunnel`;
-  return `${pct}% Ring`;
+  if (pct >= 98) return `100% ${t(lang, 'stage.blind')}`;
+  if (pct >= 65) return `${pct}% ${t(lang, 'stage.tunnel')}`;
+  return `${pct}% ${t(lang, 'stage.ring')}`;
 }
 
 function formatDiopter(value, decimals = 1) {
@@ -121,77 +122,84 @@ function formatDeg(value) {
 
 const PRIMARY_GROUPS = [
   {
-    title: 'Eye Conditions',
+    titleKey: 'settings.section.conditions',
     controls: [
-      { key: 'glaucoma', label: 'Glaucoma', kind: 'range', format: formatGlaucoma },
-      { key: 'amd', label: 'Wet AMD', kind: 'range', format: formatAmd },
-      { key: 'cataract', label: 'Cataracts', kind: 'range', format: formatCataract },
-      { key: 'diabeticRetinopathy', label: 'Diabetic Retinop.', kind: 'range', format: formatDr },
-      { key: 'retinitisPigmentosa', label: 'Retinitis Pigm.', kind: 'range', format: formatRp },
-      { key: 'albinism', label: 'Ocular Albinism', kind: 'range', format: formatPct },
-      { key: 'myopiaD', label: 'Myopia', kind: 'range', format: formatMinusDiopter },
-      { key: 'presbyopiaD', label: 'Presbyopia', kind: 'range', format: (v) => formatDiopter(v, 2) },
-      { key: 'astigmatismD', label: 'Astigmatism', kind: 'range', format: (v) => formatDiopter(v, 2) },
-      { key: 'cvdType', label: 'Color Blindness', kind: 'select', options: CVD_TYPE_OPTIONS },
-      { key: 'cvdSeverity', label: 'Color Shift', kind: 'range', format: formatPct },
+      { key: 'glaucoma', labelKey: 'param.glaucoma', kind: 'range', format: formatGlaucoma },
+      { key: 'amd', labelKey: 'param.amd', kind: 'range', format: formatAmd },
+      { key: 'cataract', labelKey: 'param.cataract', kind: 'range', format: formatCataract },
+      { key: 'diabeticRetinopathy', labelKey: 'param.diabeticRetinopathy', kind: 'range', format: formatDr },
+      { key: 'retinitisPigmentosa', labelKey: 'param.retinitisPigmentosa', kind: 'range', format: formatRp },
+      { key: 'albinism', labelKey: 'param.albinism', kind: 'range', format: formatPct },
+      { key: 'myopiaD', labelKey: 'param.myopiaD', kind: 'range', format: formatMinusDiopter },
+      { key: 'presbyopiaD', labelKey: 'param.presbyopiaD', kind: 'range', format: (v) => formatDiopter(v, 2) },
+      { key: 'astigmatismD', labelKey: 'param.astigmatismD', kind: 'range', format: (v) => formatDiopter(v, 2) },
+      { key: 'cvdType', labelKey: 'param.cvdType', kind: 'select', options: CVD_TYPE_OPTIONS },
+      { key: 'cvdSeverity', labelKey: 'param.cvdSeverity', kind: 'range', format: formatPct },
     ],
   },
   {
-    title: 'Vision & Symptoms',
+    titleKey: 'settings.section.symptoms',
     controls: [
-      { key: '_acuityBoth', label: 'Visual Acuity', kind: 'acuityBoth', format: formatSnellenAcuity },
-      { key: 'mlnScale', label: 'Nystagmus', kind: 'range', format: formatPct },
-      { key: 'floaters', label: 'Floaters', kind: 'range', format: formatPct },
-      { key: 'phosphenes', label: 'Phosphenes', kind: 'range', format: formatPct },
-      { key: 'tinnitus', label: 'Tinnitus Volume', kind: 'range', format: formatPct },
+      { key: '_acuityBoth', labelKey: 'param.acuityBoth', kind: 'acuityBoth', format: formatSnellenAcuity },
+      { key: 'mlnScale', labelKey: 'param.mlnScale', kind: 'range', format: formatPct },
+      { key: 'floaters', labelKey: 'param.floaters', kind: 'range', format: formatPct },
+      { key: 'phosphenes', labelKey: 'param.phosphenes', kind: 'range', format: formatPct },
+      { key: 'tinnitus', labelKey: 'param.tinnitus', kind: 'range', format: formatPct },
     ],
   },
 ];
 
 const ADVANCED_CONTROLS = [
-  { key: 'lensProfile', label: 'Glasses / Lens', kind: 'select', options: LENS_PROFILE_OPTIONS },
-  { key: 'frameShape', label: 'Frame Shape', kind: 'select', options: FRAME_SHAPE_OPTIONS },
-  { key: 'frameColor', label: 'Frame Color', kind: 'select', options: FRAME_COLOR_OPTIONS },
-  { key: 'lensPowerD', label: 'Lens Power', kind: 'range', format: (v) => formatDiopter(v, 2) },
-  { key: 'nearAddD', label: 'Near Add', kind: 'range', format: (v) => formatDiopter(v, 2) },
-  { key: 'lensCylD', label: 'Glasses Cylinder', kind: 'range', format: (v) => formatDiopter(v, 2) },
-  { key: 'lensAxisDeg', label: 'Glasses Axis', kind: 'range', format: formatAxis },
-  { key: 'astigmatismAxisDeg', label: 'Eye Astig. Axis', kind: 'range', format: formatAxis },
-  { key: 'dominantEye', label: 'Dominant Eye', kind: 'select', options: DOMINANT_EYE_OPTIONS },
-  { key: 'vodAcuity', label: 'Right Eye (OD)', kind: 'range', format: formatSnellenAcuity },
-  { key: 'vosAcuity', label: 'Left Eye (OS)', kind: 'range', format: formatSnellenAcuity },
-  { key: 'diplopiaH', label: 'Double Vision H', kind: 'range', format: formatDeg },
-  { key: 'diplopiaV', label: 'Double Vision V', kind: 'range', format: formatDeg },
+  { key: 'lensProfile', labelKey: 'param.lensProfile', kind: 'select', options: LENS_PROFILE_OPTIONS },
+  { key: 'frameShape', labelKey: 'param.frameShape', kind: 'select', options: FRAME_SHAPE_OPTIONS },
+  { key: 'frameColor', labelKey: 'param.frameColor', kind: 'select', options: FRAME_COLOR_OPTIONS },
+  { key: 'lensPowerD', labelKey: 'param.lensPowerD', kind: 'range', format: (v) => formatDiopter(v, 2) },
+  { key: 'nearAddD', labelKey: 'param.nearAddD', kind: 'range', format: (v) => formatDiopter(v, 2) },
+  { key: 'lensCylD', labelKey: 'param.lensCylD', kind: 'range', format: (v) => formatDiopter(v, 2) },
+  { key: 'lensAxisDeg', labelKey: 'param.lensAxisDeg', kind: 'range', format: formatAxis },
+  { key: 'astigmatismAxisDeg', labelKey: 'param.astigmatismAxisDeg', kind: 'range', format: formatAxis },
+  { key: 'dominantEye', labelKey: 'param.dominantEye', kind: 'select', options: DOMINANT_EYE_OPTIONS },
+  { key: 'vodAcuity', labelKey: 'param.vodAcuity', kind: 'range', format: formatSnellenAcuity },
+  { key: 'vosAcuity', labelKey: 'param.vosAcuity', kind: 'range', format: formatSnellenAcuity },
+  { key: 'diplopiaH', labelKey: 'param.diplopiaH', kind: 'range', format: formatDeg },
+  { key: 'diplopiaV', labelKey: 'param.diplopiaV', kind: 'range', format: formatDeg },
 ];
 
 /**
- * Strictly CSP-safe visual settings drawer (DOM APIs only, CSS-class styled).
+ * Strictly CSP-safe visual settings drawer (DOM APIs only, CSS-class styled, live EN/IT/NL i18n).
  */
 export function createSettingsDrawer(rootElement, initialState, callbacks = {}) {
+  let currentLang = normalizeLanguage(initialState?.language);
+  const translatables = [];
+  const bindText = (el, key) => {
+    translatables.push({ el, key });
+    el.textContent = t(currentLang, key);
+    return el;
+  };
+
   const drawer = makeEl('aside', 'settings-drawer is-hidden');
-  drawer.setAttribute('aria-label', 'Visual Settings');
+  drawer.setAttribute('aria-label', t(currentLang, 'settings.ariaLabel'));
 
   // Header
   const header = makeEl('div', 'settings-header');
   const titleWrap = makeEl('div', 'settings-title-wrap');
-  const title = makeEl('h2', 'settings-title', 'Visual Settings');
+  const title = bindText(makeEl('h2', 'settings-title'), 'settings.title');
   const statusBadge = makeEl('span', 'settings-badge', 'Vuarbit 1994');
   titleWrap.replaceChildren(title, statusBadge);
 
   const headerActions = makeEl('div', 'settings-header-actions');
-  const compareBtn = makeEl('button', 'settings-btn', 'Compare (V)');
+  const compareBtn = bindText(makeEl('button', 'settings-btn'), 'settings.compareBtn');
   compareBtn.type = 'button';
   compareBtn.setAttribute('aria-pressed', 'false');
-  const resetBtn = makeEl('button', 'settings-btn', 'Reset');
+  const resetBtn = bindText(makeEl('button', 'settings-btn'), 'settings.resetBtn');
   resetBtn.type = 'button';
-  const closeBtn = makeEl('button', 'settings-btn settings-btn-close', 'Close (P)');
+  const closeBtn = bindText(makeEl('button', 'settings-btn settings-btn-close'), 'settings.closeBtn');
   closeBtn.type = 'button';
   headerActions.replaceChildren(compareBtn, resetBtn, closeBtn);
   header.replaceChildren(titleWrap, headerActions);
 
   // Scrollable body
   const body = makeEl('div', 'settings-body');
-
   const listeners = [];
 
   function listen(target, type, handler, options) {
@@ -199,14 +207,14 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     listeners.push({ target, type, handler });
   }
 
-  // Scene switcher section (extensible across P3-P5 environments)
+  // Scene & Language section
   const sceneSection = makeEl('section', 'setting-group');
-  const sceneHeading = makeEl('h3', 'setting-group-title', 'Scene');
+  const sceneHeading = bindText(makeEl('h3', 'setting-group-title'), 'settings.section.scene');
   const sceneRow = makeEl('label', 'setting-row');
-  const sceneLbl = makeEl('span', 'setting-label', 'Environment');
+  const sceneLbl = bindText(makeEl('span', 'setting-label'), 'settings.label.environment');
   const sceneSelect = makeEl('select', 'setting-select');
   for (const sc of SCENES) {
-    const optionEl = makeEl('option', null, sc.label);
+    const optionEl = bindText(makeEl('option', null), `scene.${sc.id}.label`);
     optionEl.value = sc.id;
     sceneSelect.appendChild(optionEl);
   }
@@ -214,21 +222,35 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     callbacks.onSceneChange?.(sceneSelect.value);
   });
   sceneRow.replaceChildren(sceneLbl, sceneSelect);
+
+  const langRow = makeEl('label', 'setting-row');
+  const langLbl = bindText(makeEl('span', 'setting-label'), 'settings.label.language');
+  const langSelect = makeEl('select', 'setting-select');
+  for (const opt of LANGUAGE_OPTIONS) {
+    const optionEl = makeEl('option', null, opt.label);
+    optionEl.value = opt.value;
+    langSelect.appendChild(optionEl);
+  }
+  listen(langSelect, 'change', () => {
+    callbacks.onLanguageChange?.(langSelect.value);
+  });
+  langRow.replaceChildren(langLbl, langSelect);
+
   const sceneDesc = makeEl('p', 'persona-desc', '');
-  sceneSection.replaceChildren(sceneHeading, sceneRow, sceneDesc);
+  sceneSection.replaceChildren(sceneHeading, sceneRow, langRow, sceneDesc);
   body.appendChild(sceneSection);
 
-  // Presets section (split cleanly into Vuarbit Profiles vs Eye Conditions)
+  // Presets section (Profiles vs Eye Conditions)
   const presetSection = makeEl('section', 'setting-group');
-  const presetHeading = makeEl('h3', 'setting-group-title', 'Presets');
-  const vuarbitSub = makeEl('div', 'persona-sublabel', 'Profiles');
+  const presetHeading = bindText(makeEl('h3', 'setting-group-title'), 'settings.section.presets');
+  const vuarbitSub = bindText(makeEl('div', 'persona-sublabel'), 'settings.sub.profiles');
   const vuarbitGrid = makeEl('div', 'persona-grid');
-  const condSub = makeEl('div', 'persona-sublabel', 'Eye Conditions');
+  const condSub = bindText(makeEl('div', 'persona-sublabel'), 'settings.sub.conditions');
   const condGrid = makeEl('div', 'persona-grid');
   const personaButtons = new Map();
 
   for (const persona of PERSONAS) {
-    const btn = makeEl('button', 'persona-btn', persona.shortName);
+    const btn = bindText(makeEl('button', 'persona-btn'), `persona.${persona.id}.short`);
     btn.type = 'button';
     btn.setAttribute('data-persona-id', persona.id);
     btn.setAttribute('aria-pressed', 'false');
@@ -245,13 +267,13 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
 
   function buildControlRow(cfg) {
     const row = makeEl('label', 'setting-row');
-    const lbl = makeEl('span', 'setting-label', cfg.label);
+    const lbl = bindText(makeEl('span', 'setting-label'), cfg.labelKey);
 
     if (cfg.kind === 'select') {
       const spec = SETTING_SPECS[cfg.key];
       const select = makeEl('select', 'setting-select');
       for (const opt of cfg.options) {
-        const optionEl = makeEl('option', null, opt.label);
+        const optionEl = bindText(makeEl('option', null), opt.key);
         optionEl.value = opt.value;
         select.appendChild(optionEl);
       }
@@ -275,7 +297,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
 
     listen(input, 'input', () => {
       const val = Number(input.value);
-      readout.textContent = cfg.format(val);
+      readout.textContent = cfg.format(val, currentLang);
       if (cfg.kind === 'acuityBoth') {
         callbacks.onSettingChange?.('vodAcuity', val);
         callbacks.onSettingChange?.('vosAcuity', val);
@@ -297,20 +319,20 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
 
   for (const group of PRIMARY_GROUPS) {
     const section = makeEl('section', 'setting-group');
-    section.appendChild(makeEl('h3', 'setting-group-title', group.title));
+    section.appendChild(bindText(makeEl('h3', 'setting-group-title'), group.titleKey));
     for (const cfg of group.controls) {
       section.appendChild(buildControlRow(cfg));
     }
     body.appendChild(section);
   }
 
-  // Collapsed Optics & Binocular Details accordion (native <details>, CSP-safe)
+  // Collapsed Optics & Binocular Details accordion
   const advDetails = makeEl('details', 'setting-group setting-details');
-  const advSummary = makeEl('summary', 'setting-details-summary', 'Optics & Binocular Details');
+  const advSummary = bindText(makeEl('summary', 'setting-details-summary'), 'settings.section.optics');
   const advBody = makeEl('div', 'setting-details-body');
   const glassesRow = makeEl('div', 'setting-row');
-  const glassesLbl = makeEl('span', 'setting-label', 'Wear Glasses (Z)');
-  const glassesToggleBtn = makeEl('button', 'settings-btn', 'OFF');
+  const glassesLbl = bindText(makeEl('span', 'setting-label'), 'settings.label.wearGlasses');
+  const glassesToggleBtn = makeEl('button', 'settings-btn', t(currentLang, 'settings.off'));
   glassesToggleBtn.type = 'button';
   glassesToggleBtn.setAttribute('aria-pressed', 'false');
   listen(glassesToggleBtn, 'click', () => {
@@ -324,14 +346,14 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   advDetails.replaceChildren(advSummary, advBody);
   body.appendChild(advDetails);
 
-  // Lighting section (Time of Day + Ceiling Lights)
+  // Lighting section
   const lightSection = makeEl('section', 'setting-group');
-  const lightHeading = makeEl('h3', 'setting-group-title', 'Lighting');
+  const lightHeading = bindText(makeEl('h3', 'setting-group-title'), 'settings.section.lighting');
   const todRow = makeEl('label', 'setting-row');
-  const todLbl = makeEl('span', 'setting-label', 'Time of Day (T)');
+  const todLbl = bindText(makeEl('span', 'setting-label'), 'settings.label.timeOfDay');
   const todSelect = makeEl('select', 'setting-select');
   for (const preset of Object.values(TIME_OF_DAY_PRESETS)) {
-    const optionEl = makeEl('option', null, preset.label);
+    const optionEl = bindText(makeEl('option', null), `opt.tod.${preset.id}`);
     optionEl.value = preset.id;
     todSelect.appendChild(optionEl);
   }
@@ -342,8 +364,8 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   todRow.replaceChildren(todLbl, todSelect);
 
   const lightsRow = makeEl('div', 'setting-row');
-  const lightsLbl = makeEl('span', 'setting-label', 'Ceiling Lights (L)');
-  const lightsBtn = makeEl('button', 'settings-btn', 'ON');
+  const lightsLbl = makeEl('span', 'setting-label', t(currentLang, 'settings.label.ceilingLights'));
+  const lightsBtn = makeEl('button', 'settings-btn', t(currentLang, 'settings.on'));
   lightsBtn.type = 'button';
   lightsBtn.setAttribute('aria-pressed', 'true');
   listen(lightsBtn, 'click', () => {
@@ -352,8 +374,8 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   lightsRow.replaceChildren(lightsLbl, lightsBtn);
 
   const glareRow = makeEl('div', 'setting-row is-hidden');
-  const glareLbl = makeEl('span', 'setting-label', 'Glare Lamp');
-  const glareBtn = makeEl('button', 'settings-btn', 'ON');
+  const glareLbl = bindText(makeEl('span', 'setting-label'), 'settings.label.glareLamp');
+  const glareBtn = makeEl('button', 'settings-btn', t(currentLang, 'settings.on'));
   glareBtn.type = 'button';
   glareBtn.setAttribute('aria-pressed', 'true');
   listen(glareBtn, 'click', () => {
@@ -366,12 +388,12 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
 
   // Graphics Quality section
   const qualitySection = makeEl('section', 'setting-group');
-  const qualityHeading = makeEl('h3', 'setting-group-title', 'Graphics');
+  const qualityHeading = bindText(makeEl('h3', 'setting-group-title'), 'settings.section.graphics');
   const qualityRow = makeEl('label', 'setting-row');
-  const qualityLbl = makeEl('span', 'setting-label', 'Resolution Scale');
+  const qualityLbl = bindText(makeEl('span', 'setting-label'), 'settings.label.resScale');
   const qualitySelect = makeEl('select', 'setting-select');
   for (const preset of Object.values(QUALITY_PRESETS)) {
-    const optionEl = makeEl('option', null, preset.label);
+    const optionEl = bindText(makeEl('option', null), `opt.quality.${preset.id}`);
     optionEl.value = preset.id;
     qualitySelect.appendChild(optionEl);
   }
@@ -386,18 +408,9 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   drawer.replaceChildren(header, body);
   rootElement.appendChild(drawer);
 
-  // Button handlers
-  listen(compareBtn, 'click', () => {
-    callbacks.onCompareToggle?.();
-  });
-
-  listen(resetBtn, 'click', () => {
-    callbacks.onReset?.();
-  });
-
-  listen(closeBtn, 'click', () => {
-    callbacks.onClose?.();
-  });
+  listen(compareBtn, 'click', () => callbacks.onCompareToggle?.());
+  listen(resetBtn, 'click', () => callbacks.onReset?.());
+  listen(closeBtn, 'click', () => callbacks.onClose?.());
 
   const onPresetClick = (e) => {
     const btn = e.target instanceof Element ? e.target.closest('[data-persona-id]') : null;
@@ -408,7 +421,6 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   listen(vuarbitGrid, 'click', onPresetClick);
   listen(condGrid, 'click', onPresetClick);
 
-  // Prevent camera look / wheel zoom / keybinds while interacting inside drawer
   listen(drawer, 'mousedown', (e) => e.stopPropagation());
   listen(drawer, 'click', (e) => e.stopPropagation());
   listen(drawer, 'wheel', (e) => e.stopPropagation(), { passive: true });
@@ -428,6 +440,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   });
 
   let lastOpen = null;
+  let lastLang = null;
   let lastSceneId = null;
   let lastPersonaId = null;
   let lastCompare = null;
@@ -449,6 +462,13 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     ctrl.row.classList.toggle('is-disabled', disabled);
   }
 
+  function applyStaticTranslations(lang) {
+    drawer.setAttribute('aria-label', t(lang, 'settings.ariaLabel'));
+    for (const item of translatables) {
+      item.el.textContent = t(lang, item.key);
+    }
+  }
+
   function sync(state, force = false) {
     const open = Boolean(state.settingsOpen);
     if (force || open !== lastOpen) {
@@ -457,33 +477,48 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     }
     if (!open && !force) return;
 
+    const lang = normalizeLanguage(state.language);
+    const langChanged = lang !== lastLang;
+    if (force || langChanged) {
+      lastLang = lang;
+      currentLang = lang;
+      applyStaticTranslations(lang);
+      if (document.activeElement !== langSelect) {
+        langSelect.value = lang;
+      }
+    }
+    const refresh = force || langChanged;
+
     const sceneId = state.sceneId || 'classroom';
-    if (force || sceneId !== lastSceneId) {
+    if (refresh || sceneId !== lastSceneId) {
       lastSceneId = sceneId;
       if (document.activeElement !== sceneSelect) {
         sceneSelect.value = sceneId;
       }
       const sc = getSceneById(sceneId);
-      sceneDesc.textContent = sc ? sc.description : '';
+      sceneDesc.textContent = sc ? t(lang, `scene.${sc.id}.desc`) : '';
       glareRow.classList.toggle('is-hidden', sceneId !== 'exam_room');
-      lightsLbl.textContent = sceneId === 'car_passenger' ? 'Road Lights (L)' : 'Ceiling Lights (L)';
+      lightsLbl.textContent = t(
+        lang,
+        sceneId === 'car_passenger' ? 'settings.label.roadLights' : 'settings.label.ceilingLights'
+      );
     }
 
     const comparing = Boolean(state.compareNormal);
-    if (force || comparing !== lastCompare) {
+    if (refresh || comparing !== lastCompare) {
       lastCompare = comparing;
       compareBtn.classList.toggle('is-active', comparing);
       compareBtn.setAttribute('aria-pressed', comparing ? 'true' : 'false');
     }
 
     const personaId = state.personaId || 'vuarbit_1994';
-    if (force || personaId !== lastPersonaId) {
+    if (refresh || personaId !== lastPersonaId) {
       lastPersonaId = personaId;
       const persona = personaId === 'custom' ? null : getPersonaById(personaId);
-      statusBadge.textContent = persona ? persona.shortName : 'Custom';
+      statusBadge.textContent = persona ? t(lang, `persona.${persona.id}.short`) : t(lang, 'settings.custom');
       personaDesc.textContent = persona
-        ? persona.description
-        : 'Custom clinical parameter configuration.';
+        ? t(lang, `persona.${persona.id}.desc`)
+        : t(lang, 'settings.customDesc');
       for (const [id, btn] of personaButtons) {
         const active = id === personaId;
         btn.classList.toggle('is-active', active);
@@ -500,11 +535,15 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     const cvdDisabled = !s.cvdType || s.cvdType === 'none';
 
     const gOn = Boolean(state.glassesOn) && !lensDisabled;
-    if (force || gOn !== lastGlassesOn || lensDisabled !== lastGlassesDisabled) {
+    if (refresh || gOn !== lastGlassesOn || lensDisabled !== lastGlassesDisabled) {
       lastGlassesOn = gOn;
       lastGlassesDisabled = lensDisabled;
       glassesToggleBtn.disabled = lensDisabled;
-      glassesToggleBtn.textContent = lensDisabled ? 'No Lens' : gOn ? 'ON' : 'OFF';
+      glassesToggleBtn.textContent = lensDisabled
+        ? t(lang, 'settings.noLens')
+        : gOn
+          ? t(lang, 'settings.on')
+          : t(lang, 'settings.off');
       glassesToggleBtn.classList.toggle('is-active', gOn);
       glassesToggleBtn.setAttribute('aria-pressed', gOn ? 'true' : 'false');
       glassesRow.classList.toggle('is-disabled', lensDisabled);
@@ -514,8 +553,8 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       const domKey = s.dominantEye === 'OS' ? 'vosAcuity' : 'vodAcuity';
       const domAcuity = Number.isFinite(s[domKey]) ? s[domKey] : SETTING_SPECS.vodAcuity.default;
       const active = document.activeElement === acuityBothCtrl.input;
-      if (force || domAcuity !== lastAcuityBoth) {
-        acuityBothCtrl.readout.textContent = acuityBothCtrl.format(domAcuity);
+      if (refresh || domAcuity !== lastAcuityBoth) {
+        acuityBothCtrl.readout.textContent = acuityBothCtrl.format(domAcuity, lang);
         if (!active) {
           acuityBothCtrl.input.value = String(domAcuity);
           lastAcuityBoth = domAcuity;
@@ -529,15 +568,15 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
 
       if (ctrl.kind === 'select') {
         const active = document.activeElement === ctrl.input;
-        if (force || (rawVal !== prevVal && !active)) {
+        if (refresh || (rawVal !== prevVal && !active)) {
           ctrl.input.value = String(rawVal);
           lastValues.set(key, rawVal);
         }
       } else {
         const numVal = Number.isFinite(rawVal) ? rawVal : ctrl.spec.default;
         const active = document.activeElement === ctrl.input;
-        if (force || numVal !== prevVal) {
-          ctrl.readout.textContent = ctrl.format(numVal);
+        if (refresh || numVal !== prevVal) {
+          ctrl.readout.textContent = ctrl.format(numVal, lang);
           if (!active) {
             ctrl.input.value = String(numVal);
             lastValues.set(key, numVal);
@@ -561,29 +600,29 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     }
 
     const tod = state.timeOfDay || 'sunny';
-    if (force || (tod !== lastTimeOfDay && document.activeElement !== todSelect)) {
+    if (refresh || (tod !== lastTimeOfDay && document.activeElement !== todSelect)) {
       lastTimeOfDay = tod;
       todSelect.value = tod;
     }
 
     const lightsOn = state.lightsOn !== false;
-    if (force || lightsOn !== lastLightsOn) {
+    if (refresh || lightsOn !== lastLightsOn) {
       lastLightsOn = lightsOn;
-      lightsBtn.textContent = lightsOn ? 'ON' : 'OFF';
+      lightsBtn.textContent = lightsOn ? t(lang, 'settings.on') : t(lang, 'settings.off');
       lightsBtn.classList.toggle('is-active', lightsOn);
       lightsBtn.setAttribute('aria-pressed', lightsOn ? 'true' : 'false');
     }
 
     const glareOn = state.glareLightOn !== false;
-    if (force || glareOn !== lastGlareLightOn) {
+    if (refresh || glareOn !== lastGlareLightOn) {
       lastGlareLightOn = glareOn;
-      glareBtn.textContent = glareOn ? 'ON' : 'OFF';
+      glareBtn.textContent = glareOn ? t(lang, 'settings.on') : t(lang, 'settings.off');
       glareBtn.classList.toggle('is-active', glareOn);
       glareBtn.setAttribute('aria-pressed', glareOn ? 'true' : 'false');
     }
 
     const quality = state.qualityPreset || 'high';
-    if (force || (quality !== lastQuality && document.activeElement !== qualitySelect)) {
+    if (refresh || (quality !== lastQuality && document.activeElement !== qualitySelect)) {
       lastQuality = quality;
       qualitySelect.value = quality;
     }

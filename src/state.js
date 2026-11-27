@@ -26,7 +26,20 @@ import {
   cycleTimeOfDay,
 } from './personas.js';
 
+import {
+  LANGUAGES,
+  LANGUAGE_OPTIONS,
+  detectDefaultLanguage,
+  normalizeLanguage,
+  t,
+} from './i18n.js';
+
 export {
+  LANGUAGES,
+  LANGUAGE_OPTIONS,
+  detectDefaultLanguage,
+  normalizeLanguage,
+  t,
   PERSONAS,
   SCENES,
   SETTING_SPECS,
@@ -189,6 +202,7 @@ export function toggleGlasses(state) {
  */
 export function createSimState() {
   return {
+    language: detectDefaultLanguage(),
     sceneId: 'classroom',
     personaId: 'vuarbit_1994',
     settings: createDefaultVisualSettings(),
@@ -199,6 +213,7 @@ export function createSimState() {
     glareLightOn: true,
     ambientLight: 1.0,
     mode: 'standing',
+    aimingPickable: false,
     glassesOn: true,
     glassesSlide: 0,
     glassesPinned: false,
@@ -382,18 +397,23 @@ export function updateSimState(state, dt) {
     ? clamp((state.focusStrength || 0) + (targetFocusStrength - (state.focusStrength || 0)) * focusAlpha, 0, 1)
     : 0;
 
-  // Glasses nose-slip dynamics (0..14 mm): gentle gravity slip when craning/looking down (~50-65s full slip);
-  // holding Space pins frames steady; holding Shift slides down as a manual variable-focus near loupe.
+  // Glasses nose-slip dynamics (0..14 mm): zero slip when looking up; very gentle creep upright (~12 min still),
+  // accelerating naturally when pitched down, leaning over desk, or turning head; Space pins, Shift slides down.
   if (!state.glassesOn || s.lensProfile === 'none') {
     state.glassesSlide = 0;
     state.glassesPinned = false;
   } else if (!paused && !state.compareNormal && !state.glassesPinned) {
     const isAphakic = s.lensProfile === 'aphakic_bifocal';
-    const downTilt = smoothstep(-0.15, -0.78, state.pitch || 0);
+    const pitch = state.pitch || 0;
+    const uprightGravity = 1.0 - smoothstep(-0.04, 0.14, pitch); // stops sliding when chin tilts up
+    const downTilt = smoothstep(-0.15, -0.78, pitch);
     const leanFactor = clamp(state.lean || 0, 0, 1);
+    const motionFactor = clamp((state.gazeVel || 0) * 0.45, 0, 1);
     const maxSlide = isAphakic ? 1.0 : 0.35;
     const weightScale = isAphakic ? 1.0 : 0.22;
-    const slideRate = (0.004 + 0.015 * downTilt + 0.008 * leanFactor) * weightScale;
+    const slideRate =
+      (0.0012 * uprightGravity + 0.017 * downTilt + 0.008 * leanFactor + 0.0045 * motionFactor * uprightGravity) *
+      weightScale;
     state.glassesSlide = clamp((state.glassesSlide || 0) + slideRate * step, 0, maxSlide);
   }
   // Decay tactile glasses-on spring settle

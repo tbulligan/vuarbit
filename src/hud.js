@@ -1,4 +1,5 @@
 import { getPersonaById, getSceneById, hasSuppressionMechanics } from './personas.js';
+import { normalizeLanguage, t } from './i18n.js';
 
 function makeEl(tag, className, text) {
   const el = document.createElement(tag);
@@ -11,28 +12,34 @@ function fmtD(v) {
   return `${v > 0.001 ? '+' : ''}${v.toFixed(1)} D`;
 }
 
-function zoneLabel(state) {
-  if (state.eyelidClose > 0.8 || state.activeZone === 'closed') return 'Resting (Closed)';
-  if (state.compareNormal || state.activeZone === 'normal') return 'Normal Vision (Compare)';
+function zoneLabel(state, lang) {
+  if (state.eyelidClose > 0.8 || state.activeZone === 'closed') return t(lang, 'hud.zone.closed');
+  if (state.compareNormal || state.activeZone === 'normal') return t(lang, 'hud.zone.normal');
   const lp = state.settings?.lensProfile || 'aphakic_bifocal';
   if (lp === 'none' || state.activeZone === 'emmetropic') {
-    return 'No Glasses';
+    return t(lang, 'hud.zone.none');
   }
   const p = Number.isFinite(state.settings?.lensPowerD) ? state.settings.lensPowerD : 13.0;
   const a = Number.isFinite(state.settings?.nearAddD) ? state.settings.nearAddD : 4.0;
   if (!state.glassesOn || state.activeZone === 'uncorrected') {
-    return lp === 'aphakic_bifocal' ? `Uncorrected (${fmtD(p)} off)` : 'Uncorrected (Press Z)';
+    return lp === 'aphakic_bifocal'
+      ? t(lang, 'hud.zone.uncorrectedOff', { power: fmtD(p) })
+      : t(lang, 'hud.zone.uncorrectedPressZ');
   }
-  if (lp === 'progressive') return state.activeZone === 'near' ? `Progressive Near (+${a.toFixed(1)} add)` : 'Progressive Distance';
-  if (lp === 'single_vision') return `Single-Vision (${fmtD(p)})`;
-  if (state.activeZone === 'near') return `Near Bifocal (${fmtD(p + a)})`;
-  return `Distance (${fmtD(p)})`;
+  if (lp === 'progressive') {
+    return state.activeZone === 'near'
+      ? t(lang, 'hud.zone.progNear', { add: a.toFixed(1) })
+      : t(lang, 'hud.zone.progDist');
+  }
+  if (lp === 'single_vision') return t(lang, 'hud.zone.singleVision', { power: fmtD(p) });
+  if (state.activeZone === 'near') return t(lang, 'hud.zone.nearBifocal', { power: fmtD(p + a) });
+  return t(lang, 'hud.zone.distance', { power: fmtD(p) });
 }
 
-function glassesLabel(state) {
-  if (state.compareNormal) return 'OFF (Normal Compare)';
+function glassesLabel(state, lang) {
+  if (state.compareNormal) return t(lang, 'hud.glasses.normalCompare');
   const lp = state.settings?.lensProfile || 'aphakic_bifocal';
-  if (lp === 'none') return 'None';
+  if (lp === 'none') return t(lang, 'hud.glasses.none');
   const p = Number.isFinite(state.settings?.lensPowerD) ? state.settings.lensPowerD : 13.0;
   const a = Number.isFinite(state.settings?.nearAddD) ? state.settings.nearAddD : 4.0;
   const cyl = Number.isFinite(state.settings?.lensCylD) ? state.settings.lensCylD : 0;
@@ -44,65 +51,61 @@ function glassesLabel(state) {
   const slideNote = !state.glassesOn
     ? ''
     : state.glassesPinned
-      ? ', pinned'
+      ? t(lang, 'hud.glasses.pinned')
       : slideMm >= 3
-        ? `, slipped ${slideMm}mm (Space)`
+        ? t(lang, 'hud.glasses.slipped', { mm: slideMm })
         : '';
-  return state.glassesOn ? `ON (${rx}${slideNote})` : `OFF (${rx}, press Z)`;
+  return state.glassesOn
+    ? `${t(lang, 'settings.on')} (${rx}${slideNote})`
+    : `${t(lang, 'settings.off')} (${rx}${t(lang, 'hud.glasses.pressZ')})`;
 }
 
-function personaLabel(state) {
-  if (state.personaId === 'custom') return 'Custom';
+function personaLabel(state, lang) {
+  if (state.personaId === 'custom') return t(lang, 'settings.custom');
   const persona = getPersonaById?.(state.personaId);
-  return persona ? persona.shortName : 'Vuarbit 1994';
+  return persona ? t(lang, `persona.${persona.id}.short`) : 'Vuarbit 1994';
 }
 
-function sceneLabel(state) {
+function sceneLabel(state, lang) {
   const sc = getSceneById?.(state.sceneId || 'classroom');
-  return sc ? sc.shortName : '1994 Classroom';
+  return sc ? t(lang, `scene.${sc.id}.short`) : t(lang, 'scene.classroom.short');
 }
-
-const HELP_LINE_MOVE_FULL =
-  'Move: WASD Walk/Adjust · E/Q/Wheel Lean · X Sit · F Pick · RMB Rotate';
-const HELP_LINE_MOVE_SEATED =
-  'Cabin: Mouse Look · WASD Shift · E/Q/Wheel Lean';
-const HELP_LINE_OPTICS =
-  'Optics: Z Glasses · Space/Shift Slide · C Focus · R Rest · V Compare';
-const HELP_LINE_ENV =
-  'Scene: P Settings · T Time · L Lights · M Mute · H Help · F11 Full';
 
 /**
- * Strictly safe DOM HUD telemetry & keybind overlay (DOM APIs only, no raw HTML strings).
+ * Strictly safe DOM HUD telemetry & keybind overlay (DOM APIs only, live EN/IT/NL i18n).
  */
 export function createHud(rootElement, initialState) {
   let entered = false;
-  let lastLegendSceneId = null;
+  let lastLang = null;
+  let lastLegendKey = null;
 
   const panel = makeEl('div', 'hud-panel');
 
-  function makeRow(label) {
+  function makeRow(labelKey) {
     const row = makeEl('div', 'hud-row');
-    const k = makeEl('span', 'hud-label', label);
+    const k = makeEl('span', 'hud-label', '');
     const v = makeEl('span', 'hud-val', '-');
     row.replaceChildren(k, v);
     panel.appendChild(row);
-    return { row, val: v };
+    return { row, keyEl: k, labelKey, val: v };
   }
 
-  const rScene = makeRow('Scene');
-  const rPersona = makeRow('Preset');
-  const rGlasses = makeRow('Glasses');
-  const rZone = makeRow('Optical Zone');
-  const rFocus = makeRow('Focus Dist');
-  const rEffort = makeRow('Focus');
-  const rNystagmus = makeRow('Nystagmus');
-  const rFatigue = makeRow('Fatigue (10x)');
-  const rTinnitus = makeRow('Tinnitus');
+  const rows = {
+    scene: makeRow('hud.row.scene'),
+    persona: makeRow('hud.row.preset'),
+    glasses: makeRow('hud.row.glasses'),
+    zone: makeRow('hud.row.zone'),
+    focus: makeRow('hud.row.focusDist'),
+    effort: makeRow('hud.row.focus'),
+    nystagmus: makeRow('hud.row.nystagmus'),
+    fatigue: makeRow('hud.row.fatigue'),
+    tinnitus: makeRow('hud.row.tinnitus'),
+  };
 
   const controlsLegend = makeEl('div', 'hud-controls');
-  const helpMoveLine = makeEl('div', 'hud-controls-line', HELP_LINE_MOVE_FULL);
-  const helpOpticsLine = makeEl('div', 'hud-controls-line', HELP_LINE_OPTICS);
-  const helpEnvLine = makeEl('div', 'hud-controls-line', HELP_LINE_ENV);
+  const helpMoveLine = makeEl('div', 'hud-controls-line', '');
+  const helpOpticsLine = makeEl('div', 'hud-controls-line', '');
+  const helpEnvLine = makeEl('div', 'hud-controls-line', '');
   controlsLegend.replaceChildren(helpMoveLine, helpOpticsLine, helpEnvLine);
 
   const reticle = makeEl('div', 'hud-reticle');
@@ -110,17 +113,9 @@ export function createHud(rootElement, initialState) {
   const overlay = makeEl('div', 'hud-overlay');
   const card = makeEl('div', 'hud-card');
   const cardTitle = makeEl('h1', null, 'Vuarbit');
-  const line1 = makeEl(
-    'p',
-    null,
-    'First-person childhood bilateral aphakia (+13 D / +17 D bifocal, zero accommodation) & nystagmus simulation.',
-  );
-  const line2 = makeEl(
-    'p',
-    null,
-    'Explore the 1990s classroom, sit at the front-left desk (X), lean in or hold objects near an eye (F/E), or press P for presets.',
-  );
-  const cta = makeEl('p', 'hud-cta', 'Click anywhere to enter classroom (Esc releases cursor)');
+  const line1 = makeEl('p', null, '');
+  const line2 = makeEl('p', null, '');
+  const cta = makeEl('p', 'hud-cta', '');
   card.replaceChildren(cardTitle, line1, line2, cta);
   overlay.replaceChildren(card);
 
@@ -136,7 +131,25 @@ export function createHud(rootElement, initialState) {
 
   rootElement.replaceChildren(panel, controlsLegend, reticle, overlay);
 
+  function updateStaticCopy(lang) {
+    for (const r of Object.values(rows)) {
+      r.keyEl.textContent = t(lang, r.labelKey);
+    }
+    helpOpticsLine.textContent = t(lang, 'hud.help.optics');
+    helpEnvLine.textContent = t(lang, 'hud.help.env');
+    line1.textContent = t(lang, 'hud.overlay.line1');
+    line2.textContent = t(lang, 'hud.overlay.line2');
+    cta.textContent = t(lang, 'hud.overlay.cta');
+  }
+
   function update(state) {
+    const lang = normalizeLanguage(state.language);
+    if (lang !== lastLang) {
+      lastLang = lang;
+      lastLegendKey = null;
+      updateStaticCopy(lang);
+    }
+
     if (state.pointerLocked) {
       entered = true;
     }
@@ -144,6 +157,7 @@ export function createHud(rootElement, initialState) {
     panel.classList.toggle('is-hidden', !state.hudVisible);
     controlsLegend.classList.toggle('is-hidden', !state.hudVisible);
     reticle.classList.toggle('is-hidden', !state.pointerLocked || Boolean(state.settingsOpen));
+    reticle.classList.toggle('is-target', Boolean(state.aimingPickable));
     overlay.classList.toggle('is-hidden', entered);
 
     if (!state.hudVisible) return;
@@ -154,43 +168,46 @@ export function createHud(rootElement, initialState) {
     const hasNystagmus = (s.mlnScale || 0) > 0.005 || (s.albinism || 0) > 0.005;
     const hasTinnitus = (s.tinnitus ?? 1) > 0.005;
 
-    rGlasses.row.classList.toggle('is-hidden', !hasLens && !state.compareNormal);
-    rEffort.row.classList.toggle('is-hidden', !hasSuppression);
-    rNystagmus.row.classList.toggle('is-hidden', !hasNystagmus);
-    rFatigue.row.classList.toggle('is-hidden', !hasSuppression);
-    rTinnitus.row.classList.toggle('is-hidden', !hasTinnitus && !state.muted);
+    rows.glasses.row.classList.toggle('is-hidden', !hasLens && !state.compareNormal);
+    rows.effort.row.classList.toggle('is-hidden', !hasSuppression);
+    rows.nystagmus.row.classList.toggle('is-hidden', !hasNystagmus);
+    rows.fatigue.row.classList.toggle('is-hidden', !hasSuppression);
+    rows.tinnitus.row.classList.toggle('is-hidden', !hasTinnitus && !state.muted);
 
     const sceneId = state.sceneId || 'classroom';
-    if (sceneId !== lastLegendSceneId) {
-      lastLegendSceneId = sceneId;
-      const sc = getSceneById?.(sceneId);
-      helpMoveLine.textContent = sc?.seatedOnly ? HELP_LINE_MOVE_SEATED : HELP_LINE_MOVE_FULL;
+    const sc = getSceneById?.(sceneId);
+    const moveKey = sc?.seatedOnly ? 'hud.help.moveSeated' : 'hud.help.moveFull';
+    if (moveKey !== lastLegendKey) {
+      lastLegendKey = moveKey;
+      helpMoveLine.textContent = t(lang, moveKey);
     }
 
-    rScene.val.textContent = sceneLabel(state);
-    rPersona.val.textContent = personaLabel(state);
-    rGlasses.val.textContent = glassesLabel(state);
-    rZone.val.textContent = zoneLabel(state);
+    rows.scene.val.textContent = sceneLabel(state, lang);
+    rows.persona.val.textContent = personaLabel(state, lang);
+    rows.glasses.val.textContent = glassesLabel(state, lang);
+    rows.zone.val.textContent = zoneLabel(state, lang);
     const isClosed = state.eyelidClose > 0.8 || state.activeZone === 'closed';
-    rFocus.val.textContent = isClosed ? '0.00 m (Closed)' : `${(state.focusDistM || 0).toFixed(2)} m`;
+    rows.focus.val.textContent = isClosed
+      ? t(lang, 'hud.focus.closed')
+      : `${(state.focusDistM || 0).toFixed(2)} m`;
     const effortPct = Math.round((state.focusStrength || 0) * 100);
-    rEffort.val.textContent = isClosed || state.compareNormal
-      ? 'Inactive'
+    rows.effort.val.textContent = isClosed || state.compareNormal
+      ? t(lang, 'hud.effort.inactive')
       : state.focusing
-        ? `Focused (${effortPct}%, 2.0x)`
-        : 'Relaxed';
+        ? t(lang, 'hud.effort.focused', { pct: effortPct })
+        : t(lang, 'hud.effort.relaxed');
     const occlPct = Math.round((state.occlusionLevel || 0) * 100);
     const nystPct = Math.round((state.mlnIntensity || 0) * 100);
-    rNystagmus.val.textContent = (s.mlnScale || 0) > 0.005
-      ? `${occlPct}% occl / ${nystPct}%`
+    rows.nystagmus.val.textContent = (s.mlnScale || 0) > 0.005
+      ? t(lang, 'hud.nyst.occl', { occl: occlPct, nyst: nystPct })
       : `${nystPct}%`;
-    rFatigue.val.textContent = `${Math.round((state.fatigue || 0) * 100)}%`;
-    rTinnitus.val.textContent =
+    rows.fatigue.val.textContent = `${Math.round((state.fatigue || 0) * 100)}%`;
+    rows.tinnitus.val.textContent =
       state.muted || state.compareNormal
-        ? 'MUTED'
+        ? t(lang, 'hud.tinnitus.muted')
         : hasTinnitus
-          ? 'ON'
-          : 'OFF';
+          ? t(lang, 'settings.on')
+          : t(lang, 'settings.off');
   }
 
   function dispose() {
