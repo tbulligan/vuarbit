@@ -365,7 +365,7 @@ assert.equal(QUALITY_PRESETS.performance.dprCap, 1.0);
 
 assert.equal(PERSONAS.length, 12, 'must define exactly 12 clinical presets');
 const expectedPersonas = {
-  vuarbit_1994: { shortName: 'Vuarbit 1994', lensProfile: 'aphakic_bifocal', vodAcuity: 0.70, vosAcuity: 0.15, mlnScale: 1.0 },
+  vuarbit_frut: { shortName: 'Vuarbit Frut', lensProfile: 'aphakic_bifocal', vodAcuity: 0.70, vosAcuity: 0.15, mlnScale: 1.0 },
   normal: { shortName: 'Normal Vision', lensProfile: 'none', vodAcuity: 1.0, vosAcuity: 1.0, mlnScale: 0.0 },
   glaucoma: { shortName: 'Glaucoma', lensProfile: 'none', vodAcuity: 0.90, vosAcuity: 0.85, glaucoma: 0.65 },
   amd: { shortName: 'Wet AMD', lensProfile: 'none', vodAcuity: 0.45, vosAcuity: 0.40, amd: 0.70 },
@@ -457,13 +457,13 @@ assert.deepEqual(computeDiplopiaOffsetDeg(0.375, { diplopiaH: 2.2, diplopiaV: -0
 
 // createSimState persona defaults + applyPersona + updateVisualSetting
 const stPersona = createSimState();
-assert.equal(stPersona.personaId, 'vuarbit_1994');
+assert.equal(stPersona.personaId, 'vuarbit_frut');
 assert.equal(stPersona.settingsOpen, false);
 assert.equal(stPersona.qualityPreset, 'high');
 assert.deepEqual(stPersona.settings, defaults);
 
 assert.equal(applyPersona(stPersona, 'does_not_exist'), false);
-assert.equal(stPersona.personaId, 'vuarbit_1994');
+assert.equal(stPersona.personaId, 'vuarbit_frut');
 
 stPersona.compareNormal = true;
 stPersona.fatigue = 0.72;
@@ -516,7 +516,7 @@ for (let i = 0; i < 30; i++) {
 assert.ok(stAlb.mlnIntensity < albUnfocused, 'focus effort must modestly damp albinism nystagmus');
 
 // Suppression gating: non-aphakic conditions must NOT suffer +13 D uncorrected glasses fatigue penalty
-assert.equal(hasSuppressionMechanics(getPersonaById('vuarbit_1994').settings), true);
+assert.equal(hasSuppressionMechanics(getPersonaById('vuarbit_frut').settings), true);
 assert.equal(hasSuppressionMechanics(getPersonaById('albinism').settings), true);
 assert.equal(hasSuppressionMechanics(getPersonaById('normal').settings), false);
 assert.equal(hasSuppressionMechanics(getPersonaById('glaucoma').settings), false);
@@ -640,7 +640,7 @@ assert.equal(stFrame.settings.frameColor, 'auto');
 assert.equal(updateVisualSetting(stFrame, 'frameShape', 'semi_rimless'), 'semi_rimless');
 assert.equal(updateVisualSetting(stFrame, 'frameColor', 'burgundy'), 'burgundy');
 assert.equal(stFrame.personaId, 'custom');
-applyPersona(stFrame, 'vuarbit_1994');
+applyPersona(stFrame, 'vuarbit_frut');
 assert.equal(stFrame.settings.frameShape, 'auto', 'applyPersona must restore auto frameShape');
 assert.equal(stFrame.settings.frameColor, 'auto', 'applyPersona must restore auto frameColor');
 
@@ -728,11 +728,11 @@ assert.equal(stPin.glassesSlide, 0, 'pinned glasses must not slide down while cr
 // applyPersona resets glassesSlide, glassesPinned, squint & restores Focused on Vuarbit 1994
 stNearBinoc.glassesSlide = 0.8;
 stNearBinoc.glassesPinned = true;
-applyPersona(stNearBinoc, 'vuarbit_1994');
+applyPersona(stNearBinoc, 'vuarbit_frut');
 assert.equal(stNearBinoc.glassesSlide, 0, 'applyPersona must reset glassesSlide');
 assert.equal(stNearBinoc.glassesPinned, false, 'applyPersona must reset glassesPinned');
 assert.equal(stNearBinoc.squint, 0, 'applyPersona must reset squint');
-assert.equal(stNearBinoc.focusing, true, 'applyPersona vuarbit_1994 must start Focused');
+assert.equal(stNearBinoc.focusing, true, 'applyPersona vuarbit_frut must start Focused');
 
 // Shared toggleCompareNormal (V) and toggleGlasses (Z) helpers keep keyboard & drawer behavior identical
 const stToggle = createSimState();

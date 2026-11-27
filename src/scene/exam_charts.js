@@ -571,55 +571,49 @@ export function createGlareTargetTexture(boardSizeM = 0.58) {
 }
 
 /**
- * Warm light-oak architectural vinyl plank floor texture for a realistic modern clinical exam lane.
+ * Classic 1990s Italian speckled marble-terrazzo (graniglia) clinic floor tile texture.
  */
 export function createExamFloorTexture() {
   return makeCanvasTexture(
-    1024,
-    1024,
+    512,
+    512,
     (ctx, w, h) => {
-      ctx.fillStyle = '#cab79b';
+      ctx.fillStyle = '#d4d0c5';
       ctx.fillRect(0, 0, w, h);
 
-      let seed = 314159;
+      let seed = 19940314;
       const rand = () => {
         seed = (seed * 1664525 + 1013904223) >>> 0;
         return seed / 4294967296;
       };
 
-      const planksX = 8;
-      const plankW = w / planksX;
-      const tones = ['#cdb99d', '#c4af91', '#d2c0a6', '#bfa98a', '#c9b497'];
-      for (let col = 0; col < planksX; col += 1) {
-        const x = col * plankW;
-        const seamY = Math.floor(rand() * h * 0.6 + h * 0.2);
-        const segs = [
-          [0, seamY],
-          [seamY, h],
-        ];
-        for (const [y0, y1] of segs) {
-          ctx.fillStyle = tones[Math.floor(rand() * tones.length)];
-          ctx.fillRect(x, y0, plankW, y1 - y0);
-          // Fine vertical wood grain streaks
-          for (let g = 0; g < 36; g += 1) {
-            ctx.fillStyle = rand() > 0.5 ? 'rgba(98, 76, 52, 0.08)' : 'rgba(246, 238, 224, 0.07)';
-            const gx = x + rand() * (plankW - 3);
-            ctx.fillRect(gx, y0, 1.5 + rand() * 2.5, y1 - y0);
-          }
-        }
-        // Subtle plank seams
-        ctx.strokeStyle = 'rgba(78, 62, 46, 0.22)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, h);
-        ctx.moveTo(x, seamY);
-        ctx.lineTo(x + plankW, seamY);
-        ctx.stroke();
+      const chips = ['#9a9c97', '#7b877e', '#e6e2d8', '#b5a489', '#6e7275', '#c1b59e'];
+      for (let i = 0; i < 2200; i += 1) {
+        ctx.fillStyle = chips[Math.floor(rand() * chips.length)];
+        const x = rand() * w;
+        const y = rand() * h;
+        const rx = 1.2 + rand() * 4.4;
+        const ry = 1.0 + rand() * 3.8;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(rand() * Math.PI);
+        ctx.fillRect(-rx * 0.5, -ry * 0.5, rx, ry);
+        ctx.restore();
       }
+
+      // Clean 2x2 clinic tile grout seams
+      ctx.strokeStyle = 'rgba(98, 96, 88, 0.28)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(0, 0, w, h);
+      ctx.beginPath();
+      ctx.moveTo(w * 0.5, 0);
+      ctx.lineTo(w * 0.5, h);
+      ctx.moveTo(0, h * 0.5);
+      ctx.lineTo(w, h * 0.5);
+      ctx.stroke();
     },
-    3,
-    4
+    5,
+    6
   );
 }
 

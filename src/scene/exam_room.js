@@ -24,8 +24,8 @@ const SEATED_EYE_Y = 1.26;
 function buildExamChair() {
   const group = new THREE.Group();
   const chromeMat = new THREE.MeshStandardMaterial({ color: '#cfd5dd', metalness: 0.78, roughness: 0.22 });
-  const baseMat = new THREE.MeshStandardMaterial({ color: '#2b313a', roughness: 0.55, metalness: 0.3 });
-  const vinylMat = new THREE.MeshStandardMaterial({ color: '#294866', roughness: 0.62 });
+  const baseMat = new THREE.MeshStandardMaterial({ color: '#3b3f3d', roughness: 0.55, metalness: 0.3 });
+  const vinylMat = new THREE.MeshStandardMaterial({ color: '#2f5c4a', roughness: 0.58 }); // 1990s Italian bottle-green clinical vinyl
 
   const basePlate = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.35, 0.05, 24), baseMat);
   basePlate.position.y = 0.025;
@@ -75,7 +75,7 @@ function buildClinicianStool() {
   const group = new THREE.Group();
   const chromeMat = new THREE.MeshStandardMaterial({ color: '#cfd5dd', metalness: 0.78, roughness: 0.24 });
   const darkMat = new THREE.MeshStandardMaterial({ color: '#242930', roughness: 0.65 });
-  const padMat = new THREE.MeshStandardMaterial({ color: '#294866', roughness: 0.62 });
+  const padMat = new THREE.MeshStandardMaterial({ color: '#2f5c4a', roughness: 0.58 });
 
   const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.028, 0.44, 12), chromeMat);
   stem.position.y = 0.26;
@@ -196,7 +196,7 @@ function buildPhoropterStand() {
 
 function buildPottedPlant() {
   const group = new THREE.Group();
-  const potMat = new THREE.MeshStandardMaterial({ color: '#e3e0d8', roughness: 0.72 });
+  const potMat = new THREE.MeshStandardMaterial({ color: '#a86444', roughness: 0.78 }); // 1990s Italian terracotta planter
   const soilMat = new THREE.MeshStandardMaterial({ color: '#46382b', roughness: 0.95 });
   const leafMat = new THREE.MeshStandardMaterial({ color: '#3b6b4c', roughness: 0.62, side: THREE.DoubleSide });
   const leafLightMat = new THREE.MeshStandardMaterial({ color: '#4f825e', roughness: 0.58, side: THREE.DoubleSide });
@@ -227,9 +227,9 @@ function buildPottedPlant() {
 
 function buildFrontClinicalCounter() {
   const group = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: '#eff2f4', roughness: 0.52 });
-  const oakTopMat = new THREE.MeshStandardMaterial({ color: '#c4a882', roughness: 0.58 });
-  const toeMat = new THREE.MeshStandardMaterial({ color: '#37414d', roughness: 0.7 });
+  const bodyMat = new THREE.MeshStandardMaterial({ color: '#dcd5c6', roughness: 0.56 }); // 1990s putty-beige medical enamel cabinetry
+  const oakTopMat = new THREE.MeshStandardMaterial({ color: '#e7e1d2', roughness: 0.52 }); // warm ivory clinical laminate
+  const toeMat = new THREE.MeshStandardMaterial({ color: '#474a46', roughness: 0.74 });
   const chromeMat = new THREE.MeshStandardMaterial({ color: '#cfd6de', metalness: 0.82, roughness: 0.20 });
   const sinkMat = new THREE.MeshStandardMaterial({ color: '#aeb7c2', metalness: 0.72, roughness: 0.28 });
 
@@ -302,7 +302,7 @@ function buildFrontClinicalCounter() {
   folder1.rotation.y = 0.08;
   const lensCase = new THREE.Mesh(
     new THREE.BoxGeometry(0.22, 0.042, 0.16),
-    new THREE.MeshStandardMaterial({ color: '#2b313a', roughness: 0.55 })
+    new THREE.MeshStandardMaterial({ color: '#6b492d', roughness: 0.58 }) // classic 90s wooden trial-lens case
   );
   lensCase.position.set(-0.46, height + 0.021, 0.02);
   lensCase.castShadow = true;
@@ -413,10 +413,10 @@ export function createExamRoomScene(renderer = null) {
   ceiling.castShadow = true;
   scene.add(ceiling);
 
-  const wallMat = new THREE.MeshStandardMaterial({ color: '#e6eae7', roughness: 0.88, shadowSide: THREE.DoubleSide });
-  const lowerWallMat = new THREE.MeshStandardMaterial({ color: '#bccac8', roughness: 0.84, shadowSide: THREE.DoubleSide });
-  const trimMat = new THREE.MeshStandardMaterial({ color: '#9c805e', roughness: 0.62 });
-  const baseBoardMat = new THREE.MeshStandardMaterial({ color: '#46505a', roughness: 0.68 });
+  const wallMat = new THREE.MeshStandardMaterial({ color: '#ece9df', roughness: 0.88, shadowSide: THREE.DoubleSide });
+  const lowerWallMat = new THREE.MeshStandardMaterial({ color: '#bfd0c3', roughness: 0.82, shadowSide: THREE.DoubleSide });
+  const trimMat = new THREE.MeshStandardMaterial({ color: '#a8895e', roughness: 0.62 });
+  const baseBoardMat = new THREE.MeshStandardMaterial({ color: '#6b6d67', roughness: 0.72 });
 
   function addClinicWall(width, cx, cz, rotY, castShadow = true) {
     const low = new THREE.Mesh(new THREE.PlaneGeometry(width, 0.98), lowerWallMat);
@@ -527,13 +527,16 @@ export function createExamRoomScene(renderer = null) {
   winSill.position.set(bounds.minX + 0.03, 1.01, 0.30);
   scene.add(winSill);
 
-  // 4 Recessed ceiling clinical LED troffers
+  // 4 Classic 1990s twin-tube fluorescent ceiling fixtures (matches Classroom 90s Italian architecture)
   const ledPanelMat = new THREE.MeshStandardMaterial({
-    color: '#f8fbff',
-    emissive: '#eef5ff',
-    emissiveIntensity: 2.0,
-    roughness: 0.3,
+    color: '#fafaf4',
+    emissive: '#f4f6ec',
+    emissiveIntensity: 2.2,
+    roughness: 0.25,
   });
+  const fixtureMat = new THREE.MeshStandardMaterial({ color: '#d4cfc2', roughness: 0.55, metalness: 0.2 });
+  const tubeGeo = new THREE.CylinderGeometry(0.018, 0.018, 1.12, 10);
+  tubeGeo.rotateX(Math.PI / 2);
   const ledLights = [];
   for (const [lx, lz] of [
     [-0.95, -0.75],
@@ -541,14 +544,15 @@ export function createExamRoomScene(renderer = null) {
     [-0.95, 1.35],
     [0.95, 1.35],
   ]) {
-    const housing = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.03, 0.58), frameMat);
-    housing.position.set(lx, roomH - 0.015, lz);
-    const diffuser = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.52), ledPanelMat);
-    diffuser.rotation.x = Math.PI / 2;
-    diffuser.position.set(lx, roomH - 0.032, lz);
-    scene.add(housing, diffuser);
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.045, 1.18), fixtureMat);
+    housing.position.set(lx, roomH - 0.025, lz);
+    const tubeL = new THREE.Mesh(tubeGeo, ledPanelMat);
+    tubeL.position.set(lx - 0.055, roomH - 0.058, lz);
+    const tubeR = new THREE.Mesh(tubeGeo, ledPanelMat);
+    tubeR.position.set(lx + 0.055, roomH - 0.058, lz);
+    scene.add(housing, tubeL, tubeR);
 
-    const pl = new THREE.PointLight('#f3f7ff', 1.15, 6.5, 1.6);
+    const pl = new THREE.PointLight('#f5f7ef', 1.15, 6.5, 1.6);
     pl.position.set(lx, roomH - 0.16, lz);
     scene.add(pl);
     ledLights.push(pl);
@@ -556,20 +560,20 @@ export function createExamRoomScene(renderer = null) {
 
   // --- FRONT DIAGNOSTIC WALL (Z = -2.25 -> exact 4.000 m from seated eyes at Z = +1.75) ---
 
-  // 1. Center: 4.00 m Backlit ETDRS / Snellen Acuity Lightbox (0.74 m x 0.76 m)
+  // 1. Center: 4.00 m Backlit ETDRS / Snellen Acuity Lightbox (1990s beige enamel metal cabinet)
   const etdrsW = 0.74;
   const etdrsH = 0.76;
   const etdrsTex = createEtdrsChartTexture(etdrsW, etdrsH);
   const etdrsFaceMat = new THREE.MeshStandardMaterial({
     map: etdrsTex,
     emissiveMap: etdrsTex,
-    emissive: '#ffffff',
+    emissive: '#fffdf5',
     emissiveIntensity: 0.42,
     roughness: 0.42,
   });
   const etdrsCabinet = new THREE.Mesh(
-    new THREE.BoxGeometry(etdrsW + 0.05, etdrsH + 0.05, 0.06),
-    new THREE.MeshStandardMaterial({ color: '#cfd6de', metalness: 0.45, roughness: 0.35 })
+    new THREE.BoxGeometry(etdrsW + 0.055, etdrsH + 0.055, 0.075),
+    new THREE.MeshStandardMaterial({ color: '#ccc5b6', metalness: 0.25, roughness: 0.45 })
   );
   etdrsCabinet.position.set(0, SEATED_EYE_Y, FRONT_CHART_Z - 0.032);
   etdrsCabinet.castShadow = true;
@@ -682,9 +686,9 @@ export function createExamRoomScene(renderer = null) {
   anatomyFace.rotation.y = Math.PI / 2;
   scene.add(anatomyFrame, addFocusMesh(anatomyFace));
 
-  // Clinic oak entry door with frosted sidelight on back wall
-  const doorMat = new THREE.MeshStandardMaterial({ color: '#c0a27c', roughness: 0.62 });
-  const doorFrameMat = new THREE.MeshStandardMaterial({ color: '#46505a', roughness: 0.55 });
+  // 1990s walnut Italian clinic door with frosted sidelight on back wall
+  const doorMat = new THREE.MeshStandardMaterial({ color: '#8f6544', roughness: 0.62 });
+  const doorFrameMat = new THREE.MeshStandardMaterial({ color: '#644831', roughness: 0.58 });
   const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.98, 2.16, 0.04), doorFrameMat);
   doorFrame.position.set(0.88, 1.08, bounds.maxZ - 0.02);
   const doorLeaf = new THREE.Mesh(new THREE.BoxGeometry(0.88, 2.10, 0.03), doorMat);

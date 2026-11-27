@@ -204,7 +204,7 @@ export function createSimState() {
   return {
     language: detectDefaultLanguage(),
     sceneId: 'classroom',
-    personaId: 'vuarbit_1994',
+    personaId: 'vuarbit_frut',
     settings: createDefaultVisualSettings(),
     settingsOpen: false,
     qualityPreset: 'high',

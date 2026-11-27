@@ -16,9 +16,9 @@ export const QUALITY_PRESETS = Object.freeze({
 export const SCENES = Object.freeze([
   Object.freeze({
     id: 'classroom',
-    label: '1994 Classroom',
-    shortName: '1994 Classroom',
-    description: 'Mid-1990s Italian classroom with 3.8 m blackboard, quadretti math workbook, classmates, and desk props.',
+    label: 'Classroom',
+    shortName: 'Classroom',
+    description: '1990s Italian classroom with 3.8 m blackboard, quadretti math workbook, classmates, and desk props.',
     defaultMode: 'standing',
     seatedOnly: false,
   }),
@@ -34,7 +34,7 @@ export const SCENES = Object.freeze([
     id: 'exam_room',
     label: 'Optometry Exam Room',
     shortName: 'Exam Room',
-    description: '4.0 m clinical exam lane with backlit ETDRS acuity chart, Pelli-Robson contrast, Amsler grid, Ishihara plates, near Jaeger card, and HDR glare lamp.',
+    description: '4.0 m 1990s clinical exam lane with backlit ETDRS acuity chart, Pelli-Robson contrast, Amsler grid, Ishihara plates, near Jaeger card, and HDR glare lamp.',
     defaultMode: 'seated',
     seatedOnly: false,
   }),
@@ -269,12 +269,12 @@ const EMMETROPIC_BASE = {
 
 export const PERSONAS = Object.freeze([
   Object.freeze({
-    id: 'vuarbit_1994',
+    id: 'vuarbit_frut',
     group: 'vuarbit',
     defaultGlassesOn: true,
-    name: 'Vuarbit 1994 (Childhood Aphakia)',
-    shortName: 'Vuarbit 1994',
-    description: 'Bilateral childhood aphakia (+13/+17 D amber executive bifocal), OD-dominant, OS amblyopia & diplopia, manifest latent nystagmus (MLN).',
+    name: 'Vuarbit Frut (Child · Aphakia)',
+    shortName: 'Vuarbit Frut',
+    description: 'Child (Friulian: Frut) with bilateral childhood aphakia (+13/+17 D amber executive bifocal), OD-dominant, OS amblyopia & diplopia, manifest latent nystagmus (MLN).',
     settings: Object.freeze(createDefaultVisualSettings()),
   }),
   Object.freeze({

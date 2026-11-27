@@ -184,7 +184,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   const header = makeEl('div', 'settings-header');
   const titleWrap = makeEl('div', 'settings-title-wrap');
   const title = bindText(makeEl('h2', 'settings-title'), 'settings.title');
-  const statusBadge = makeEl('span', 'settings-badge', 'Vuarbit 1994');
+  const statusBadge = makeEl('span', 'settings-badge', 'Vuarbit Frut');
   titleWrap.replaceChildren(title, statusBadge);
 
   const headerActions = makeEl('div', 'settings-header-actions');
@@ -511,7 +511,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       compareBtn.setAttribute('aria-pressed', comparing ? 'true' : 'false');
     }
 
-    const personaId = state.personaId || 'vuarbit_1994';
+    const personaId = state.personaId || 'vuarbit_frut';
     if (refresh || personaId !== lastPersonaId) {
       lastPersonaId = personaId;
       const persona = personaId === 'custom' ? null : getPersonaById(personaId);

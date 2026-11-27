@@ -125,7 +125,7 @@ async function init() {
       updateVisualSetting(state, key, value);
     },
     onReset() {
-      applyPersona(state, 'vuarbit_1994');
+      applyPersona(state, 'vuarbit_frut');
     },
     onCompareToggle() {
       toggleCompareNormal(state);

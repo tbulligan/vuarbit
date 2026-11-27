@@ -63,7 +63,7 @@ function glassesLabel(state, lang) {
 function personaLabel(state, lang) {
   if (state.personaId === 'custom') return t(lang, 'settings.custom');
   const persona = getPersonaById?.(state.personaId);
-  return persona ? t(lang, `persona.${persona.id}.short`) : 'Vuarbit 1994';
+  return persona ? t(lang, `persona.${persona.id}.short`) : 'Vuarbit Frut';
 }
 
 function sceneLabel(state, lang) {
