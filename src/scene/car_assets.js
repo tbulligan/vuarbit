@@ -394,14 +394,19 @@ export function paintMountainHorizonCanvas(ctx, w, h, nearHex, farHex) {
 export function createWetStreakTexture(hexColor = '#ffffff') {
   return makeCanvasTexture(128, 512, (ctx, w, h) => {
     ctx.clearRect(0, 0, w, h);
+    const clean = hexColor.replace('#', '');
+    const r = parseInt(clean.slice(0, 2), 16);
+    const g = parseInt(clean.slice(2, 4), 16);
+    const b = parseInt(clean.slice(4, 6), 16);
     ctx.save();
     ctx.translate(w * 0.5, h * 0.5);
     ctx.scale(1.0, h / w);
     ctx.translate(-w * 0.5, -w * 0.5);
-    const rg = ctx.createRadialGradient(w * 0.5, w * 0.5, 2, w * 0.5, w * 0.5, w * 0.5);
-    rg.addColorStop(0.0, hexColor);
-    rg.addColorStop(0.35, hexColor);
-    rg.addColorStop(1.0, 'rgba(0,0,0,0)');
+    const rg = ctx.createRadialGradient(w * 0.5, w * 0.5, 1, w * 0.5, w * 0.5, w * 0.5);
+    rg.addColorStop(0.0, `rgba(${r}, ${g}, ${b}, 0.55)`);
+    rg.addColorStop(0.28, `rgba(${r}, ${g}, ${b}, 0.24)`);
+    rg.addColorStop(0.65, `rgba(${r}, ${g}, ${b}, 0.06)`);
+    rg.addColorStop(1.0, `rgba(${r}, ${g}, ${b}, 0.0)`);
     ctx.fillStyle = rg;
     ctx.fillRect(0, 0, w, w);
     ctx.restore();

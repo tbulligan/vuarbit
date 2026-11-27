@@ -1003,9 +1003,9 @@ export function createCarPassengerScene(renderer = null) {
         b.intensity = currentRoadLight.ownBeamIntensity;
       }
 
-      const wetHeadOp = currentRoadLight.wetness * 0.62;
-      const wetTailOp = currentRoadLight.wetness * 0.52;
-      const wetStreetOp = currentRoadLight.streetlightsOn ? currentRoadLight.wetness * 0.34 : 0.0;
+      const wetHeadOp = currentRoadLight.wetness * 0.30;
+      const wetTailOp = currentRoadLight.wetness * 0.28;
+      const wetStreetOp = currentRoadLight.streetlightsOn ? currentRoadLight.wetness * 0.14 : 0.0;
       for (const oc of oncomingCars) {
         for (const sm of oc.wetStreaks) sm.opacity = wetHeadOp;
       }

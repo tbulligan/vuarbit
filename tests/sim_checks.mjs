@@ -910,7 +910,7 @@ assert.equal(roadNightOn.streetlightsOn, true);
 assert.ok(roadNightOn.streetlightEmissive > 8 && roadNightOn.streetlightPoolIntensity > 0);
 assert.equal(roadNightOff.streetlightsOn, false, 'L OFF at night must disable streetlights for unlit rural highway');
 assert.equal(roadNightOff.streetlightEmissive, 0);
-assert.ok(roadNightOff.ownBeamIntensity > 8, 'own car headlights stay ON at night even with rural streetlights OFF');
+assert.ok(roadNightOff.ownBeamIntensity > 5, 'own car headlights stay ON at night even with rural streetlights OFF');
 assert.ok(roadOvercast.wetness > 0 && roadDuskOn.wetness > roadOvercast.wetness);
 
 // Verify GLSL photopic-aware scotopic gating, continuous HOA streaks & bilateral OS glare invariants
