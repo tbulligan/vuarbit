@@ -575,7 +575,7 @@ export function createExamRoomScene(renderer = null) {
     new THREE.BoxGeometry(etdrsW + 0.055, etdrsH + 0.055, 0.075),
     new THREE.MeshStandardMaterial({ color: '#ccc5b6', metalness: 0.25, roughness: 0.45 })
   );
-  etdrsCabinet.position.set(0, SEATED_EYE_Y, FRONT_CHART_Z - 0.032);
+  etdrsCabinet.position.set(0, SEATED_EYE_Y, FRONT_CHART_Z - 0.040);
   etdrsCabinet.castShadow = true;
   const etdrsFace = new THREE.Mesh(new THREE.PlaneGeometry(etdrsW, etdrsH), etdrsFaceMat);
   etdrsFace.position.set(0, SEATED_EYE_Y, FRONT_CHART_Z);

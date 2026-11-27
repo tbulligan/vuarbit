@@ -872,9 +872,9 @@ void main() {
       float bgBright = smoothstep(0.32, 0.62, localBg);
       vec3 rival = mix(max(colOD, colOS), min(colOD, colOS), bgBright);
       float edgeStrength = smoothstep(0.03, 0.28, abs(lumaOS - lumaOD));
-      // Preserve crisp dark OD ink on bright paper, while bright OS glare breaks through suppression on dark backgrounds
+      // Preserve crisp dark OD ink on bright paper, while bright OS glare breaks through suppression symmetrically on dark backgrounds
       float odDarkInk = bgBright * smoothstep(0.06, 0.30, lumaOS - lumaOD) * (1.0 - domBlocked);
-      float osGlareBreak = (1.0 - bgBright) * smoothstep(0.08, 0.42, lumaOS - lumaOD) * mix(0.84, 0.60, focusClamped) * (1.0 - domBlocked);
+      float osGlareBreak = (1.0 - bgBright) * smoothstep(0.08, 0.40, lumaOS - localBg) * mix(0.86, 0.64, focusClamped) * (1.0 - domBlocked);
       float baseRivalMix = edgeStrength * mix(0.44, 0.22, focusClamped);
       float rivalMix = max(max(baseRivalMix, odDarkInk * mix(0.55, 0.82, focusClamped)), osGlareBreak) * (1.0 - odNearSolid * 0.65) * nonDomOpen * (1.0 - domBlocked * 0.85);
       col = mix(linMix, rival, rivalMix);
