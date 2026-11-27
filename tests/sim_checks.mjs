@@ -818,20 +818,30 @@ assert.equal(stGrant.activeZone, 'uncorrected');
 assert.equal(toggleGlasses(stGrant), true);
 assert.equal(stGrant.glassesSlot, 'distance');
 
+// Switching lensProfile from +13 D aphakia to pseudophakic_iol resets power/myopia/slot cleanly
+const stSwitchIol = createSimState();
+assert.equal(updateVisualSetting(stSwitchIol, 'lensProfile', 'pseudophakic_iol'), 'pseudophakic_iol');
+assert.equal(stSwitchIol.glassesOn, true);
+assert.equal(stSwitchIol.glassesSlot, 'distance');
+assert.equal(stSwitchIol.settings.lensPowerD, -1.0);
+assert.equal(stSwitchIol.settings.myopiaD, 1.0);
+assert.equal(stSwitchIol.settings.nearAddD, 4.0);
+
 // Verify GLSL IOL fixed focal plane & positive dysphotopsia halo invariants
 assert.ok(fragSrc.includes('uIolHalo') && fragSrc.includes('uOsExtraMyopiaD'), 'vision.frag.glsl must define IOL halo & OS residual uniforms');
 assert.ok(fragSrc.includes('isIol > 0.5 ? 0.0'), 'vision.frag.glsl must enforce zero accommodation on monofocal IOL');
 
-// P5: Mobile Observer Mode touch detection, balanced DPR default & shared look-delta clamping
-assert.equal(detectTouchDevice({ maxTouchPoints: 0, coarsePointer: false }), false);
-assert.equal(detectTouchDevice({ maxTouchPoints: 5, coarsePointer: false }), true);
-assert.equal(detectTouchDevice({ maxTouchPoints: 0, coarsePointer: true }), true);
-const stTouch = createSimState({ maxTouchPoints: 5, coarsePointer: true });
+// P5: Mobile Observer Mode touch detection (hybrid touchscreen laptops stay desktop), balanced DPR default & look clamp
+assert.equal(detectTouchDevice({ maxTouchPoints: 0, coarsePointer: false, finePointer: true }), false);
+assert.equal(detectTouchDevice({ maxTouchPoints: 10, coarsePointer: false, finePointer: true }), false, 'hybrid touchscreen laptop with fine mouse must stay desktop');
+assert.equal(detectTouchDevice({ maxTouchPoints: 5, coarsePointer: false, finePointer: false }), true);
+assert.equal(detectTouchDevice({ maxTouchPoints: 0, coarsePointer: true, finePointer: false }), true);
+const stTouch = createSimState({ maxTouchPoints: 5, coarsePointer: true, finePointer: false });
 assert.equal(stTouch.isTouchDevice, true);
 assert.equal(stTouch.qualityPreset, 'balanced', 'touch devices should default to balanced 1.25x DPR');
-const stDesk = createSimState({ maxTouchPoints: 0, coarsePointer: false });
+const stDesk = createSimState({ maxTouchPoints: 10, coarsePointer: false, finePointer: true });
 assert.equal(stDesk.isTouchDevice, false);
-assert.equal(stDesk.qualityPreset, 'high', 'desktop should default to high 1.75x DPR');
+assert.equal(stDesk.qualityPreset, 'high', 'desktop & hybrid laptops should default to high 1.75x DPR');
 
 stTouch.mode = 'seated';
 stTouch.lean = 0;

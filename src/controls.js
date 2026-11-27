@@ -268,6 +268,13 @@ export function createControls(domElement, state, sceneApi) {
     }
   };
 
+  const onPointerDown = (e) => {
+    if (e.pointerType === 'mouse' && state.isTouchDevice) {
+      state.isTouchDevice = false;
+      activeTouchId = null;
+    }
+  };
+
   const onMouseUp = (e) => {
     if (e.button === 2) {
       rmbDown = false;
@@ -418,6 +425,7 @@ export function createControls(domElement, state, sceneApi) {
   };
 
   domElement.addEventListener('click', onCanvasClick);
+  domElement.addEventListener('pointerdown', onPointerDown);
   domElement.addEventListener('touchstart', onTouchStart, { passive: true });
   domElement.addEventListener('touchmove', onTouchMove, { passive: false });
   domElement.addEventListener('touchend', onTouchEnd, { passive: true });
@@ -464,6 +472,9 @@ export function createControls(domElement, state, sceneApi) {
       state.glassesSlide = clamp((state.glassesSlide || 0) + 1.15 * step, 0, maxSlide);
     }
 
+    if (state.settingsOpen) {
+      activeTouchId = null;
+    }
     const suppressed = Boolean(state.settingsOpen);
     const fwdInput = suppressed
       ? 0
@@ -613,6 +624,7 @@ export function createControls(domElement, state, sceneApi) {
 
   function dispose() {
     domElement.removeEventListener('click', onCanvasClick);
+    domElement.removeEventListener('pointerdown', onPointerDown);
     domElement.removeEventListener('touchstart', onTouchStart);
     domElement.removeEventListener('touchmove', onTouchMove);
     domElement.removeEventListener('touchend', onTouchEnd);

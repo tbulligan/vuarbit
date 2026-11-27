@@ -80,17 +80,20 @@ export function smoothstep(edge0, edge1, x) {
 }
 
 /**
- * Pure touch/coarse-pointer environment detection (accepts mock env in Node tests).
+ * Pure touch-primary environment detection (hybrid laptops with fine mouse + touchscreen stay desktop).
  */
 export function detectTouchDevice(env) {
   if (env && typeof env === 'object') {
-    return (Number(env.maxTouchPoints) || 0) > 0 || Boolean(env.coarsePointer);
+    const coarse = Boolean(env.coarsePointer);
+    const fine = Boolean(env.finePointer);
+    const points = Number(env.maxTouchPoints) || 0;
+    return coarse || (points > 0 && !fine);
   }
+  const hasMatchMedia = typeof window !== 'undefined' && typeof window.matchMedia === 'function';
+  const coarse = hasMatchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
+  const fine = hasMatchMedia ? window.matchMedia('(pointer: fine)').matches : false;
   const points = typeof navigator !== 'undefined' ? (navigator.maxTouchPoints || 0) : 0;
-  const coarse = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-    ? window.matchMedia('(pointer: coarse)').matches
-    : false;
-  return points > 0 || coarse;
+  return coarse || (points > 0 && !fine);
 }
 
 /**

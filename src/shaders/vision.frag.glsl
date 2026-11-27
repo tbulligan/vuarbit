@@ -170,6 +170,32 @@ vec3 computeFlashPhosphenes(vec2 px, float t, float closed, float decomp) {
   return fine + mid;
 }
 
+// Shared monofocal pseudophakic IOL positive dysphotopsia (early-outs on pre-blurred luminance to skip 8-tap ring on dark/matte pixels)
+vec3 sampleIolHalo(vec2 baseUv, float iolHalo, bool useNonDom, float angleSeed) {
+  if (iolHalo <= 0.01) return vec3(0.0);
+  float iolLo = mix(1.05, 1.80, clamp(uAmbientLight, 0.0, 1.0));
+  float iolHi = mix(2.25, 3.05, clamp(uAmbientLight, 0.0, 1.0));
+  vec2 cBlurUv = clamp(baseUv, vec2(0.003), vec2(0.997));
+  vec3 iolGlow = useNonDom ? texture2D(tColorNonDom, cBlurUv).rgb : texture2D(tBlurOD, cBlurUv).rgb;
+  float glowLuma = dot(iolGlow, vec3(0.2126, 0.7152, 0.0722));
+  if (glowLuma < iolLo * 0.40) return vec3(0.0);
+
+  vec2 invAspect = vec2(1.0 / uAspect, 1.0);
+  float jitter = fract(angleSeed * 0.15915494);
+  vec3 ringAcc = vec3(0.0);
+  const int IOL_TAPS = 8;
+  float ringR = 0.0175 + 0.0025 * sin(jitter * 6.2831853);
+  for (int k = 0; k < IOL_TAPS; k++) {
+    float ang = (float(k) + jitter) * (6.2831853 / float(IOL_TAPS));
+    vec2 uvR = clamp(baseUv + vec2(cos(ang), sin(ang)) * ringR * invAspect, vec2(0.002), vec2(0.998));
+    vec3 cR = useNonDom ? texture2D(tColorNonDom, uvR).rgb : texture2D(tColorOD, uvR).rgb;
+    float bR = pow(smoothstep(iolLo, iolHi, dot(cR, vec3(0.2126, 0.7152, 0.0722))), 1.6);
+    ringAcc += cR * bR;
+  }
+  float gB = pow(smoothstep(iolLo * 0.55, iolHi * 0.90, glowLuma), 1.5);
+  return (ringAcc * (0.20 / float(IOL_TAPS)) + iolGlow * gB * 0.14) * iolHalo;
+}
+
 // Realism OD sampling (intrinsic VOD 0.7 BCVA + depth-guarded 12-tap CoC + smooth quarter-res +13 D blur)
 vec3 sampleOD(
   vec2 baseUv,
@@ -286,25 +312,7 @@ vec3 sampleOD(
     col += flare * hoaStrength;
   }
 
-  // Monofocal pseudophakic IOL positive dysphotopsia: concentric truncated-edge halo ring + gentle night glare on HDR sources
-  if (iolHalo > 0.01) {
-    float iolLo = mix(1.05, 1.80, clamp(uAmbientLight, 0.0, 1.0));
-    float iolHi = mix(2.25, 3.05, clamp(uAmbientLight, 0.0, 1.0));
-    float jitter = fract(angleSeed * 0.15915494);
-    vec3 ringAcc = vec3(0.0);
-    const int IOL_TAPS = 8;
-    float ringR = 0.0175 + 0.0025 * sin(jitter * 6.2831853);
-    for (int k = 0; k < IOL_TAPS; k++) {
-      float ang = (float(k) + jitter) * (6.2831853 / float(IOL_TAPS));
-      vec2 rOff = vec2(cos(ang), sin(ang)) * ringR * invAspect;
-      vec3 cR = texture2D(tColorOD, clamp(baseUv + rOff, vec2(0.002), vec2(0.998))).rgb;
-      float bR = pow(smoothstep(iolLo, iolHi, dot(cR, vec3(0.2126, 0.7152, 0.0722))), 1.6);
-      ringAcc += cR * bR;
-    }
-    vec3 iolGlow = texture2D(tBlurOD, clamp(baseUv, vec2(0.003), vec2(0.997))).rgb;
-    float gB = pow(smoothstep(iolLo * 0.55, iolHi * 0.90, dot(iolGlow, vec3(0.2126, 0.7152, 0.0722))), 1.5);
-    col += (ringAcc * (0.20 / float(IOL_TAPS)) + iolGlow * gB * 0.14) * iolHalo;
-  }
+  col += sampleIolHalo(baseUv, iolHalo, false, angleSeed);
 
   // Add subtle linear intraocular glare before ACES + sRGB (prevents lifting blacks into gray haze)
   col += vec3(0.98, 0.96, 0.92) * veilAmount;
@@ -378,26 +386,7 @@ vec3 sampleOS(vec2 baseUv, float isoBlurUV, float motionSmearUV, vec2 astDirOS, 
     col += flareOS * hoaOS;
   }
 
-  if (iolHaloOS > 0.01) {
-    float iolLo = mix(1.05, 1.80, clamp(uAmbientLight, 0.0, 1.0));
-    float iolHi = mix(2.25, 3.05, clamp(uAmbientLight, 0.0, 1.0));
-    float jitter = fract(angleSeed * 0.15915494);
-    vec3 ringOS = vec3(0.0);
-    const int IOL_OS_TAPS = 8;
-    float ringR = 0.0175 + 0.0025 * sin(jitter * 6.2831853);
-    for (int k = 0; k < IOL_OS_TAPS; k++) {
-      float ang = (float(k) + jitter) * (6.2831853 / float(IOL_OS_TAPS));
-      vec2 uvR = clamp(baseUv + vec2(cos(ang), sin(ang)) * ringR * invAspect, vec2(0.002), vec2(0.998));
-      vec3 cR = uHasNonDomRT > 0.5 ? texture2D(tColorNonDom, uvR).rgb : texture2D(tColorOD, uvR).rgb;
-      float bR = pow(smoothstep(iolLo, iolHi, dot(cR, vec3(0.2126, 0.7152, 0.0722))), 1.6);
-      ringOS += cR * bR;
-    }
-    vec3 glowOS = uHasNonDomRT > 0.5
-      ? texture2D(tColorNonDom, clamp(baseUv, vec2(0.003), vec2(0.997))).rgb
-      : texture2D(tBlurOD, clamp(baseUv, vec2(0.003), vec2(0.997))).rgb;
-    float gB = pow(smoothstep(iolLo * 0.55, iolHi * 0.90, dot(glowOS, vec3(0.2126, 0.7152, 0.0722))), 1.5);
-    col += (ringOS * (0.18 / float(IOL_OS_TAPS)) + glowOS * gB * 0.13) * iolHaloOS;
-  }
+  col += sampleIolHalo(baseUv, iolHaloOS, uHasNonDomRT > 0.5, angleSeed);
 
   col += vec3(0.98, 0.96, 0.92) * veilAmount;
   return col;

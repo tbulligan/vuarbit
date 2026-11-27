@@ -13,23 +13,16 @@ import { createTinnitusAudio } from './audio.js';
 import { createHud } from './hud.js';
 import { createSettingsDrawer } from './settings.js';
 
-// Explicit allow-list dynamic scene loaders for Vite per-scene code-splitting
+// Explicit allow-list dynamic scene loaders (ES import() natively caches resolved modules)
 const SCENE_LOADERS = {
   classroom: () => import('./scene.js').then((m) => m.createClassroomScene),
   exam_room: () => import('./scene/exam_room.js').then((m) => m.createExamRoomScene),
   car_passenger: () => import('./scene/car_passenger.js').then((m) => m.createCarPassengerScene),
 };
 
-const loadedSceneFactories = new Map();
-
 async function loadSceneFactory(sceneId) {
   if (!Object.hasOwn(SCENE_LOADERS, sceneId)) return null;
-  if (loadedSceneFactories.has(sceneId)) {
-    return loadedSceneFactories.get(sceneId);
-  }
-  const factory = await SCENE_LOADERS[sceneId]();
-  loadedSceneFactories.set(sceneId, factory);
-  return factory;
+  return SCENE_LOADERS[sceneId]();
 }
 
 // shortcut: 180-sample synthetic sawtooth fallback when JSON unavailable, upgrade by bundling default waveform
@@ -92,11 +85,21 @@ async function init() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, initDprCap));
   renderer.setSize(window.innerWidth, window.innerHeight);
 
-  const [waveformData, initialSceneFactory] = await Promise.all([
-    loadWaveform(),
-    loadSceneFactory(state.sceneId),
-  ]);
-  if (!initialSceneFactory) return;
+  let waveformData;
+  let initialSceneFactory;
+  try {
+    [waveformData, initialSceneFactory] = await Promise.all([
+      loadWaveform(),
+      loadSceneFactory(state.sceneId),
+    ]);
+  } catch {
+    renderer.dispose();
+    return;
+  }
+  if (!initialSceneFactory) {
+    renderer.dispose();
+    return;
+  }
 
   document.documentElement.lang = state.language;
   let sceneApi = initialSceneFactory(renderer);
@@ -108,6 +111,7 @@ async function init() {
       state.settingsOpen = !state.settingsOpen;
       if (state.settingsOpen) {
         document.exitPointerLock?.();
+        state.glassesPinned = false;
       }
     },
     onCompareToggle() {

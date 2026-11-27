@@ -109,6 +109,7 @@ export function createHud(rootElement, initialState, callbacks = {}) {
   let lastLang = null;
   let lastLegendKey = null;
   let lastTouchMode = null;
+  let lastMobileBarSig = null;
   let isTouch = Boolean(initialState?.isTouchDevice);
 
   const panel = makeEl('div', 'hud-panel');
@@ -236,28 +237,32 @@ export function createHud(rootElement, initialState, callbacks = {}) {
       const settingsOpen = Boolean(state.settingsOpen);
       const comparing = Boolean(state.compareNormal);
       const glassesActive = hasLens && Boolean(state.glassesOn);
-      mobileSettingsBtn.classList.toggle('is-active', settingsOpen);
-      mobileSettingsBtn.setAttribute('aria-pressed', settingsOpen ? 'true' : 'false');
-      mobileCompareBtn.classList.toggle('is-active', comparing);
-      mobileCompareBtn.setAttribute('aria-pressed', comparing ? 'true' : 'false');
-      mobileGlassesBtn.disabled = !hasLens;
-      mobileGlassesBtn.classList.toggle('is-active', glassesActive);
-      mobileGlassesBtn.setAttribute('aria-pressed', glassesActive ? 'true' : 'false');
-      if (s.lensProfile === 'pseudophakic_iol') {
-        const iol = resolveIolGlassesOptics(s, state.glassesSlot, state.glassesOn);
-        mobileGlassesBtn.textContent = iol.glassesOn
-          ? t(lang, `hud.glasses.slot.${iol.slot}`)
-          : `${t(lang, 'hud.mobile.glasses')}: ${t(lang, 'settings.off')}`;
-      } else {
-        mobileGlassesBtn.textContent = t(lang, 'hud.mobile.glasses');
-      }
       const seatedOnly = Boolean(sc?.seatedOnly);
-      mobileSitBtn.classList.toggle('is-hidden', seatedOnly);
-      if (!seatedOnly) {
-        const isSeated = state.mode === 'seated';
-        mobileSitBtn.textContent = t(lang, isSeated ? 'hud.mobile.stand' : 'hud.mobile.sit');
-        mobileSitBtn.classList.toggle('is-active', isSeated);
-        mobileSitBtn.setAttribute('aria-pressed', isSeated ? 'true' : 'false');
+      const mobileBarSig = `${lang}|${settingsOpen}|${comparing}|${hasLens}|${glassesActive}|${s.lensProfile}|${state.glassesSlot}|${seatedOnly}|${state.mode}`;
+      if (mobileBarSig !== lastMobileBarSig) {
+        lastMobileBarSig = mobileBarSig;
+        mobileSettingsBtn.classList.toggle('is-active', settingsOpen);
+        mobileSettingsBtn.setAttribute('aria-pressed', settingsOpen ? 'true' : 'false');
+        mobileCompareBtn.classList.toggle('is-active', comparing);
+        mobileCompareBtn.setAttribute('aria-pressed', comparing ? 'true' : 'false');
+        mobileGlassesBtn.disabled = !hasLens;
+        mobileGlassesBtn.classList.toggle('is-active', glassesActive);
+        mobileGlassesBtn.setAttribute('aria-pressed', glassesActive ? 'true' : 'false');
+        if (s.lensProfile === 'pseudophakic_iol') {
+          const iol = resolveIolGlassesOptics(s, state.glassesSlot, state.glassesOn);
+          mobileGlassesBtn.textContent = iol.glassesOn
+            ? t(lang, `hud.glasses.slot.${iol.slot}`)
+            : `${t(lang, 'hud.mobile.glasses')}: ${t(lang, 'settings.off')}`;
+        } else {
+          mobileGlassesBtn.textContent = t(lang, 'hud.mobile.glasses');
+        }
+        mobileSitBtn.classList.toggle('is-hidden', seatedOnly);
+        if (!seatedOnly) {
+          const isSeated = state.mode === 'seated';
+          mobileSitBtn.textContent = t(lang, isSeated ? 'hud.mobile.stand' : 'hud.mobile.sit');
+          mobileSitBtn.classList.toggle('is-active', isSeated);
+          mobileSitBtn.setAttribute('aria-pressed', isSeated ? 'true' : 'false');
+        }
       }
     }
 
