@@ -312,12 +312,6 @@ export function createControls(domElement, state, sceneApi) {
       return;
     }
 
-    if (!e.repeat && e.code === 'KeyG' && state.sceneId === 'exam_room') {
-      if (state.settingsOpen) e.preventDefault();
-      state.glareLightOn = state.glareLightOn === false;
-      return;
-    }
-
     if (!e.repeat && e.code === 'KeyC') {
       if (state.settingsOpen) e.preventDefault();
       state.focusing = !state.focusing;

@@ -566,7 +566,7 @@ export function createGlareTargetTexture(boardSizeM = 0.58) {
 
     ctx.font = '20px system-ui, -apple-system, sans-serif';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('ASTIGMATISM / CATARACT / HALO CHECK (G)', cx, h - 24);
+    ctx.fillText('ASTIGMATISM / CATARACT / HALO CHECK', cx, h - 24);
   });
 }
 

@@ -352,7 +352,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   lightsRow.replaceChildren(lightsLbl, lightsBtn);
 
   const glareRow = makeEl('div', 'setting-row is-hidden');
-  const glareLbl = makeEl('span', 'setting-label', 'Glare Lamp (G)');
+  const glareLbl = makeEl('span', 'setting-label', 'Glare Lamp');
   const glareBtn = makeEl('button', 'settings-btn', 'ON');
   glareBtn.type = 'button';
   glareBtn.setAttribute('aria-pressed', 'true');
@@ -420,7 +420,6 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       e.code === 'KeyZ' ||
       e.code === 'KeyL' ||
       e.code === 'KeyT' ||
-      e.code === 'KeyG' ||
       e.code === 'KeyC'
     ) {
       return;

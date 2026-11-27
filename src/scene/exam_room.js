@@ -272,19 +272,19 @@ function buildFrontClinicalCounter() {
     }
   }
 
-  // Far-left clinical hand-washing basin + gooseneck chrome faucet
-  const basin = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.012, 0.28), sinkMat);
-  basin.position.set(-1.26, height + 0.004, 0.01);
-  const faucetStem = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.014, 0.18, 10), chromeMat);
-  faucetStem.position.set(-1.26, height + 0.09, -0.14);
-  const faucetSpout = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.12, 10), chromeMat);
+  // Far-left clinical hand-washing basin + gooseneck chrome faucet (clear of Pelli-Robson chart edge)
+  const basin = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.012, 0.26), sinkMat);
+  basin.position.set(-1.37, height + 0.004, 0.01);
+  const faucetStem = new THREE.Mesh(new THREE.CylinderGeometry(0.010, 0.013, 0.13, 10), chromeMat);
+  faucetStem.position.set(-1.37, height + 0.065, -0.14);
+  const faucetSpout = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.10, 10), chromeMat);
   faucetSpout.rotation.x = Math.PI * 0.42;
-  faucetSpout.position.set(-1.26, height + 0.17, -0.09);
+  faucetSpout.position.set(-1.37, height + 0.125, -0.10);
   const soapBottle = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.028, 0.030, 0.13, 12),
+    new THREE.CylinderGeometry(0.026, 0.028, 0.11, 12),
     new THREE.MeshStandardMaterial({ color: '#3b82a6', roughness: 0.35 })
   );
-  soapBottle.position.set(-0.96, height + 0.065, -0.08);
+  soapBottle.position.set(-1.52, height + 0.055, -0.11);
   group.add(basin, faucetStem, faucetSpout, soapBottle);
 
   // Right-side clinical counter items: tissue cube, lens-spray bottle, stacked exam folders

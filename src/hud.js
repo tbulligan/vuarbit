@@ -62,9 +62,14 @@ function sceneLabel(state) {
   return sc ? sc.shortName : '1994 Classroom';
 }
 
-const BASE_CONTROLS_TEXT =
-  'WASD Move/Adjust | E/Q/Wheel Lean/Near-Far | X Sit | F Pick | RMB Rotate | C Focus | Space Slide Up/Pin | Shift Slide Down (Near) | Z Glasses | L Lights | T Time | R Rest | V Compare | M Mute | P Settings | H Help | F11 Fullscreen';
-const EXAM_CONTROLS_TEXT = `${BASE_CONTROLS_TEXT} | G Glare`;
+const HELP_LINE_MOVE_FULL =
+  'Move: WASD Walk/Adjust · E/Q/Wheel Lean · X Sit · F Pick · RMB Rotate';
+const HELP_LINE_MOVE_SEATED =
+  'Cabin: Mouse Look · WASD Shift · E/Q/Wheel Lean';
+const HELP_LINE_OPTICS =
+  'Optics: Z Glasses · Space/Shift Slide · C Focus · R Rest · V Compare';
+const HELP_LINE_ENV =
+  'Scene: P Settings · T Time · L Lights · M Mute · H Help · F11 Full';
 
 /**
  * Strictly safe DOM HUD telemetry & keybind overlay (DOM APIs only, no raw HTML strings).
@@ -94,7 +99,11 @@ export function createHud(rootElement, initialState) {
   const rFatigue = makeRow('Fatigue (10x)');
   const rTinnitus = makeRow('Tinnitus');
 
-  const controlsLegend = makeEl('div', 'hud-controls', BASE_CONTROLS_TEXT);
+  const controlsLegend = makeEl('div', 'hud-controls');
+  const helpMoveLine = makeEl('div', 'hud-controls-line', HELP_LINE_MOVE_FULL);
+  const helpOpticsLine = makeEl('div', 'hud-controls-line', HELP_LINE_OPTICS);
+  const helpEnvLine = makeEl('div', 'hud-controls-line', HELP_LINE_ENV);
+  controlsLegend.replaceChildren(helpMoveLine, helpOpticsLine, helpEnvLine);
 
   const reticle = makeEl('div', 'hud-reticle');
 
@@ -154,7 +163,8 @@ export function createHud(rootElement, initialState) {
     const sceneId = state.sceneId || 'classroom';
     if (sceneId !== lastLegendSceneId) {
       lastLegendSceneId = sceneId;
-      controlsLegend.textContent = sceneId === 'exam_room' ? EXAM_CONTROLS_TEXT : BASE_CONTROLS_TEXT;
+      const sc = getSceneById?.(sceneId);
+      helpMoveLine.textContent = sc?.seatedOnly ? HELP_LINE_MOVE_SEATED : HELP_LINE_MOVE_FULL;
     }
 
     rScene.val.textContent = sceneLabel(state);
