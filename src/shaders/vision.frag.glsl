@@ -248,35 +248,37 @@ vec3 sampleOD(
     col = mix(col, astGhost, 0.06 * (1.0 - heavyBlurMix));
   }
 
-  // Astigmatism & corneal HOAs (runs in linear HDR before ACES + sRGB; calibrated above matte paper/sleeves so only lamps/windows/hotspots flare)
+  // Astigmatism & corneal HOAs (linear HDR before ACES + sRGB; above matte paper & backlit charts so only lamps/point lights/windows flare)
   if (hoaStrength > 0.01) {
-    float hoaLo = mix(0.40, 1.58, clamp(uAmbientLight, 0.0, 1.0));
-    float hoaHi = mix(1.00, 2.55, clamp(uAmbientLight, 0.0, 1.0));
+    float hoaLo = mix(1.05, 1.65, clamp(uAmbientLight, 0.0, 1.0));
+    float hoaHi = mix(2.20, 2.75, clamp(uAmbientLight, 0.0, 1.0));
+    float jitter = fract(angleSeed * 0.15915494);
     vec3 flare = vec3(0.0);
-    // 1. Directional astigmatic light streaks along meridian
-    for (int s = 1; s <= 3; s++) {
-      float rad = float(s) * 0.012;
-      float w = 0.10 / float(s);
+    // 1. Continuous IGN-jittered directional astigmatic light streaks along meridian (zero discrete pearl artifacts)
+    const int STREAK_STEPS = 8;
+    for (int s = 0; s < STREAK_STEPS; s++) {
+      float t = (float(s) + 0.35 + jitter * 0.65) / float(STREAK_STEPS);
+      float rad = 0.0025 + t * t * 0.036;
+      float w = exp(-t * 2.45) * 0.072;
       vec2 dA = astDir * rad * invAspect;
       vec3 cPos = texture2D(tColorOD, clamp(baseUv + dA, vec2(0.001), vec2(0.999))).rgb;
       vec3 cNeg = texture2D(tColorOD, clamp(baseUv - dA, vec2(0.001), vec2(0.999))).rgb;
-      float bPos = pow(smoothstep(hoaLo, hoaHi, dot(cPos, vec3(0.299, 0.587, 0.114))), 1.6);
-      float bNeg = pow(smoothstep(hoaLo, hoaHi, dot(cNeg, vec3(0.299, 0.587, 0.114))), 1.6);
+      float bPos = pow(smoothstep(hoaLo, hoaHi, dot(cPos, vec3(0.2126, 0.7152, 0.0722))), 1.5);
+      float bNeg = pow(smoothstep(hoaLo, hoaHi, dot(cNeg, vec3(0.2126, 0.7152, 0.0722))), 1.5);
       flare += (cPos * bPos + cNeg * bNeg) * w;
     }
-    // 2. Spherical-aberration halo + asymmetric coma tail
+    // 2. Smooth spherical-aberration halo (via pre-blurred tBlurOD) + tapered asymmetric coma tail
+    vec3 haloBase = texture2D(tBlurOD, clamp(baseUv, vec2(0.003), vec2(0.997))).rgb;
+    float haloB = pow(smoothstep(hoaLo * 0.45, hoaHi * 0.85, dot(haloBase, vec3(0.2126, 0.7152, 0.0722))), 1.5);
+    flare += haloBase * haloB * 0.24;
+
     vec2 comaAxis = normalize(astDir + vec2(0.28, -0.46));
-    for (int j = 0; j < 4; j++) {
-      float fj = float(j);
-      float ang = fj * 1.5707963 + angleSeed * 0.5;
-      vec2 haloOff = vec2(cos(ang), sin(ang)) * 0.025 * invAspect;
-      vec3 hc = texture2D(tColorOD, clamp(baseUv + haloOff, vec2(0.001), vec2(0.999))).rgb;
-      float hb = pow(smoothstep(hoaLo + 0.02, hoaHi + 0.05, dot(hc, vec3(0.299, 0.587, 0.114))), 1.7);
-      flare += hc * hb * 0.065;
+    for (int j = 0; j < 3; j++) {
+      float ct = (float(j) + 0.4 + jitter * 0.6) / 3.0;
+      vec3 comaCol = texture2D(tColorOD, clamp(baseUv + comaAxis * (0.004 + ct * 0.020) * invAspect, vec2(0.001), vec2(0.999))).rgb;
+      float comaB = pow(smoothstep(hoaLo, hoaHi, dot(comaCol, vec3(0.2126, 0.7152, 0.0722))), 1.5);
+      flare += comaCol * comaB * exp(-ct * 2.0) * 0.065;
     }
-    vec3 comaCol = texture2D(tColorOD, clamp(baseUv + comaAxis * 0.019 * invAspect, vec2(0.001), vec2(0.999))).rgb;
-    float comaB = pow(smoothstep(hoaLo, hoaHi, dot(comaCol, vec3(0.299, 0.587, 0.114))), 1.5);
-    flare += comaCol * comaB * 0.12;
 
     col += flare * hoaStrength;
   }
@@ -744,8 +746,12 @@ void main() {
     float netAstigAxisRad = residualAstigD > 1e-4 ? (0.5 * atan(netCylVec.y, netCylVec.x)) : uAstigmatismAxisRad;
     float veil = isAphakic * smoothstep(0.45, 0.96, uEyelidLight) * (0.032 + decomp * 0.035);
 
-    // Intrinsic acuity blur (VOD vs VOS) + foveal hypoplasia / cataract / refractive / progressive swim / scotopic rod blur
-    float scotopicBlur = smoothstep(0.22, 0.03, uAmbientLight) * 0.0030;
+    // Intrinsic acuity blur (VOD vs VOS) + foveal hypoplasia / cataract / refractive / progressive swim / pixel-luminance-gated scotopic rod blur
+    vec3 rawOdLin = texture2D(tColorOD, clamp(uvOD, vec2(0.001), vec2(0.999))).rgb;
+    float localLinLuma = dot(rawOdLin, vec3(0.2126, 0.7152, 0.0722));
+    // Only genuinely dark unlit pixels drop into scotopic rod vision; self-lit backlit charts/screens stay photopic cone-sharp!
+    float pixelDarkMask = 1.0 - smoothstep(0.04, 0.28, localLinLuma);
+    float scotopicBlur = smoothstep(0.22, 0.03, uAmbientLight) * pixelDarkMask * 0.0022;
     float baseAcuityBlur = mix(uAcuityBlurDom, uAcuityBlurNonDom, inNonDomOnly * isAphakic) + decomp * 0.0014 * isAphakic + scotopicBlur;
     baseAcuityBlur = max(baseAcuityBlur, uAlbinism * 0.0032);
     baseAcuityBlur += uCataract * 0.0095 + refBlur + residualAstigD * 0.0014 * pupilScale + palSwim * 0.0048;
@@ -774,15 +780,15 @@ void main() {
       uvOD, depthOD, depthCocShare, isoBlurOD, astBlurOD, astDirOD, hoaOD, uMlnVelUV, chromaOD, radialDir, veil, noiseAngle
     );
     linOD = applyLinearPathologies(linOD, uvOD, p, pFovea, false);
-    // Genuine mesopic sensitivity attenuation in linear light for Glaucoma / Wet AMD / DR (dims dark scenes, never lifts blacks!)
-    float mesopicPath = dimness * max(max(uGlaucoma, uAmd), uDiabeticRetinopathy * 0.85);
+    // Genuine mesopic sensitivity attenuation in linear light for Glaucoma / Wet AMD / DR (strongest on dim unlit targets)
+    float mesopicPath = dimness * mix(0.35, 1.0, pixelDarkMask) * max(max(uGlaucoma, uAmd), uDiabeticRetinopathy * 0.85);
     linOD *= (1.0 - mesopicPath * 0.48);
     vec3 colOD = linearToDisplay(linOD);
-    // Low-acuity contrast compression (pivot anchored to local brightness so dark scenes never brighten!) + scotopic rod desaturation
+    // Low-acuity contrast compression (pivot anchored to local brightness so dark scenes never brighten!) + luminance-gated scotopic rod shift
     float colLuma = dot(colOD, vec3(0.299, 0.587, 0.114));
     float nonBlack = smoothstep(0.004, 0.06, colLuma);
     float lowAcuityDrop = smoothstep(0.010, 0.030, baseAcuityBlur) * 0.24 * nonBlack;
-    float scotopic = smoothstep(0.20, 0.03, uAmbientLight) * nonBlack;
+    float scotopic = smoothstep(0.20, 0.03, uAmbientLight) * pixelDarkMask * nonBlack;
     float pivot = min(0.5, colLuma * 0.95);
     colOD = mix(colOD, mix(vec3(0.42), colOD, 0.93), inNonDomOnly * nonBlack);
     colOD = mix(colOD, vec3(colLuma), lowAcuityDrop * 0.35);
@@ -816,7 +822,9 @@ void main() {
 
       float lumaOD = dot(colOD, vec3(0.299, 0.587, 0.114));
       float lumaOS = dot(colOS, vec3(0.299, 0.587, 0.114));
-      colOS = mix(colOS, vec3(lumaOS) * vec3(0.88, 0.94, 1.06), scotopic * 0.48);
+      float osDarkMask = 1.0 - smoothstep(0.04, 0.28, dot(linOS, vec3(0.2126, 0.7152, 0.0722)));
+      float osScotopic = smoothstep(0.20, 0.03, uAmbientLight) * osDarkMask * smoothstep(0.004, 0.06, lumaOS);
+      colOS = mix(colOS, vec3(lumaOS) * vec3(0.88, 0.94, 1.06), osScotopic * 0.48);
       colOS = mix(colOS, vec3(lumaOS), 0.04) * 0.99;
 
       // Binocular rivalry & per-eye occlusion: covering non-dom removes ghost; genuine obstacle cover of dom switches to stereo OS

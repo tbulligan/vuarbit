@@ -114,12 +114,39 @@ export function createEtdrsChartTexture(boardWidthM = 0.74, boardHeightM = 0.76)
       cursorY += letterPx + gapPx;
     }
 
+    // Clinical Red / Green Duochrome balance bar (tests chromatic balance & CVD right on main chart)
+    const duoW = Math.round(cw * 0.56);
+    const duoH = 148;
+    const duoX = Math.round((cw - duoW) * 0.5);
+    const duoY = ch - 252;
+    ctx.fillStyle = '#c83430';
+    ctx.fillRect(duoX, duoY, duoW * 0.5, duoH);
+    ctx.fillStyle = '#258c4e';
+    ctx.fillRect(duoX + duoW * 0.5, duoY, duoW * 0.5, duoH);
+    ctx.strokeStyle = '#22262c';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(duoX, duoY, duoW, duoH);
+    // Crisp black target rings on both halves (standard optometry red/green duochrome targets)
+    const ringR = 34;
+    for (const frac of [0.16, 0.34, 0.66, 0.84]) {
+      const rx = duoX + duoW * frac;
+      const ry = duoY + duoH * 0.5;
+      ctx.strokeStyle = '#0d1014';
+      ctx.lineWidth = 10;
+      ctx.beginPath();
+      ctx.arc(rx, ry, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(rx, ry, ringR * 0.42, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
     // Bottom calibration footer
     ctx.fillStyle = '#5d6572';
     ctx.font = '26px system-ui, -apple-system, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('20/20 = 5.82 mm @ 4.00 m  ·  20/200 = 58.18 mm', cw * 0.5, ch - 36);
+    ctx.fillText('20/20 = 5.82 mm @ 4.00 m  ·  DUOCHROME RED / GREEN BALANCE', cw * 0.5, ch - 36);
   });
 }
 
@@ -544,14 +571,14 @@ export function createGlareTargetTexture(boardSizeM = 0.58) {
 }
 
 /**
- * Clean clinical vinyl floor tile texture.
+ * Warm light-oak architectural vinyl plank floor texture for a realistic modern clinical exam lane.
  */
 export function createExamFloorTexture() {
   return makeCanvasTexture(
-    512,
-    512,
+    1024,
+    1024,
     (ctx, w, h) => {
-      ctx.fillStyle = '#cfd5db';
+      ctx.fillStyle = '#cab79b';
       ctx.fillRect(0, 0, w, h);
 
       let seed = 314159;
@@ -559,24 +586,150 @@ export function createExamFloorTexture() {
         seed = (seed * 1664525 + 1013904223) >>> 0;
         return seed / 4294967296;
       };
-      for (let i = 0; i < 1200; i += 1) {
-        ctx.fillStyle = rand() > 0.5 ? 'rgba(155, 165, 176, 0.18)' : 'rgba(240, 244, 248, 0.18)';
-        ctx.fillRect(rand() * w, rand() * h, 4, 2);
-      }
 
-      ctx.strokeStyle = 'rgba(110, 120, 132, 0.25)';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(0, 0, w, h);
-      ctx.beginPath();
-      ctx.moveTo(w * 0.5, 0);
-      ctx.lineTo(w * 0.5, h);
-      ctx.moveTo(0, h * 0.5);
-      ctx.lineTo(w, h * 0.5);
-      ctx.stroke();
+      const planksX = 8;
+      const plankW = w / planksX;
+      const tones = ['#cdb99d', '#c4af91', '#d2c0a6', '#bfa98a', '#c9b497'];
+      for (let col = 0; col < planksX; col += 1) {
+        const x = col * plankW;
+        const seamY = Math.floor(rand() * h * 0.6 + h * 0.2);
+        const segs = [
+          [0, seamY],
+          [seamY, h],
+        ];
+        for (const [y0, y1] of segs) {
+          ctx.fillStyle = tones[Math.floor(rand() * tones.length)];
+          ctx.fillRect(x, y0, plankW, y1 - y0);
+          // Fine vertical wood grain streaks
+          for (let g = 0; g < 36; g += 1) {
+            ctx.fillStyle = rand() > 0.5 ? 'rgba(98, 76, 52, 0.08)' : 'rgba(246, 238, 224, 0.07)';
+            const gx = x + rand() * (plankW - 3);
+            ctx.fillRect(gx, y0, 1.5 + rand() * 2.5, y1 - y0);
+          }
+        }
+        // Subtle plank seams
+        ctx.strokeStyle = 'rgba(78, 62, 46, 0.22)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.moveTo(x, seamY);
+        ctx.lineTo(x + plankW, seamY);
+        ctx.stroke();
+      }
     },
-    5,
-    6
+    3,
+    4
   );
+}
+
+/**
+ * Framed clinical Eye Cross-Section Anatomy wall poster texture.
+ */
+export function createEyeAnatomyTexture() {
+  return makeCanvasTexture(768, 1024, (ctx, w, h) => {
+    ctx.fillStyle = '#f3f4f2';
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = '#cbd2d9';
+    ctx.lineWidth = 8;
+    ctx.strokeRect(18, 18, w - 36, h - 36);
+
+    ctx.fillStyle = '#1f2933';
+    ctx.font = 'bold 34px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('OCULAR OPTICS & RETINA', w * 0.5, 86);
+    ctx.fillStyle = '#52606d';
+    ctx.font = '20px system-ui, -apple-system, sans-serif';
+    ctx.fillText('CORNEA · CRYSTALLINE LENS · MACULA · OPTIC NERVE', w * 0.5, 124);
+
+    // Stylized sagittal eye cross-section
+    const cx = w * 0.52;
+    const cy = h * 0.48;
+    const r = 210;
+
+    // Sclera outer ring
+    ctx.fillStyle = '#e5e9ee';
+    ctx.strokeStyle = '#334e68';
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Inner retina layer (warm orange-ochre arc on posterior pole)
+    ctx.strokeStyle = '#d96b38';
+    ctx.lineWidth = 12;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r - 18, -Math.PI * 0.65, Math.PI * 0.65);
+    ctx.stroke();
+
+    // Cornea anterior bulge (left)
+    ctx.fillStyle = 'rgba(147, 197, 253, 0.35)';
+    ctx.strokeStyle = '#2b6cb0';
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.arc(cx - r + 24, cy, 102, Math.PI * 0.62, Math.PI * 1.38);
+    ctx.fill();
+    ctx.stroke();
+
+    // Iris & pupil
+    ctx.strokeStyle = '#3b6e8c';
+    ctx.lineWidth = 16;
+    ctx.beginPath();
+    ctx.moveTo(cx - r + 52, cy - 88);
+    ctx.lineTo(cx - r + 52, cy - 30);
+    ctx.moveTo(cx - r + 52, cy + 30);
+    ctx.lineTo(cx - r + 52, cy + 88);
+    ctx.stroke();
+
+    // Crystalline lens
+    ctx.fillStyle = 'rgba(219, 234, 254, 0.85)';
+    ctx.strokeStyle = '#4a6fa5';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.ellipse(cx - r + 98, cy, 28, 66, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Optic nerve exit (posterior right)
+    ctx.fillStyle = '#e8c49a';
+    ctx.strokeStyle = '#334e68';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(cx + r - 10, cy + 28);
+    ctx.lineTo(cx + r + 88, cy + 54);
+    ctx.lineTo(cx + r + 88, cy + 92);
+    ctx.lineTo(cx + r - 18, cy + 68);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Focusing light rays to fovea
+    ctx.strokeStyle = 'rgba(234, 179, 8, 0.85)';
+    ctx.lineWidth = 4;
+    for (const dy of [-52, 0, 52]) {
+      ctx.beginPath();
+      ctx.moveTo(64, cy + dy);
+      ctx.lineTo(cx - r + 98, cy + dy * 0.82);
+      ctx.lineTo(cx + r - 20, cy);
+      ctx.stroke();
+    }
+
+    // Clean clinical labels
+    ctx.fillStyle = '#334e68';
+    ctx.font = 'bold 22px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('Cornea', 76, cy - 154);
+    ctx.fillText('Crystalline Lens', 76, cy + 184);
+    ctx.textAlign = 'right';
+    ctx.fillText('Fovea / Macula', w - 66, cy - 12);
+    ctx.fillText('Optic Nerve', w - 66, cy + 122);
+
+    ctx.fillStyle = '#52606d';
+    ctx.font = '20px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('SCHEMATIC REFRACTION · EMMETROPIA vs APHAKIA', w * 0.5, h - 56);
+  });
 }
 
 /**
@@ -584,12 +737,12 @@ export function createExamFloorTexture() {
  */
 export function createDistanceMarkerTexture(label) {
   return makeCanvasTexture(512, 128, (ctx, w, h) => {
-    ctx.fillStyle = '#334155';
+    ctx.fillStyle = '#2d3748';
     ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#e2e8f0';
-    ctx.fillRect(10, 10, w - 20, h - 20);
-    ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 58px system-ui, -apple-system, sans-serif';
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillRect(8, 8, w - 16, h - 16);
+    ctx.fillStyle = '#1e293b';
+    ctx.font = 'bold 54px system-ui, -apple-system, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, w * 0.5, h * 0.52);

@@ -8,13 +8,14 @@ import {
   createDistanceMarkerTexture,
   createEtdrsChartTexture,
   createExamFloorTexture,
+  createEyeAnatomyTexture,
   createGlareTargetTexture,
   createIshiharaPanelTexture,
   createJaegerCardTexture,
   createPelliRobsonTexture,
 } from './exam_charts.js';
 
-// shortcut: procedural clinical geometry + canvas diagnostic charts (no external glTF assets), upgrade if detailed medical models are added
+// shortcut: procedural clinical geometry + canvas diagnostic charts (no external glTF assets); occlusion/held loop duplicates scene.js until a 3rd scene (P4) justifies a shared helper
 
 const FRONT_CHART_Z = -2.25;
 const SEATED_EYE_Z = FRONT_CHART_Z + EXAM_VIEW_DISTANCE_M; // +1.75 m -> exact 4.000 m to ETDRS plane
@@ -90,6 +91,223 @@ function buildClinicianStool() {
     leg.rotation.y = ang;
     group.add(leg);
   }
+  return group;
+}
+
+function buildSlitLampUnit() {
+  const group = new THREE.Group();
+  const whiteMat = new THREE.MeshStandardMaterial({ color: '#edf1f4', roughness: 0.45 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: '#262d36', roughness: 0.48, metalness: 0.25 });
+  const chromeMat = new THREE.MeshStandardMaterial({ color: '#cfd6de', metalness: 0.78, roughness: 0.22 });
+  const accentMat = new THREE.MeshStandardMaterial({ color: '#2b5f7a', roughness: 0.5 });
+
+  // Motorized clinical instrument table
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.04, 0.46), darkMat);
+  base.position.y = 0.04;
+  const col = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.048, 0.70, 14), chromeMat);
+  col.position.y = 0.40;
+  col.castShadow = true;
+  const top = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.032, 0.46), whiteMat);
+  top.position.y = 0.77;
+  top.castShadow = true;
+  top.receiveShadow = true;
+
+  // Slit-lamp base carriage + joystick
+  const carriage = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.05, 0.22), darkMat);
+  carriage.position.set(0, 0.81, 0.04);
+  const joystick = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.011, 0.11, 10), darkMat);
+  joystick.position.set(0.05, 0.88, 0.11);
+  joystick.rotation.x = 0.18;
+
+  // Chinrest & forehead frame (patient side)
+  for (const sx of [-0.085, 0.085]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.36, 8), chromeMat);
+    post.position.set(sx, 0.96, -0.14);
+    group.add(post);
+  }
+  const browBar = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.016, 0.022), darkMat);
+  browBar.position.set(0, 1.13, -0.14);
+  const chinCup = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.016, 0.045), darkMat);
+  chinCup.position.set(0, 0.90, -0.14);
+
+  // Illumination tower & binocular microscope arm
+  const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.028, 0.26, 12), whiteMat);
+  tower.position.set(-0.04, 0.97, 0.02);
+  tower.rotation.z = 0.14;
+  const towerCap = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.03, 12), accentMat);
+  towerCap.position.set(-0.06, 1.10, 0.02);
+  const scopeBody = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.07, 0.16), darkMat);
+  scopeBody.position.set(0.02, 0.99, 0.02);
+  for (const ex of [-0.022, 0.022]) {
+    const ocular = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.014, 0.065, 10), darkMat);
+    ocular.rotation.x = Math.PI / 2;
+    ocular.position.set(0.02 + ex, 1.00, 0.12);
+    group.add(ocular);
+  }
+
+  group.add(base, col, top, carriage, joystick, browBar, chinCup, tower, towerCap, scopeBody);
+  return group;
+}
+
+function buildPhoropterStand() {
+  const group = new THREE.Group();
+  const chromeMat = new THREE.MeshStandardMaterial({ color: '#cfd6de', metalness: 0.8, roughness: 0.22 });
+  const bodyMat = new THREE.MeshStandardMaterial({ color: '#dde3e8', roughness: 0.45 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: '#242a33', roughness: 0.5 });
+
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.20, 0.05, 18), darkMat);
+  base.position.y = 0.025;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.036, 1.88, 14), chromeMat);
+  pole.position.y = 0.96;
+  pole.castShadow = true;
+
+  // Parked upper swing arm angled away from patient sightline (-X)
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.036, 0.042), bodyMat);
+  arm.position.set(-0.18, 1.48, 0.0);
+  arm.castShadow = true;
+
+  // Compact retracted phoropter head (dual lens wheels)
+  const head = new THREE.Group();
+  head.position.set(-0.34, 1.38, 0.03);
+  head.rotation.y = 0.45;
+  const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 0.04), darkMat);
+  for (const dx of [-0.075, 0.075]) {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.068, 0.032, 18), darkMat);
+    wheel.rotation.x = Math.PI / 2;
+    wheel.position.set(dx, -0.04, 0);
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.036, 14), chromeMat);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.set(dx, -0.04, 0);
+    head.add(wheel, ring);
+  }
+  head.add(bridge);
+
+  // Overhead exam gooseneck lamp hood
+  const lampArm = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.34, 8), chromeMat);
+  lampArm.position.set(0.09, 1.88, -0.08);
+  lampArm.rotation.z = -0.65;
+  const lampHead = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.10, 14), bodyMat);
+  lampHead.position.set(0.20, 1.82, -0.10);
+  lampHead.rotation.z = 0.35;
+
+  group.add(base, pole, arm, head, lampArm, lampHead);
+  return group;
+}
+
+function buildPottedPlant() {
+  const group = new THREE.Group();
+  const potMat = new THREE.MeshStandardMaterial({ color: '#e3e0d8', roughness: 0.72 });
+  const soilMat = new THREE.MeshStandardMaterial({ color: '#46382b', roughness: 0.95 });
+  const leafMat = new THREE.MeshStandardMaterial({ color: '#3b6b4c', roughness: 0.62, side: THREE.DoubleSide });
+  const leafLightMat = new THREE.MeshStandardMaterial({ color: '#4f825e', roughness: 0.58, side: THREE.DoubleSide });
+
+  const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.145, 0.115, 0.30, 18), potMat);
+  pot.position.y = 0.15;
+  pot.castShadow = true;
+  pot.receiveShadow = true;
+  const soil = new THREE.Mesh(new THREE.CylinderGeometry(0.135, 0.135, 0.02, 16), soilMat);
+  soil.position.y = 0.29;
+  group.add(pot, soil);
+
+  // Upright architectural Sansevieria blades (clean modern clinic aesthetic)
+  for (let i = 0; i < 11; i += 1) {
+    const ang = (i / 11) * Math.PI * 2 + (i % 2) * 0.22;
+    const h = 0.42 + (i % 4) * 0.13;
+    const rad = 0.03 + (i % 3) * 0.028;
+    const blade = new THREE.Mesh(new THREE.ConeGeometry(0.036, h, 4), i % 2 === 0 ? leafMat : leafLightMat);
+    blade.scale.set(1.0, 1.0, 0.22);
+    blade.position.set(Math.cos(ang) * rad, 0.29 + h * 0.48, Math.sin(ang) * rad);
+    blade.rotation.y = ang;
+    blade.rotation.z = (i % 2 === 0 ? 1 : -1) * (0.06 + (i % 3) * 0.04);
+    blade.castShadow = true;
+    group.add(blade);
+  }
+  return group;
+}
+
+function buildFrontClinicalCounter() {
+  const group = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: '#eff2f4', roughness: 0.52 });
+  const oakTopMat = new THREE.MeshStandardMaterial({ color: '#c4a882', roughness: 0.58 });
+  const toeMat = new THREE.MeshStandardMaterial({ color: '#37414d', roughness: 0.7 });
+  const chromeMat = new THREE.MeshStandardMaterial({ color: '#cfd6de', metalness: 0.82, roughness: 0.20 });
+  const sinkMat = new THREE.MeshStandardMaterial({ color: '#aeb7c2', metalness: 0.72, roughness: 0.28 });
+
+  const width = 3.20;
+  const depth = 0.44;
+  const height = 0.76;
+
+  // Recessed dark plinth toe-kick
+  const toe = new THREE.Mesh(new THREE.BoxGeometry(width - 0.04, 0.08, depth - 0.06), toeMat);
+  toe.position.set(0, 0.04, -0.02);
+  // Main cabinet carcass
+  const carcass = new THREE.Mesh(new THREE.BoxGeometry(width, height - 0.11, depth), bodyMat);
+  carcass.position.set(0, 0.08 + (height - 0.11) * 0.5, 0);
+  carcass.castShadow = true;
+  carcass.receiveShadow = true;
+  // Warm oak countertop
+  const counterTop = new THREE.Mesh(new THREE.BoxGeometry(width + 0.04, 0.032, depth + 0.03), oakTopMat);
+  counterTop.position.set(0, height - 0.016, 0.01);
+  counterTop.castShadow = true;
+  counterTop.receiveShadow = true;
+  // Low backsplash lip
+  const splash = new THREE.Mesh(new THREE.BoxGeometry(width + 0.04, 0.065, 0.02), oakTopMat);
+  splash.position.set(0, height + 0.032, -depth * 0.5 + 0.01);
+  group.add(toe, carcass, counterTop, splash);
+
+  // 5 crisp cabinet doors with subtle groove shadows & brushed chrome bar pulls
+  const doorW = (width - 0.08) / 5;
+  const grooveMat = new THREE.MeshStandardMaterial({ color: '#cbd3da', roughness: 0.75 });
+  for (let i = 0; i < 5; i += 1) {
+    const dx = -width * 0.5 + 0.04 + (i + 0.5) * doorW;
+    const door = new THREE.Mesh(new THREE.BoxGeometry(doorW - 0.016, 0.60, 0.014), bodyMat);
+    door.position.set(dx, 0.41, depth * 0.5 + 0.005);
+    const pull = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.14, 8), chromeMat);
+    pull.position.set(dx + (i % 2 === 0 ? doorW * 0.34 : -doorW * 0.34), 0.55, depth * 0.5 + 0.024);
+    group.add(door, pull);
+    if (i > 0) {
+      const seam = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.62, 0.006), grooveMat);
+      seam.position.set(dx - doorW * 0.5, 0.41, depth * 0.5 + 0.003);
+      group.add(seam);
+    }
+  }
+
+  // Far-left clinical hand-washing basin + gooseneck chrome faucet
+  const basin = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.012, 0.28), sinkMat);
+  basin.position.set(-1.26, height + 0.004, 0.01);
+  const faucetStem = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.014, 0.18, 10), chromeMat);
+  faucetStem.position.set(-1.26, height + 0.09, -0.14);
+  const faucetSpout = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.12, 10), chromeMat);
+  faucetSpout.rotation.x = Math.PI * 0.42;
+  faucetSpout.position.set(-1.26, height + 0.17, -0.09);
+  const soapBottle = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.028, 0.030, 0.13, 12),
+    new THREE.MeshStandardMaterial({ color: '#3b82a6', roughness: 0.35 })
+  );
+  soapBottle.position.set(-0.96, height + 0.065, -0.08);
+  group.add(basin, faucetStem, faucetSpout, soapBottle);
+
+  // Right-side clinical counter items: tissue cube, lens-spray bottle, stacked exam folders
+  const tissueBox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 0.11, 0.12),
+    new THREE.MeshStandardMaterial({ color: '#e2e8ee', roughness: 0.8 })
+  );
+  tissueBox.position.set(1.18, height + 0.055, -0.03);
+  tissueBox.castShadow = true;
+  const folder1 = new THREE.Mesh(
+    new THREE.BoxGeometry(0.24, 0.014, 0.30),
+    new THREE.MeshStandardMaterial({ color: '#355c7d', roughness: 0.72 })
+  );
+  folder1.position.set(0.72, height + 0.007, 0.02);
+  folder1.rotation.y = 0.08;
+  const lensCase = new THREE.Mesh(
+    new THREE.BoxGeometry(0.22, 0.042, 0.16),
+    new THREE.MeshStandardMaterial({ color: '#2b313a', roughness: 0.55 })
+  );
+  lensCase.position.set(-0.46, height + 0.021, 0.02);
+  lensCase.castShadow = true;
+  group.add(tissueBox, folder1, lensCase);
+
   return group;
 }
 
@@ -195,28 +413,33 @@ export function createExamRoomScene(renderer = null) {
   ceiling.castShadow = true;
   scene.add(ceiling);
 
-  const wallMat = new THREE.MeshStandardMaterial({ color: '#dde3e8', roughness: 0.88, shadowSide: THREE.DoubleSide });
-  const lowerWallMat = new THREE.MeshStandardMaterial({ color: '#c4ced7', roughness: 0.84, shadowSide: THREE.DoubleSide });
-  const trimMat = new THREE.MeshStandardMaterial({ color: '#8d99a6', roughness: 0.65 });
+  const wallMat = new THREE.MeshStandardMaterial({ color: '#e6eae7', roughness: 0.88, shadowSide: THREE.DoubleSide });
+  const lowerWallMat = new THREE.MeshStandardMaterial({ color: '#bccac8', roughness: 0.84, shadowSide: THREE.DoubleSide });
+  const trimMat = new THREE.MeshStandardMaterial({ color: '#9c805e', roughness: 0.62 });
+  const baseBoardMat = new THREE.MeshStandardMaterial({ color: '#46505a', roughness: 0.68 });
 
   function addClinicWall(width, cx, cz, rotY, castShadow = true) {
-    const low = new THREE.Mesh(new THREE.PlaneGeometry(width, 1.02), lowerWallMat);
-    low.position.set(cx, 0.51, cz);
+    const low = new THREE.Mesh(new THREE.PlaneGeometry(width, 0.98), lowerWallMat);
+    low.position.set(cx, 0.49, cz);
     low.rotation.y = rotY;
     low.castShadow = castShadow;
     low.receiveShadow = true;
 
-    const up = new THREE.Mesh(new THREE.PlaneGeometry(width, roomH - 1.02), wallMat);
-    up.position.set(cx, 1.02 + (roomH - 1.02) * 0.5, cz);
+    const up = new THREE.Mesh(new THREE.PlaneGeometry(width, roomH - 0.98), wallMat);
+    up.position.set(cx, 0.98 + (roomH - 0.98) * 0.5, cz);
     up.rotation.y = rotY;
     up.castShadow = castShadow;
     up.receiveShadow = true;
 
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(width, 0.035, 0.025), trimMat);
-    rail.position.set(cx, 1.02, cz);
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(width, 0.036, 0.028), trimMat);
+    rail.position.set(cx, 0.98, cz);
     rail.rotation.y = rotY;
 
-    scene.add(addFocusMesh(low), addFocusMesh(up), rail);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(width, 0.095, 0.022), baseBoardMat);
+    base.position.set(cx, 0.0475, cz);
+    base.rotation.y = rotY;
+
+    scene.add(addFocusMesh(low), addFocusMesh(up), rail, base);
   }
 
   // Front (-Z), Back (+Z), Right (+X) walls
@@ -224,13 +447,19 @@ export function createExamRoomScene(renderer = null) {
   addClinicWall(roomW, 0, bounds.maxZ, Math.PI, true);
   addClinicWall(roomD, bounds.maxX, roomCenterZ, -Math.PI / 2, false);
 
-  // Left wall (-X) with clinical frosted window bay (Z: -0.75..+1.35, Y: 1.02..2.42) driving T Time-of-Day
-  const leftLow = new THREE.Mesh(new THREE.PlaneGeometry(roomD, 1.02), lowerWallMat);
-  leftLow.position.set(bounds.minX, 0.51, roomCenterZ);
+  // Left wall (-X) with clinical frosted window bay (Z: -0.75..+1.35, Y: 0.98..2.42) driving T Time-of-Day
+  const leftLow = new THREE.Mesh(new THREE.PlaneGeometry(roomD, 0.98), lowerWallMat);
+  leftLow.position.set(bounds.minX, 0.49, roomCenterZ);
   leftLow.rotation.y = Math.PI / 2;
   leftLow.castShadow = true;
   leftLow.receiveShadow = true;
-  scene.add(addFocusMesh(leftLow));
+  const leftBase = new THREE.Mesh(new THREE.BoxGeometry(roomD, 0.095, 0.022), baseBoardMat);
+  leftBase.position.set(bounds.minX, 0.0475, roomCenterZ);
+  leftBase.rotation.y = Math.PI / 2;
+  const leftRail = new THREE.Mesh(new THREE.BoxGeometry(roomD, 0.036, 0.028), trimMat);
+  leftRail.position.set(bounds.minX, 0.98, roomCenterZ);
+  leftRail.rotation.y = Math.PI / 2;
+  scene.add(addFocusMesh(leftLow), leftBase, leftRail);
 
   const leftTop = new THREE.Mesh(new THREE.PlaneGeometry(roomD, roomH - 2.42), wallMat);
   leftTop.position.set(bounds.minX, 2.42 + (roomH - 2.42) * 0.5, roomCenterZ);
@@ -239,12 +468,12 @@ export function createExamRoomScene(renderer = null) {
   leftTop.receiveShadow = true;
   scene.add(addFocusMesh(leftTop));
 
-  const leftFrontPillar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.40, 1.55), wallMat);
-  leftFrontPillar.position.set(bounds.minX, 1.72, -1.525);
+  const leftFrontPillar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.44, 1.55), wallMat);
+  leftFrontPillar.position.set(bounds.minX, 1.70, -1.525);
   leftFrontPillar.castShadow = true;
   leftFrontPillar.receiveShadow = true;
-  const leftBackPillar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.40, 1.95), wallMat);
-  leftBackPillar.position.set(bounds.minX, 1.72, 2.325);
+  const leftBackPillar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.44, 1.95), wallMat);
+  leftBackPillar.position.set(bounds.minX, 1.70, 2.325);
   leftBackPillar.castShadow = true;
   leftBackPillar.receiveShadow = true;
   scene.add(addFocusMesh(leftFrontPillar), addFocusMesh(leftBackPillar));
@@ -335,7 +564,7 @@ export function createExamRoomScene(renderer = null) {
     map: etdrsTex,
     emissiveMap: etdrsTex,
     emissive: '#ffffff',
-    emissiveIntensity: 0.58,
+    emissiveIntensity: 0.42,
     roughness: 0.42,
   });
   const etdrsCabinet = new THREE.Mesh(
@@ -381,37 +610,97 @@ export function createExamRoomScene(renderer = null) {
   glareFace.position.set(glareX, SEATED_EYE_Y, FRONT_CHART_Z);
   scene.add(glareBoard, addFocusMesh(glareFace));
 
-  // Central HDR point-light bead (linear emissive ~12.0 drives astigmatism HOA streaks + cataract scatter in vision.frag.glsl)
+  // Central HDR point-light bead (linear emissive ~10.0 pairs with smooth continuous IGN-jittered HOA streaks in vision.frag.glsl)
   const glareCoreMat = new THREE.MeshStandardMaterial({
     color: '#ffffff',
     emissive: '#fff8ea',
-    emissiveIntensity: 12.0,
+    emissiveIntensity: 10.0,
     roughness: 0.1,
   });
   const glareHaloMat = new THREE.MeshStandardMaterial({
     color: '#fff5e0',
     emissive: '#ffefd0',
-    emissiveIntensity: 3.4,
+    emissiveIntensity: 3.0,
     transparent: true,
-    opacity: 0.72,
+    opacity: 0.65,
     roughness: 0.2,
   });
   const glareBezel = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.034, 0.038, 0.022, 20),
-    new THREE.MeshStandardMaterial({ color: '#242933', metalness: 0.6, roughness: 0.35 })
+    new THREE.CylinderGeometry(0.026, 0.031, 0.022, 20),
+    new THREE.MeshStandardMaterial({ color: '#1b2028', metalness: 0.6, roughness: 0.35 })
   );
   glareBezel.rotation.x = Math.PI / 2;
   glareBezel.position.set(glareX, SEATED_EYE_Y, FRONT_CHART_Z + 0.008);
 
-  const glareCore = new THREE.Mesh(new THREE.SphereGeometry(0.016, 16, 12), glareCoreMat);
+  const glareCore = new THREE.Mesh(new THREE.SphereGeometry(0.012, 16, 12), glareCoreMat);
   glareCore.position.set(glareX, SEATED_EYE_Y, FRONT_CHART_Z + 0.018);
 
-  const glareHalo = new THREE.Mesh(new THREE.CircleGeometry(0.031, 24), glareHaloMat);
-  glareHalo.position.set(glareX, SEATED_EYE_Y, FRONT_CHART_Z + 0.020);
+  const glareHalo = new THREE.Mesh(new THREE.CircleGeometry(0.022, 24), glareHaloMat);
+  glareHalo.position.set(glareX, SEATED_EYE_Y, FRONT_CHART_Z + 0.019);
 
-  const glarePointLight = new THREE.PointLight('#fff3dc', 0.45, 1.9, 2.0);
+  const glarePointLight = new THREE.PointLight('#fff3dc', 0.38, 1.8, 2.0);
   glarePointLight.position.set(glareX, SEATED_EYE_Y, FRONT_CHART_Z + 0.09);
   scene.add(glareBezel, glareCore, glareHalo, glarePointLight);
+
+  // Front clinical counter/cabinetry under charts (grounds front wall & removes sterile void)
+  const frontCounter = buildFrontClinicalCounter();
+  frontCounter.position.set(0, 0, bounds.minZ + 0.24);
+  scene.add(addFocusMesh(frontCounter));
+  colliders.push({ minX: -1.66, maxX: 1.66, minZ: bounds.minZ, maxZ: bounds.minZ + 0.49 });
+
+  // Slit-lamp biomicroscope on wheeled instrument table along left-mid lane (clear of 4 m sightlines)
+  const slitLamp = buildSlitLampUnit();
+  slitLamp.position.set(-1.76, 0, -0.82);
+  slitLamp.rotation.y = 0.52;
+  scene.add(addFocusMesh(slitLamp));
+  colliders.push({ minX: -2.14, maxX: -1.38, minZ: -1.18, maxZ: -0.46 });
+
+  // Retracted phoropter column & parked arm beside exam chair (left-side peripheral cue)
+  const phoropter = buildPhoropterStand();
+  phoropter.position.set(-0.56, 0, SEATED_EYE_Z + 0.04);
+  scene.add(addFocusMesh(phoropter));
+  colliders.push({ minX: -0.78, maxX: -0.34, minZ: SEATED_EYE_Z - 0.18, maxZ: SEATED_EYE_Z + 0.28 });
+
+  // Modern potted clinic plant in front-right corner
+  const plant = buildPottedPlant();
+  plant.position.set(1.88, 0, bounds.minZ + 0.34);
+  scene.add(addFocusMesh(plant));
+  colliders.push({ minX: 1.68, maxX: 2.12, minZ: bounds.minZ + 0.12, maxZ: bounds.minZ + 0.56 });
+
+  // Framed Eye Cross-Section Anatomy Poster on left-front wall pillar
+  const anatomyTex = createEyeAnatomyTexture();
+  const anatomyFrame = new THREE.Mesh(
+    new THREE.BoxGeometry(0.024, 0.68, 0.52),
+    new THREE.MeshStandardMaterial({ color: '#39414d', roughness: 0.55 })
+  );
+  anatomyFrame.position.set(bounds.minX + 0.068, 1.56, -1.52);
+  const anatomyFace = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.48, 0.64),
+    new THREE.MeshStandardMaterial({ map: anatomyTex, roughness: 0.84 })
+  );
+  anatomyFace.position.set(bounds.minX + 0.082, 1.56, -1.52);
+  anatomyFace.rotation.y = Math.PI / 2;
+  scene.add(anatomyFrame, addFocusMesh(anatomyFace));
+
+  // Clinic oak entry door with frosted sidelight on back wall
+  const doorMat = new THREE.MeshStandardMaterial({ color: '#c0a27c', roughness: 0.62 });
+  const doorFrameMat = new THREE.MeshStandardMaterial({ color: '#46505a', roughness: 0.55 });
+  const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.98, 2.16, 0.04), doorFrameMat);
+  doorFrame.position.set(0.88, 1.08, bounds.maxZ - 0.02);
+  const doorLeaf = new THREE.Mesh(new THREE.BoxGeometry(0.88, 2.10, 0.03), doorMat);
+  doorLeaf.position.set(0.88, 1.05, bounds.maxZ - 0.03);
+  const doorGlass = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.22, 0.88),
+    new THREE.MeshStandardMaterial({ color: '#dce8f0', roughness: 0.25 })
+  );
+  doorGlass.position.set(1.06, 1.44, bounds.maxZ - 0.046);
+  doorGlass.rotation.y = Math.PI;
+  const doorHandle = new THREE.Mesh(
+    new THREE.BoxGeometry(0.11, 0.018, 0.05),
+    new THREE.MeshStandardMaterial({ color: '#cfd6de', metalness: 0.8, roughness: 0.22 })
+  );
+  doorHandle.position.set(0.54, 1.02, bounds.maxZ - 0.06);
+  scene.add(doorFrame, addFocusMesh(doorLeaf), doorGlass, doorHandle);
 
   // --- RIGHT DIAGNOSTIC WALL (X = +2.20, facing -X): Walk-up Ishihara 4-Plate Panel & Amsler Reference ---
 
@@ -644,17 +933,17 @@ export function createExamRoomScene(renderer = null) {
         pl.intensity = lightsOn ? 1.15 : 0.0;
       }
       ledPanelMat.emissiveIntensity = lightsOn ? 2.0 : 0.0;
-      // Clinical backlit ETDRS lightbox remains illuminated even with overhead exam lights OFF
-      etdrsFaceMat.emissiveIntensity = lightsOn ? 0.58 : 0.88;
+      // Backlit ETDRS lightbox stays photopic & glare-free (strictly below dark HOA floor 1.05) even when room lights are OFF
+      etdrsFaceMat.emissiveIntensity = lightsOn ? 0.42 : 0.72;
       scene.environmentIntensity = 0.04 + todPreset.outdoorLux * 0.16 + (lightsOn ? 0.22 : 0.0);
     }
 
     if (glareOn !== lastGlareOn) {
       lastGlareOn = glareOn;
-      glareCoreMat.emissiveIntensity = glareOn ? 12.0 : 0.0;
+      glareCoreMat.emissiveIntensity = glareOn ? 10.0 : 0.0;
       glareCoreMat.color.set(glareOn ? '#ffffff' : '#2a2f38');
       glareHalo.visible = glareOn;
-      glarePointLight.intensity = glareOn ? 0.45 : 0.0;
+      glarePointLight.intensity = glareOn ? 0.38 : 0.0;
     }
 
     const winAlign = Math.max(0, forward.dot(windowLightDir));

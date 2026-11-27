@@ -820,6 +820,10 @@ assert.ok(tritanNormDist > 0.45 && tritanCvdDist < 0.095 && tritanNormDist / tri
   `Tritan Ishihara plate must collapse >5x under Machado tritan (${tritanNormDist.toFixed(3)} -> ${tritanCvdDist.toFixed(3)})`
 );
 
+// Verify GLSL photopic-aware scotopic gating & continuous HOA streak invariants
+assert.ok(fragSrc.includes('pixelDarkMask'), 'vision.frag.glsl must gate scotopic rod blur/shift on local pixel luminance');
+assert.ok(fragSrc.includes('STREAK_STEPS = 8'), 'vision.frag.glsl must use continuous multi-step HOA streaks (no 3-tap pearls)');
+
 console.log(
   `sim_checks.mjs PASSED: waveform=${wf.waveform.samples_x_deg.length} samples @ ${wf.waveform.sample_rate_hz} Hz (MLN p2p=${wf.phases.mln_occluded.peak_to_peak_deg} deg, SPV=${wf.phases.mln_occluded.slow_phase_velocity_deg_s} deg/s, exo=${wf.exotropia_estimate_deg} deg); all state/persona/MLN/diplopia/exam-room assertions green.`
 );
