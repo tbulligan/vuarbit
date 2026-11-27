@@ -168,20 +168,28 @@ export function resolveIolGlassesOptics(settings, glassesSlot = 'distance', glas
   let lensPowerD = 0.0;
   let lensCylD = 0.0;
   let osExtraMyopiaD = osExtraBase;
+  let frameShape = 'auto';
+  let frameColor = 'auto';
 
   if (slot === 'distance') {
     lensPowerD = distRxD;
     lensCylD = cylD;
     osExtraMyopiaD = 0.0;
+    frameShape = 'rounded_rect';
+    frameColor = 'navy';
   } else if (slot === 'intermediate') {
     lensPowerD = distRxD + IOL_INTERMEDIATE_ADD_D;
     lensCylD = cylD;
     osExtraMyopiaD = 0.0;
+    frameShape = 'rect';
+    frameColor = 'charcoal';
   } else if (slot === 'near') {
     // Off-the-shelf +2.50 D reading glasses: identical sphere both eyes, zero astigmatism correction
     lensPowerD = nearOtcD;
     lensCylD = 0.0;
     osExtraMyopiaD = osExtraBase;
+    frameShape = 'round';
+    frameColor = 'burgundy';
   }
 
   const domNetFocusD = myopiaD + lensPowerD;
@@ -191,6 +199,8 @@ export function resolveIolGlassesOptics(settings, glassesSlot = 'distance', glas
     glassesOn: slot !== 'off',
     lensPowerD,
     lensCylD,
+    frameShape,
+    frameColor,
     domNetFocusD,
     osNetFocusD,
     osExtraMyopiaD,

@@ -781,11 +781,15 @@ assert.equal(iolDist.lensPowerD, -1.0);
 assert.equal(iolDist.domNetFocusD, 0.0, 'Distance -1.0 D neutralizes OD -1.0 D residual to infinity');
 assert.equal(iolDist.osNetFocusD, 0.0, 'Custom distance pair neutralizes OS -1.75 D residual');
 assert.equal(iolDist.focalDistM, Infinity);
+assert.equal(iolDist.frameShape, 'rounded_rect');
+assert.equal(iolDist.frameColor, 'navy');
 
 const iolComp = resolveIolGlassesOptics(stGrant.settings, 'intermediate', true);
 assert.equal(iolComp.lensPowerD, 0.5, 'Computer pair (+1.5 D add over -1.0 D) = +0.50 D');
 assert.ok(Math.abs(iolComp.focalDistM - 0.667) < 0.02, `Computer pair must focus near 65 cm, got ${iolComp.focalDistM}`);
 assert.equal(iolComp.osExtraMyopiaD, 0.0, 'Custom computer pair matches OS residual');
+assert.equal(iolComp.frameShape, 'rect');
+assert.equal(iolComp.frameColor, 'charcoal');
 
 const grantWithCyl = { ...stGrant.settings, lensCylD: 1.25 };
 const iolNear = resolveIolGlassesOptics(grantWithCyl, 'near', true);
@@ -793,6 +797,8 @@ assert.equal(iolNear.lensPowerD, 2.5, 'OTC reading pair uses +2.5 D sphere');
 assert.equal(iolNear.lensCylD, 0.0, 'OTC reading glasses must have zero astigmatism correction');
 assert.ok(Math.abs(iolNear.focalDistM - 1 / 3.5) < 1e-4, 'OTC +2.5 D over -1.0 D residual focuses at ~28.6 cm');
 assert.equal(iolNear.osNetFocusD, 4.25, 'OTC equal lenses preserve 0.75 D OD/OS residual difference');
+assert.equal(iolNear.frameShape, 'round');
+assert.equal(iolNear.frameColor, 'burgundy');
 
 const iolOff = resolveIolGlassesOptics(stGrant.settings, 'off', false);
 assert.equal(iolOff.glassesOn, false);

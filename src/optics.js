@@ -454,9 +454,11 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     const iol = isIol ? resolveIolGlassesOptics(s, state.glassesSlot, state.glassesOn) : null;
     const activeLensPowerD = isIol ? iol.lensPowerD : (s.lensPowerD ?? 13.0);
     const activeLensCylD = isIol ? iol.lensCylD : lensCylD;
+    const effFrameShape = isIol && (!s.frameShape || s.frameShape === 'auto') ? iol.frameShape : s.frameShape;
+    const effFrameColor = isIol && (!s.frameColor || s.frameColor === 'auto') ? iol.frameColor : s.frameColor;
     uniforms.uLensProfile.value = lensProfileCode;
-    uniforms.uFrameShape.value = FRAME_SHAPE_MAP[s.frameShape] ?? 0;
-    uniforms.uFrameColor.value = FRAME_COLOR_MAP[s.frameColor] ?? 0;
+    uniforms.uFrameShape.value = FRAME_SHAPE_MAP[effFrameShape] ?? 0;
+    uniforms.uFrameColor.value = FRAME_COLOR_MAP[effFrameColor] ?? 0;
     uniforms.uLensPowerD.value = activeLensPowerD;
     uniforms.uEffLensPowerD.value = computeEffectiveLensPower(activeLensPowerD, state.glassesSlide || 0);
     uniforms.uNearAddD.value = s.nearAddD ?? 4.0;
