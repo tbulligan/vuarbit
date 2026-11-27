@@ -150,6 +150,7 @@ export function createControls(domElement, state, sceneApi) {
   }
 
   function toggleSeatMode() {
+    if (activeSceneApi.canStand === false) return;
     if (state.mode === 'standing') {
       state.mode = 'seated';
       state.lean = 0;
@@ -471,13 +472,15 @@ export function createControls(domElement, state, sceneApi) {
         if (moveDir.lengthSq() > 1e-6) {
           if (state.mode === 'seated') {
             // Smooth full-workbook torso panning while craned over desk (clamped directly on combined pose -> zero windup!)
+            const panBounds = activeSceneApi.seatPanBounds || { minX: -0.34, maxX: 0.34, minZ: -0.48, maxZ: 0.12 };
+            const leanScale = activeSceneApi.canStand === false ? 0.18 : 0.28;
             const panSpeed = 0.34 - 0.14 * clamp(state.lean, 0, 1);
             moveDir.normalize().multiplyScalar(panSpeed * step);
-            const fwdLean = state.lean * 0.28;
+            const fwdLean = state.lean * leanScale;
             const fwdX = -Math.sin(state.yaw) * fwdLean;
             const fwdZ = -Math.cos(state.yaw) * fwdLean;
-            seatPanX = clamp(seatPanX + moveDir.x, -0.34 - fwdX, 0.34 - fwdX);
-            seatPanZ = clamp(seatPanZ + moveDir.z, -0.48 - fwdZ, 0.12 - fwdZ);
+            seatPanX = clamp(seatPanX + moveDir.x, panBounds.minX - fwdX, panBounds.maxX - fwdX);
+            seatPanZ = clamp(seatPanZ + moveDir.z, panBounds.minZ - fwdZ, panBounds.maxZ - fwdZ);
           } else if (state.mode === 'standing') {
             moveDir.normalize().multiplyScalar(2.4 * step);
             const nextX = standPos.x + moveDir.x;
@@ -526,12 +529,16 @@ export function createControls(domElement, state, sceneApi) {
 
       if (state.mode === 'seated') {
         // Yaw-aligned slouch (E/Q/Scroll) + desk-aligned torso pan (WASD); keep seatPan clamped to live bounds (no windup)
-        const fwdLean = state.lean * 0.28;
-        const dropLean = Math.max(0, state.lean) * 0.24 - Math.min(0, state.lean) * 0.05;
+        const panBounds = activeSceneApi.seatPanBounds || { minX: -0.34, maxX: 0.34, minZ: -0.48, maxZ: 0.12 };
+        const fwdLean = state.lean * (activeSceneApi.canStand === false ? 0.18 : 0.28);
+        const dropLean =
+          activeSceneApi.canStand === false
+            ? Math.max(0, state.lean) * 0.08 - Math.min(0, state.lean) * 0.03
+            : Math.max(0, state.lean) * 0.24 - Math.min(0, state.lean) * 0.05;
         const fwdX = -Math.sin(state.yaw) * fwdLean;
         const fwdZ = -Math.cos(state.yaw) * fwdLean;
-        seatPanX = clamp(seatPanX, -0.34 - fwdX, 0.34 - fwdX);
-        seatPanZ = clamp(seatPanZ, -0.48 - fwdZ, 0.12 - fwdZ);
+        seatPanX = clamp(seatPanX, panBounds.minX - fwdX, panBounds.maxX - fwdX);
+        seatPanZ = clamp(seatPanZ, panBounds.minZ - fwdZ, panBounds.maxZ - fwdZ);
         camera.position.set(seatPos.x + fwdX + seatPanX, seatPos.y - dropLean, seatPos.z + fwdZ + seatPanZ);
       } else {
         const fwdLean = state.lean * 0.20;

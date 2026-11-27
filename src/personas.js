@@ -27,6 +27,15 @@ export const SCENES = Object.freeze([
     shortName: 'Exam Room',
     description: '4.0 m clinical exam lane with backlit ETDRS acuity chart, Pelli-Robson contrast, Amsler grid, Ishihara plates, near Jaeger card, and HDR glare lamp.',
     defaultMode: 'seated',
+    seatedOnly: false,
+  }),
+  Object.freeze({
+    id: 'car_passenger',
+    label: 'Car Passenger (Road)',
+    shortName: 'Car Passenger',
+    description: 'Seated cabin cruising an outdoor road (day sun glare, dusk, wet-road night headlights/streetlights/taillights) testing ring scotoma motion, glare starbursts, and RP nyctalopia.',
+    defaultMode: 'seated',
+    seatedOnly: true,
   }),
 ]);
 

@@ -51,6 +51,17 @@ import {
   computeWeberContrast,
   rgbDistance,
 } from '../src/scene/exam_calibration.js';
+import {
+  CAR_CRUISE_SPEED_MPS,
+  CAR_FAR_CLIP,
+  ONCOMING_CLOSING_SPEED_MPS,
+  ROAD_LOOP_LEN_M,
+  ROAD_Z_MIN,
+  ROAD_Z_MAX,
+  computeLeadCarZ,
+  computeRoadLighting,
+  wrapLoopZ,
+} from '../src/scene/car_math.js';
 
 function assertFiniteNumber(value, label) {
   assert.equal(typeof value, 'number', `${label} must be a number`);
@@ -713,10 +724,12 @@ assert.equal(toggleGlasses(stToggle), true, 'toggleGlasses turns glasses back on
 assert.equal(stToggle.glassesSlide, 0, 'putting glasses on resets slide');
 assert.ok(stToggle.glassesBounce < 0, 'putting glasses on sets tactile bounce');
 
-// 8. Validate P3 Scene Registry & Exam Room Clinical Calibration Math
-assert.equal(SCENES.length, 2, 'must register 2 scenes (classroom and exam_room)');
+// 8. Validate P3/P4 Scene Registry & Exam Room Clinical Calibration Math
+assert.equal(SCENES.length, 3, 'must register 3 scenes (classroom, exam_room, car_passenger)');
 assert.equal(getSceneById('classroom')?.defaultMode, 'standing');
 assert.equal(getSceneById('exam_room')?.defaultMode, 'seated');
+assert.equal(getSceneById('car_passenger')?.defaultMode, 'seated');
+assert.equal(getSceneById('car_passenger')?.seatedOnly, true);
 assert.equal(getSceneById('nonexistent_scene'), undefined);
 
 const stScene = createSimState();
@@ -819,6 +832,37 @@ const tritanCvdDist = rgbDistance(
 assert.ok(tritanNormDist > 0.45 && tritanCvdDist < 0.095 && tritanNormDist / tritanCvdDist > 5.0,
   `Tritan Ishihara plate must collapse >5x under Machado tritan (${tritanNormDist.toFixed(3)} -> ${tritanCvdDist.toFixed(3)})`
 );
+
+// 9. Validate P4 Car Passenger road loop, traffic headway, and day/night glare profiles
+assert.ok(CAR_CRUISE_SPEED_MPS > 0 && ONCOMING_CLOSING_SPEED_MPS > CAR_CRUISE_SPEED_MPS);
+assert.ok(CAR_FAR_CLIP >= 120, 'outdoor car scene must extend camera far clip past indoor 30m');
+assert.equal(wrapLoopZ(ROAD_Z_MIN), ROAD_Z_MIN);
+assert.equal(wrapLoopZ(ROAD_Z_MAX), ROAD_Z_MIN, 'exact ROAD_Z_MAX wraps seamlessly to ROAD_Z_MIN');
+assert.ok(Math.abs(wrapLoopZ(ROAD_Z_MAX + 5.5) - (ROAD_Z_MIN + 5.5)) < 1e-9);
+assert.ok(Math.abs(wrapLoopZ(ROAD_Z_MIN - 4.0) - (ROAD_Z_MAX - 4.0)) < 1e-9);
+assert.equal(wrapLoopZ(NaN), ROAD_Z_MIN);
+
+for (let t = 0; t < 20; t += 1.3) {
+  const lz = computeLeadCarZ(t);
+  assert.ok(lz <= -18.9 && lz >= -25.1, `lead car Z must stay in [-25, -19] m, got ${lz}`);
+}
+
+const roadSunny = computeRoadLighting('sunny', true);
+const roadOvercast = computeRoadLighting('overcast', true);
+const roadDuskOn = computeRoadLighting('dusk', true);
+const roadNightOn = computeRoadLighting('night', true);
+const roadNightOff = computeRoadLighting('night', false);
+assert.equal(roadSunny.sunVisible, true);
+assert.ok(roadSunny.sunEmissive > 10, 'sunny road sun disk must exceed HDR HOA threshold');
+assert.equal(roadSunny.streetlightsOn, false, 'streetlights stay off in bright sun');
+assert.ok(roadNightOn.headlightEmissive > 12 && roadNightOn.taillightEmissive > 6, 'night vehicles must emit strong HDR glare');
+assert.ok(roadNightOn.roadRoughness < roadSunny.roadRoughness, 'night/dusk wet road must have lower roughness speculars');
+assert.equal(roadNightOn.streetlightsOn, true);
+assert.ok(roadNightOn.streetlightEmissive > 8 && roadNightOn.streetlightPoolIntensity > 0);
+assert.equal(roadNightOff.streetlightsOn, false, 'L OFF at night must disable streetlights for unlit rural highway');
+assert.equal(roadNightOff.streetlightEmissive, 0);
+assert.ok(roadNightOff.ownBeamIntensity > 8, 'own car headlights stay ON at night even with rural streetlights OFF');
+assert.ok(roadOvercast.wetness > 0 && roadDuskOn.wetness > roadOvercast.wetness);
 
 // Verify GLSL photopic-aware scotopic gating & continuous HOA streak invariants
 assert.ok(fragSrc.includes('pixelDarkMask'), 'vision.frag.glsl must gate scotopic rod blur/shift on local pixel luminance');

@@ -482,9 +482,17 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     renderer.render(quadScene, quadCamera);
   }
 
-  function setScene(nextScene) {
+  function setScene(nextScene, farClip = FAR_CLIP) {
     if (!nextScene) return;
     activeScene = nextScene;
+    const nextFar = Number.isFinite(farClip) && farClip > NEAR_CLIP ? farClip : FAR_CLIP;
+    if (odCamera.far !== nextFar) {
+      odCamera.far = nextFar;
+      odCamera.updateProjectionMatrix();
+      nonDomCamera.far = nextFar;
+      nonDomCamera.updateProjectionMatrix();
+      uniforms.uFar.value = nextFar;
+    }
     shadowFrame = 0;
     renderer.shadowMap.needsUpdate = true;
   }

@@ -9,6 +9,7 @@ import {
 } from './personas.js';
 import { createClassroomScene } from './scene.js';
 import { createExamRoomScene } from './scene/exam_room.js';
+import { createCarPassengerScene } from './scene/car_passenger.js';
 import { createControls } from './controls.js';
 import { createOpticsRenderer } from './optics.js';
 import { createTinnitusAudio } from './audio.js';
@@ -18,6 +19,7 @@ import { createSettingsDrawer } from './settings.js';
 const SCENE_FACTORIES = {
   classroom: createClassroomScene,
   exam_room: createExamRoomScene,
+  car_passenger: createCarPassengerScene,
 };
 
 // shortcut: 180-sample synthetic sawtooth fallback when JSON unavailable, upgrade by bundling default waveform
@@ -96,7 +98,7 @@ async function init() {
     state.occlusionLevel = 0;
     state.squint = 0;
     controls.setScene(nextSceneApi);
-    optics.setScene(nextSceneApi.scene);
+    optics.setScene(nextSceneApi.scene, nextSceneApi.farClip);
     prevSceneApi.dispose?.();
   }
 

@@ -466,6 +466,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       const sc = getSceneById(sceneId);
       sceneDesc.textContent = sc ? sc.description : '';
       glareRow.classList.toggle('is-hidden', sceneId !== 'exam_room');
+      lightsLbl.textContent = sceneId === 'car_passenger' ? 'Road Lights (L)' : 'Ceiling Lights (L)';
     }
 
     const comparing = Boolean(state.compareNormal);
