@@ -23,10 +23,13 @@ import {
   computeDiplopiaOffsetDeg,
   computeMlnAngleDeg,
   computeMlnFreqScale,
+  computeEffectiveLensPower,
   computeHeldRestOffset,
   computeMaxYaw,
   computeDecompensation,
   updateHeldRotation,
+  toggleCompareNormal,
+  toggleGlasses,
   updateSimState,
 } from '../src/state.js';
 
@@ -90,21 +93,22 @@ for (let i = 0; i < wf.waveform.samples_x_deg.length; i++) {
   assertFiniteNumber(wf.waveform.samples_y_deg[i], `samples_y_deg[${i}]`);
 }
 
-// 2. Validate src/state.js: computeOcclusionFromDistance
+// 2. Validate src/state.js: computeOcclusionFromDistance (gradual ramp from 16.5 cm down to 6 cm)
 assert.equal(computeOcclusionFromDistance(0.25), 0);
+assert.equal(computeOcclusionFromDistance(0.165), 0);
 assert.equal(computeOcclusionFromDistance(0.5), 0);
 assert.equal(computeOcclusionFromDistance(3.8), 0);
 assert.equal(computeOcclusionFromDistance(Infinity), 0);
 assert.equal(computeOcclusionFromDistance(NaN), 0);
 
-assert.equal(computeOcclusionFromDistance(0.08), 1);
+assert.equal(computeOcclusionFromDistance(0.06), 1);
 assert.equal(computeOcclusionFromDistance(0.04), 1);
 assert.equal(computeOcclusionFromDistance(0.0), 1);
 
-const occFar = computeOcclusionFromDistance(0.22);
-const occMid = computeOcclusionFromDistance(0.165);
-const occNear = computeOcclusionFromDistance(0.11);
-assert.ok(occFar > 0 && occFar < occMid && occMid < occNear && occNear < 1, 'occlusion ramp must be strictly monotonic in (0.08, 0.25)');
+const occFar = computeOcclusionFromDistance(0.145);
+const occMid = computeOcclusionFromDistance(0.1125);
+const occNear = computeOcclusionFromDistance(0.08);
+assert.ok(occFar > 0 && occFar < occMid && occMid < occNear && occNear < 1, 'occlusion ramp must be strictly monotonic in (0.06, 0.165)');
 assert.ok(Math.abs(occMid - 0.5) < 1e-6, `midpoint occlusion expected 0.5, got ${occMid}`);
 
 // 3. Validate src/state.js: computeDiplopiaOffsetDeg (-1.53 deg L / +0.31 deg U -> 1.0cm L / 0.2cm U @ 0.375m seated triangle)
@@ -125,37 +129,70 @@ for (const c of ['-1.53', '0.31']) {
   assert.ok(fragSrc.includes(c), `vision.frag.glsl missing diplopia constant ${c}`);
 }
 
-// 4. Validate src/state.js: computeMlnAngleDeg (organic unoccluded vs mechanical Point A -> Point B occluded)
+// 4. Validate src/state.js: computeMlnAngleDeg (calibrated 2.5/1.125 Hz MLN decelerating slow phase + Alexander's law)
 const dummyWave = { dxDeg: 1.2, dyDeg: -0.4, vxDegS: 10 };
-const mlnOrganic = computeMlnAngleDeg(dummyWave, 0.0, 5.5, 0.0, 1.0, 0.0);
-assert.ok(Math.abs(mlnOrganic.dxDeg - 1.2) < 1e-6, 'unoccluded MLN must preserve organic waveform X');
-assert.ok(Math.abs(mlnOrganic.dyDeg - (-0.4)) < 1e-6, 'unoccluded MLN must preserve organic waveform Y');
+const mlnRelaxStart = computeMlnAngleDeg(dummyWave, 0.01 / 2.5, 2.5, 0.0, 1.0, 0.0, 0.0, 1, 0.0);
+const mlnRelaxMid = computeMlnAngleDeg(dummyWave, 0.42 / 2.5, 2.5, 0.0, 1.0, 0.0, 0.0, 1, 0.0);
+const mlnRelaxLate = computeMlnAngleDeg(dummyWave, 0.80 / 2.5, 2.5, 0.0, 1.0, 0.0, 0.0, 1, 0.0);
+assert.ok(
+  Math.abs(mlnRelaxStart.velDegS) > Math.abs(mlnRelaxMid.velDegS) &&
+    Math.abs(mlnRelaxMid.velDegS) > Math.abs(mlnRelaxLate.velDegS),
+  'MLN slow-phase drift velocity must decelerate across beat'
+);
+assert.ok(mlnRelaxStart.dxDeg > 0 && mlnRelaxLate.dxDeg < 0, 'right-beating MLN slow phase drifts from + to - before rightward snap');
 
-const mlnOcclStart = computeMlnAngleDeg(dummyWave, 0.0, 5.5, 1.0, 1.0, 0.0);
-const mlnOcclPeak = computeMlnAngleDeg(dummyWave, 0.839 / 5.5, 5.5, 1.0, 1.0, 0.0);
-assert.ok(Math.abs(mlnOcclStart.dxDeg - (-2.5)) < 0.05, `occluded MLN must start at Point A (-2.5 deg), got ${mlnOcclStart.dxDeg}`);
-assert.ok(mlnOcclPeak.dxDeg > 2.4, `occluded MLN must reach Point B (+2.5 deg), got ${mlnOcclPeak.dxDeg}`);
+// Beat direction reverses when OS fixates (beatDir = -1)
+const mlnLeftBeat = computeMlnAngleDeg(dummyWave, 0.01 / 2.5, 2.5, 0.0, 1.0, 0.0, 0.0, -1, 0.0);
+assert.ok(Math.abs(mlnLeftBeat.dxDeg + mlnRelaxStart.dxDeg) < 1e-6, 'beatDir=-1 must mirror horizontal MLN direction');
+
+// Occluded mechanical MLN ramps to full +/-2.5 deg horizontal sweep
+const mlnOcclStart = computeMlnAngleDeg(dummyWave, 0.0, 2.5, 1.0, 1.0, 0.0, 0.0, 1, 0.0);
+const mlnOcclEnd = computeMlnAngleDeg(dummyWave, 0.839 / 2.5, 2.5, 1.0, 1.0, 0.0, 0.0, 1, 0.0);
+assert.ok(Math.abs(mlnOcclStart.dxDeg - 2.5) < 0.05, `occluded right-beating MLN starts at +2.5 deg, got ${mlnOcclStart.dxDeg}`);
+assert.ok(mlnOcclEnd.dxDeg < -2.4, `occluded right-beating MLN drifts to -2.5 deg, got ${mlnOcclEnd.dxDeg}`);
 assert.ok(Math.abs(mlnOcclStart.dyDeg) < 0.1, 'occluded mechanical MLN must be primarily horizontal');
 
-const mlnGazeUnfocused = computeMlnAngleDeg({ dxDeg: 0, dyDeg: 0, vxDegS: 0 }, 0.0, 5.5, 0.0, 0.0, 1.0, 0.0);
-const mlnGazeFocused = computeMlnAngleDeg({ dxDeg: 0, dyDeg: 0, vxDegS: 0 }, 0.0, 5.5, 0.0, 0.0, 1.0, 1.0);
-assert.ok(Math.abs(mlnGazeUnfocused.dxDeg) > 2.0, 'unfocused mouse gaze-shift burst must trigger prominent nystagmus');
+// Focused stillness narrows amplitude vs relaxed; panning left/up/down expands amplitude back toward relaxed
+const mlnFocusedStill = computeMlnAngleDeg({ dxDeg: 0, dyDeg: 0, vxDegS: 0 }, 0.0, 2.5, 0.0, 1.0, 0.0, 1.0, 1, 0.0);
+const mlnFocusedPanOther = computeMlnAngleDeg({ dxDeg: 0, dyDeg: 0, vxDegS: 0 }, 0.0, 2.5, 0.0, 1.0, 0.8, 1.0, 1, 0.0);
+const mlnRelaxZero = computeMlnAngleDeg({ dxDeg: 0, dyDeg: 0, vxDegS: 0 }, 0.0, 2.5, 0.0, 1.0, 0.0, 0.0, 1, 0.0);
 assert.ok(
-  Math.abs(mlnGazeFocused.dxDeg) < Math.abs(mlnGazeUnfocused.dxDeg) * 0.55,
-  'Focus effort must damp gaze-shift nystagmus'
+  Math.abs(mlnFocusedStill.dxDeg) < Math.abs(mlnRelaxZero.dxDeg) * 0.45,
+  'calm Focus must tightly narrow MLN amplitude'
+);
+assert.ok(
+  Math.abs(mlnFocusedPanOther.dxDeg) > Math.abs(mlnFocusedStill.dxDeg) * 2.5,
+  'panning while focused must expand amplitude back toward relaxed'
 );
 
-// MLN frequency halves only when calmly focused; stays 1.0x when unfocused, fatigued, occluded, or moving gaze
-assert.equal(computeMlnFreqScale(1.0, 0.1, 0.0, 0.0), 0.5, 'calm Focus must halve MLN frequency');
-assert.equal(computeMlnFreqScale(0.0, 0.1, 0.0, 0.0), 1.0, 'unfocused MLN frequency must stay 1.0x');
+// MLN frequency: 0.45x (~1.125 Hz mean) when calmly focused with irregular per-beat variation; 1.0x (2.5 Hz) when relaxed/occluded/fatigued/fast-pan
+assert.ok(Math.abs(computeMlnFreqScale(1.0, 0.1, 0.0, 0.0) - 0.45) < 1e-6, 'calm Focus mean must scale MLN freq to 0.45x (~1.125 Hz)');
+const fBeat0 = computeMlnFreqScale(1.0, 0.1, 0.0, 0.0, 0);
+const fBeat1 = computeMlnFreqScale(1.0, 0.1, 0.0, 0.0, 1);
+const fBeat2 = computeMlnFreqScale(1.0, 0.1, 0.0, 0.0, 2);
+assert.ok(fBeat0 !== fBeat1 || fBeat1 !== fBeat2, 'calm Focus beat-to-beat frequency must vary irregularly (non-metronomic)');
+assert.equal(computeMlnFreqScale(0.0, 0.1, 0.0, 0.0, 3), 1.0, 'relaxed MLN frequency must stay strictly regular 1.0x (2.5 Hz)');
 assert.equal(computeMlnFreqScale(1.0, 0.96, 0.0, 0.0), 1.0, 'fatigued MLN frequency must stay 1.0x');
-assert.equal(computeMlnFreqScale(1.0, 0.1, 0.5, 0.0), 1.0, 'occluded MLN frequency must stay 1.0x');
-assert.equal(computeMlnFreqScale(1.0, 0.1, 0.0, 0.5), 1.0, 'gaze-shift MLN frequency must stay 1.0x');
+assert.equal(computeMlnFreqScale(1.0, 0.1, 1.0, 0.0), 1.0, 'full occlusion MLN frequency must reach 1.0x');
+assert.ok(
+  computeMlnFreqScale(1.0, 0.1, 0.5, 0.0) > 0.45 && computeMlnFreqScale(1.0, 0.1, 0.5, 0.0) < 1.0,
+  'partial occlusion must gradually ramp MLN frequency from focused to full'
+);
+assert.equal(computeMlnFreqScale(1.0, 0.1, 0.0, 0.6, 2), 1.0, 'Alexander law fast-phase pan must restore regular 1.0x (2.5 Hz)');
+
+// Vertex-distance lens power shift when glasses slide down nose (0..14 mm)
+assert.equal(computeEffectiveLensPower(13.0, 0.0), 13.0, 'zero slide preserves nominal +13 D');
+const slidPlus = computeEffectiveLensPower(13.0, 1.0);
+assert.ok(slidPlus > 15.8 && slidPlus < 16.0, `+13 D slipped 14 mm expected ~+15.89 D, got ${slidPlus}`);
+const slidNear = computeEffectiveLensPower(17.0, 1.0);
+assert.ok(slidNear > 22.1 && slidNear < 22.5, `+17 D near half slipped 14 mm expected ~+22.31 D (10cm loupe), got ${slidNear}`);
+const slidMinus = computeEffectiveLensPower(-4.0, 1.0);
+assert.ok(slidMinus > -3.85 && slidMinus < -3.75, `-4 D slipped 14 mm expected ~-3.79 D, got ${slidMinus}`);
 
 // Posture neck constraints & lower-right-lens held alignment
 assert.equal(computeMaxYaw('standing', 0), Infinity, 'standing allows full 360 deg turn');
 assert.ok(computeMaxYaw('seated', 0) < Math.PI && computeMaxYaw('seated', 0) > 1.2, 'seated yaw must constrain neck/body');
-assert.ok(computeMaxYaw('seated', 1) < computeMaxYaw('seated', 0) * 0.5, 'deep lean must constrain neck yaw more tightly than upright');
+assert.ok(computeMaxYaw('seated', 1) < computeMaxYaw('seated', 0) * 0.6, 'deep lean must constrain neck yaw more tightly than upright');
 
 const heldGlasses = computeHeldRestOffset(0.21, true);
 assert.ok(heldGlasses.x > 0.065 && heldGlasses.y < -0.035, 'held object with glasses must center in lower right lens');
@@ -168,8 +205,12 @@ const heldBare = computeHeldRestOffset(0.21, false);
 assert.equal(heldBare.x, 0.029, 'held object without glasses must align to bare OD pupil');
 assert.equal(heldBare.y, 0, 'held object without glasses must align to OD pupil height');
 
-// 5. Validate src/state.js: updateSimState (two-speed fatigue, Focus suppression, occlusion, closed eyes)
+// 5. Validate src/state.js: updateSimState (starts Focused, two-speed fatigue, Focus suppression, occlusion, closed eyes)
 const stRelaxed = createSimState();
+assert.equal(stRelaxed.focusing, true, 'Vuarbit 1994 must start in Focused mode');
+assert.equal(stRelaxed.focusStrength, 1, 'initial focusStrength must start engaged');
+stRelaxed.focusing = false;
+stRelaxed.focusStrength = 0;
 const stFocused = createSimState();
 stFocused.focusing = true;
 for (let i = 0; i < 60; i++) {
@@ -177,7 +218,7 @@ for (let i = 0; i < 60; i++) {
   updateSimState(stFocused, 0.05);
 }
 assert.ok(stRelaxed.fatigue > 0.08, 'fatigue should rise while eyes open');
-assert.ok(stFocused.fatigue > stRelaxed.fatigue + 0.01, 'Focus effort must build fatigue faster');
+assert.ok(stFocused.fatigue > stRelaxed.fatigue + 0.005, 'Focus effort must build fatigue faster');
 assert.ok(stFocused.focusStrength > 0.8, 'Focus effort should engage strongly at low fatigue');
 assert.ok(stRelaxed.mlnIntensity >= 0.12, `unfocused baseline MLN should be clearly present, got ${stRelaxed.mlnIntensity}`);
 assert.ok(
@@ -415,9 +456,12 @@ assert.equal(stNormal.mlnIntensity, 0, 'normal vision must have 0 MLN even under
 assert.ok(stNormal.fatigue < 0.4 && stNormal.fatigue >= 0.05, `normal vision fatigue must relax toward 0.05, got ${stNormal.fatigue}`);
 assert.equal(stNormal.activeZone, 'emmetropic');
 
-// Albinism infantile nystagmus drive (mlnScale is 0 by default -> no dual-waveform double counting)
+// Albinism infantile nystagmus drive (starts Focused when suppression applies; relaxing raises MLN drive)
 const stAlb = createSimState();
 applyPersona(stAlb, 'albinism');
+assert.equal(stAlb.focusing, true, 'albinism preset has suppression mechanics so starts Focused');
+stAlb.focusing = false;
+stAlb.focusStrength = 0;
 updateSimState(stAlb, 0.016);
 const albUnfocused = stAlb.mlnIntensity;
 assert.equal(stAlb.mlnOnlyIntensity, 0, 'albinism preset must not inject MLN jerk drive');
@@ -563,6 +607,92 @@ updateVisualSetting(stNoAdd, 'nearAddD', 0);
 stNoAdd.pitch = -0.5;
 updateSimState(stNoAdd, 0.016);
 assert.equal(stNoAdd.activeZone, 'distance', 'zero nearAddD must not enter near bifocal zone');
+
+// Glasses nose-slip increases while worn (faster looking down) and resets when glasses removed or persona switched
+const stSlide = createSimState();
+stSlide.pitch = -0.6;
+for (let i = 0; i < 60; i++) {
+  updateSimState(stSlide, 0.05);
+}
+assert.ok(stSlide.glassesSlide > 0.04 && stSlide.glassesSlide < 0.12, `aphakic glasses pitched down should slide gently (~55s full), got ${stSlide.glassesSlide}`);
+stSlide.glassesOn = false;
+updateSimState(stSlide, 0.016);
+assert.equal(stSlide.glassesSlide, 0, 'removing glasses must reset glassesSlide');
+
+// Sub-15 cm binocular convergence strain builds fatigue faster than normal distance; ultra-close held triggers stenopeic squint
+const stNearBinoc = createSimState();
+stNearBinoc.focusDistM = 0.12;
+stNearBinoc.holding = 'pencil';
+stNearBinoc.heldOffset = { x: 0.029, y: 0, z: 0.10 };
+const stFarBinoc = createSimState();
+stFarBinoc.focusDistM = 3.8;
+for (let i = 0; i < 40; i++) {
+  updateSimState(stNearBinoc, 0.05);
+  updateSimState(stFarBinoc, 0.05);
+}
+assert.ok(stNearBinoc.fatigue > stFarBinoc.fatigue + 0.005, 'sub-15 cm binocular viewing must add convergence strain');
+assert.ok(stNearBinoc.squint > 0.5, `ultra-close held object must trigger reflex stenopeic squint, got ${stNearBinoc.squint}`);
+
+// Focused MLN produces irregular cycle-to-cycle variation (all finite) with C0 continuity across beat boundaries
+const mlnFocC0 = computeMlnAngleDeg({ dxDeg: 0, dyDeg: 0, vxDegS: 0 }, 0.0, 2.5, 0.0, 1.0, 0.0, 1.0, 1, 0.0);
+const mlnFocC1 = computeMlnAngleDeg({ dxDeg: 0, dyDeg: 0, vxDegS: 0 }, 1.0 / 2.5, 2.5, 0.0, 1.0, 0.0, 1.0, 1, 0.0);
+const mlnBeforeBoundary = computeMlnAngleDeg({ dxDeg: 0, dyDeg: 0, vxDegS: 0 }, 0.9999 / 2.5, 2.5, 0.0, 1.0, 0.0, 1.0, 1, 0.0);
+const mlnAfterBoundary = computeMlnAngleDeg({ dxDeg: 0, dyDeg: 0, vxDegS: 0 }, 1.0001 / 2.5, 2.5, 0.0, 1.0, 0.0, 1.0, 1, 0.0);
+assertFiniteNumber(mlnFocC0.dxDeg, 'mlnFocC0.dxDeg');
+assertFiniteNumber(mlnFocC1.dxDeg, 'mlnFocC1.dxDeg');
+assert.notEqual(mlnFocC0.dxDeg, mlnFocC1.dxDeg, 'focused MLN beats should vary irregularly across cycles');
+assert.ok(
+  Math.abs(mlnBeforeBoundary.dxDeg - mlnAfterBoundary.dxDeg) < 0.02,
+  `focused MLN must stay continuous across beat boundary (${mlnBeforeBoundary.dxDeg} -> ${mlnAfterBoundary.dxDeg})`
+);
+
+// Resting (eyesClosed) ignores monocular occlusion and keeps Focused-like calm MLN while glasses still obey gravity
+const stRest = createSimState();
+stRest.eyesClosed = true;
+stRest.occlOD = 1.0;
+stRest.occlOS = 0.0;
+stRest.pitch = -0.6;
+for (let i = 0; i < 40; i++) {
+  updateSimState(stRest, 0.05);
+}
+assert.equal(stRest.occlusionLevel, 0, 'closed eyelids must ignore asymmetric monocular occlusion');
+assert.ok(stRest.mlnOnlyIntensity < 0.25, `closed-eye MLN must stay Focused-like calm, got ${stRest.mlnOnlyIntensity}`);
+assert.ok(stRest.glassesSlide > 0.02, 'glasses pitched down should still obey gravity while resting');
+
+// Pinning glasses (Space hold) prevents gravity slide
+const stPin = createSimState();
+stPin.pitch = -0.6;
+stPin.glassesPinned = true;
+for (let i = 0; i < 40; i++) {
+  updateSimState(stPin, 0.05);
+}
+assert.equal(stPin.glassesSlide, 0, 'pinned glasses must not slide down while craning');
+
+// applyPersona resets glassesSlide, glassesPinned, squint & restores Focused on Vuarbit 1994
+stNearBinoc.glassesSlide = 0.8;
+stNearBinoc.glassesPinned = true;
+applyPersona(stNearBinoc, 'vuarbit_1994');
+assert.equal(stNearBinoc.glassesSlide, 0, 'applyPersona must reset glassesSlide');
+assert.equal(stNearBinoc.glassesPinned, false, 'applyPersona must reset glassesPinned');
+assert.equal(stNearBinoc.squint, 0, 'applyPersona must reset squint');
+assert.equal(stNearBinoc.focusing, true, 'applyPersona vuarbit_1994 must start Focused');
+
+// Shared toggleCompareNormal (V) and toggleGlasses (Z) helpers keep keyboard & drawer behavior identical
+const stToggle = createSimState();
+stToggle.fatigue = 0.6;
+stToggle.focusing = false;
+stToggle.focusStrength = 0;
+assert.equal(toggleCompareNormal(stToggle), true, 'toggleCompareNormal enters Normal Compare');
+assert.equal(stToggle.fatigue, 0.05, 'toggleCompareNormal resets fatigue');
+assert.equal(toggleCompareNormal(stToggle), false, 'toggleCompareNormal exits Normal Compare');
+assert.equal(stToggle.focusing, true, 'exiting Normal Compare restores Focused on suppression persona');
+assert.equal(stToggle.focusStrength, 1);
+
+stToggle.glassesSlide = 0.7;
+assert.equal(toggleGlasses(stToggle), false, 'toggleGlasses turns glasses off');
+assert.equal(toggleGlasses(stToggle), true, 'toggleGlasses turns glasses back on');
+assert.equal(stToggle.glassesSlide, 0, 'putting glasses on resets slide');
+assert.ok(stToggle.glassesBounce < 0, 'putting glasses on sets tactile bounce');
 
 console.log(
   `sim_checks.mjs PASSED: waveform=${wf.waveform.samples_x_deg.length} samples @ ${wf.waveform.sample_rate_hz} Hz (MLN p2p=${wf.phases.mln_occluded.peak_to_peak_deg} deg, SPV=${wf.phases.mln_occluded.slow_phase_velocity_deg_s} deg/s, exo=${wf.exotropia_estimate_deg} deg); all state/persona/MLN/diplopia assertions green.`

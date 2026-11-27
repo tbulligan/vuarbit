@@ -62,18 +62,42 @@ export function computeDecompensation(fatigue) {
   return smoothstep(0.58, 0.96, clamp(fatigue || 0, 0, 1));
 }
 
+function cycleNoise(idx, salt) {
+  const s = Math.sin(idx * 12.9898 + salt * 78.233) * 43758.5453;
+  return s - Math.floor(s);
+}
+
 /**
- * Compute MLN beat frequency multiplier in [0.5, 1.0].
- * Halves beat frequency (0.5x) only when calmly Focused; stays 1.0x when unfocused,
- * fatigued/decompensated, occluded, or actively moving head/gaze.
+ * Vertex-distance lens power shift when glasses slide forward down the nose (0..14 mm).
+ * D_eff = D / (1 - d * D): +13 D slipped 14 mm -> ~+15.89 D; +17 D near half -> ~+22.31 D (10 cm loupe!).
  */
-export function computeMlnFreqScale(focusStrength, fatigue, occlusionLevel, gazeSpike) {
+export function computeEffectiveLensPower(powerD, slideNorm) {
+  const p = Number.isFinite(powerD) ? powerD : 0;
+  const dMeters = clamp(Number.isFinite(slideNorm) ? slideNorm : 0, 0, 1) * 0.014;
+  const denom = Math.max(0.25, 1.0 - dMeters * p);
+  return p / denom;
+}
+
+/**
+ * Compute MLN beat frequency multiplier (base 2.5 Hz relaxed -> ~1.125 Hz mean calmly focused).
+ * When beatIdx is provided and calmly focused, varies per-beat period irregularly (0.45x..2.10x, mean 1.0x)
+ * so focused nystagmus produces natural unpredictable pauses and quick doublets instead of a metronome.
+ * Alexander's law: panning toward fast-phase side (fastPanSpike > 0) restores regular 1.0x (2.5 Hz).
+ */
+export function computeMlnFreqScale(focusStrength, fatigue, occlusionLevel, fastPanSpike = 0, beatIdx = null) {
   const focus = clamp(focusStrength || 0, 0, 1);
   const decomp = computeDecompensation(fatigue || 0);
-  const occl = clamp((occlusionLevel || 0) * 2.0, 0, 1);
-  const gaze = clamp((gazeSpike || 0) * 2.0, 0, 1);
-  const calmFocus = focus * (1.0 - decomp) * (1.0 - occl) * (1.0 - gaze);
-  return 1.0 - 0.5 * calmFocus;
+  const occl = clamp(occlusionLevel || 0, 0, 1);
+  const fastPan = clamp((fastPanSpike || 0) * 2.0, 0, 1);
+  const calmFocus = focus * (1.0 - decomp) * (1.0 - occl) * (1.0 - fastPan);
+  const baseScale = 1.0 - 0.55 * calmFocus;
+  if (beatIdx === null || beatIdx === undefined || calmFocus < 0.01) {
+    return baseScale;
+  }
+  const u = cycleNoise(Math.floor(beatIdx), 7.1);
+  // Skewed random period [0.45, 2.10] with mean 1.0 -> ~0.40s quick beats to ~1.85s quiet holds
+  const periodScale = 1.0 + calmFocus * ((0.45 + 1.65 * u * u) - 1.0);
+  return clamp(baseScale / periodScale, 0.18, 1.35);
 }
 
 /**
@@ -81,13 +105,16 @@ export function computeMlnFreqScale(focusStrength, fatigue, occlusionLevel, gaze
  * of the dominant right eye's lower bifocal lens (or bare OD pupil when glasses off).
  * Converges gently toward OD's pupillary axis at very close range (<0.18m) for smooth monocular occlusion.
  */
-export function computeHeldRestOffset(zMeters, glassesOn, dominantEye = 'OD') {
+export function computeHeldRestOffset(zMeters, glassesOn, dominantEye = 'OD', glassesSlide = 0) {
   const z = clamp(Number.isFinite(zMeters) ? zMeters : 0.22, 0.04, 0.65);
+  const slide = clamp(Number.isFinite(glassesSlide) ? glassesSlide : 0, 0, 1);
   const closeBlend = smoothstep(0.08, 0.18, z);
   const xMag = 0.029 + (glassesOn ? 0.22 * z * closeBlend : 0);
+  // Keep held items centered inside lower +17 D near segment even as glasses slide down (clear of split-line glare)
+  const nearDrop = glassesOn ? -(0.23 * (0.72 + 0.28 * closeBlend) + 0.055 * slide) * z : 0;
   return {
     x: dominantEye === 'OS' ? -xMag : xMag,
-    y: glassesOn ? -0.21 * z * (0.35 + 0.65 * closeBlend) : 0,
+    y: nearDrop,
     z,
   };
 }
@@ -95,12 +122,12 @@ export function computeHeldRestOffset(zMeters, glassesOn, dominantEye = 'OD') {
 /**
  * Compute anatomical horizontal yaw limit (radians) from posture.
  * Standing allows full 360 deg body turn; seated constrains neck/torso (~95 deg),
- * tightening smoothly (~37 deg) when leaned deeply over the desk.
+ * tightening smoothly (~49 deg) when leaned deeply over the desk.
  */
 export function computeMaxYaw(mode, lean) {
   if (mode !== 'seated') return Infinity;
   const t = smoothstep(0.3, 0.85, lean || 0);
-  return 1.66 + (0.65 - 1.66) * t;
+  return 1.66 + (0.85 - 1.66) * t;
 }
 
 /**
@@ -126,6 +153,34 @@ export function updateHeldRotation(heldRot, dx, dy, sensitivity = 0.0075) {
 }
 
 /**
+ * Shared Compare Normal (V) toggle used by both keyboard controls and settings drawer.
+ */
+export function toggleCompareNormal(state) {
+  if (!state) return false;
+  state.compareNormal = !state.compareNormal;
+  state.fatigue = 0.05;
+  if (!state.compareNormal) {
+    const supp = hasSuppressionMechanics(state.settings);
+    state.focusing = supp;
+    state.focusStrength = supp ? 1 : 0;
+  }
+  return state.compareNormal;
+}
+
+/**
+ * Shared Glasses ON/OFF (Z) toggle used by both keyboard controls and settings drawer.
+ */
+export function toggleGlasses(state) {
+  if (!state || state.settings?.lensProfile === 'none') return false;
+  state.glassesOn = !state.glassesOn;
+  if (state.glassesOn) {
+    state.glassesSlide = 0;
+    state.glassesBounce = -0.014;
+  }
+  return state.glassesOn;
+}
+
+/**
  * Create initial simulation state.
  */
 export function createSimState() {
@@ -139,6 +194,10 @@ export function createSimState() {
     ambientLight: 1.0,
     mode: 'standing',
     glassesOn: true,
+    glassesSlide: 0,
+    glassesPinned: false,
+    glassesBounce: 0,
+    squint: 0,
     eyesClosed: false,
     eyelidClose: 0,
     lean: 0,
@@ -150,12 +209,14 @@ export function createSimState() {
     occlusionLevel: 0,
     eyelidLight: 0.35,
     fatigue: 0.08,
-    focusing: false,
-    focusStrength: 0,
+    focusing: true,
+    focusStrength: 1,
     compareNormal: false,
     mlnIntensity: 0,
     mlnOnlyIntensity: 0,
     gazeVel: 0,
+    gazeVelX: 0,
+    gazeVelY: 0,
     activeZone: 'distance',
     focusDistM: 3.8,
     muted: false,
@@ -163,21 +224,25 @@ export function createSimState() {
     pointerLocked: false,
     yaw: 0,
     pitch: 0,
+    headYaw: 0,
+    headPitch: 0,
+    eyeYaw: 0,
+    eyePitch: 0,
   };
 }
 
 /**
  * Compute monocular occlusion factor [0, 1] from object-to-eye distance in meters.
- * Returns 0 at >= 0.25m, smoothly ramping to 1 at <= 0.08m.
+ * Returns 0 at >= 0.165 m (normal 18-22 cm reading stays unoccluded), smoothly ramping to 1 at <= 0.06 m.
  */
 export function computeOcclusionFromDistance(distMeters) {
-  if (!Number.isFinite(distMeters) || distMeters >= 0.25) {
+  if (!Number.isFinite(distMeters) || distMeters >= 0.165) {
     return 0;
   }
-  if (distMeters <= 0.08) {
+  if (distMeters <= 0.06) {
     return 1;
   }
-  const t = clamp((0.25 - distMeters) / (0.25 - 0.08), 0, 1);
+  const t = clamp((0.165 - distMeters) / (0.165 - 0.06), 0, 1);
   return t * t * (3 - 2 * t);
 }
 
@@ -200,42 +265,76 @@ export function computeDiplopiaOffsetDeg(distMeters, settings) {
 
 /**
  * Compute instantaneous MLN eye-oscillation angle (degrees) and angular velocity (deg/s).
- * Unoccluded: organic video-derived waveform + prominent 5.5 Hz gaze-shift burst while mouse moves (stronger unfocused).
- * Occluded (asymmetric monocular): blends into mechanical horizontal Point A (-2.5 deg) -> Point B (+2.5 deg) jerk.
+ * Clinical MLN decelerating slow-phase drift + fast corrective snap toward beatDir (+1 right / -1 left).
+ * - Relaxed (2.5 Hz): regular, gentler decelerating drift between snapping points.
+ * - Focused (~1.125 Hz mean, randomized inter-beat timing): irregular, jerkier, tight narrow beats when still;
+ *   expands to relaxed amplitude when panning (Alexander's law restores regular 2.5 Hz on fast-phase pan).
+ * - Monocularly occluded: strong mechanical jerk beating toward the uncovered fixating eye.
  */
-export function computeMlnAngleDeg(wave, elapsed, freqHz, occlusionLevel, mlnScale, gazeSpike, focusStrength = 0) {
-  const f = freqHz > 0 ? freqHz : 5.5;
+export function computeMlnAngleDeg(
+  wave,
+  elapsed,
+  freqHz,
+  occlusionLevel,
+  mlnScale,
+  gazeSpike,
+  focusStrength = 0,
+  beatDir = 1,
+  fastPanSpike = 0
+) {
+  const f = freqHz > 0 ? freqHz : 2.5;
+  const dir = beatDir < 0 ? -1 : 1;
   const occl = clamp(occlusionLevel || 0, 0, 1);
-  const mechMix = smoothstep(0.12, 0.78, occl);
-  const phase = (((elapsed * f) % 1.0) + 1.0) % 1.0;
-  const slowFrac = 0.84;
+  const focus = clamp(focusStrength || 0, 0, 1);
+  const gaze = clamp(gazeSpike || 0, 0, 1);
+  const fastPan = clamp(fastPanSpike || 0, 0, 1);
+  const scale = clamp(mlnScale || 0, 0, 1.35);
 
-  let mechDegX;
-  let mechVelX;
+  // Calm focused stillness yields irregular, tight narrow jerky beats;
+  // monocular occlusion ramps gradually (0 -> 1 over 16.5..6 cm) from focused back to full unfocused MLN
+  const calmFocus = focus * (1.0 - occl) * (1.0 - smoothstep(0.05, 0.45, fastPan));
+  const rawCycles = elapsed * f;
+  const cycleIdx = Math.floor(rawCycles);
+  const phase = ((rawCycles % 1.0) + 1.0) % 1.0;
+
+  const irregA = cycleNoise(cycleIdx, 1.3);
+  const slowFrac = clamp(0.84 + calmFocus * (irregA - 0.5) * 0.18, 0.70, 0.92);
+
+  // Decelerating exponential slow phase (MLN hallmark): gentler when relaxed, sharper/jerkier when calmly focused
+  const decelK = 1.5 + 2.8 * calmFocus;
+  const expDenom = 1.0 - Math.exp(-decelK);
+
+  // Half-amplitude (deg): relaxed ~1.35 deg (2.7 deg p2p), focused still ~0.24 deg (0.48 deg p2p), occluded ~2.5 deg
+  const panWiden = smoothstep(0.04, 0.45, gaze);
+  const focusAmpFactor = 1.0 - calmFocus * (1.0 - panWiden) * 0.82;
+  const baseHalfAmp = 1.35 + (2.50 - 1.35) * smoothstep(0.10, 0.75, occl);
+  const beatBounds = (idx) => {
+    const amp = baseHalfAmp * focusAmpFactor * (1.0 + calmFocus * (cycleNoise(idx, 4.7) - 0.5) * 0.65) * scale;
+    const center = calmFocus * (1.0 - panWiden) * (cycleNoise(idx, 9.2) - 0.5) * 0.22 * scale;
+    return { start: dir * amp + center, end: -dir * amp + center };
+  };
+  const cur = beatBounds(cycleIdx);
+  const next = beatBounds(cycleIdx + 1);
+
+  // Slow phase drifts from cur.start -> cur.end; fast phase snaps continuously from cur.end -> next.start (zero boundary jump)
+  let dxDeg;
+  let velDegS;
   if (phase < slowFrac) {
     const t = phase / slowFrac;
-    mechDegX = -2.5 + 5.0 * (0.55 * t + 0.45 * t * t);
-    mechVelX = (5.0 * (0.55 + 0.9 * t) * f) / slowFrac;
+    const decel = (1.0 - Math.exp(-decelK * t)) / expDenom;
+    const span = cur.end - cur.start;
+    dxDeg = cur.start + span * decel;
+    velDegS = span * ((decelK * Math.exp(-decelK * t)) / expDenom) * (f / slowFrac);
   } else {
     const t = (phase - slowFrac) / (1.0 - slowFrac);
     const snap = t * t * (3.0 - 2.0 * t);
-    mechDegX = 2.5 - 5.0 * snap;
-    mechVelX = (-5.0 * 6.0 * t * (1.0 - t) * f) / (1.0 - slowFrac);
+    const span = next.start - cur.end;
+    dxDeg = cur.end + span * snap;
+    velDegS = span * (6.0 * t * (1.0 - t)) * (f / (1.0 - slowFrac));
   }
 
-  // Prominent gaze-shift jerk beat while mouse moves (strongest unfocused, damped ~58% in Focus, stops instantly on 0 speed)
-  const focusDamp = 1.0 - 0.58 * clamp(focusStrength || 0, 0, 1);
-  const gazeGain = 1.15 * focusDamp;
-  const gazeBurst = (gazeSpike || 0) * mechDegX * gazeGain;
-  const gazeVelX = (gazeSpike || 0) * mechVelX * gazeGain;
-
-  const scale = clamp(mlnScale || 0, 0, 1.35);
-  const organicX = (wave?.dxDeg || 0) * scale;
-  const organicY = (wave?.dyDeg || 0) * scale;
-
-  const dxDeg = organicX * (1.0 - mechMix) + mechDegX * scale * mechMix + gazeBurst;
-  const dyDeg = organicY * (1.0 - mechMix * 0.88);
-  const velDegS = (mechVelX * scale * mechMix) + gazeVelX + (wave?.vxDegS || 0) * scale * (1.0 - mechMix);
+  // Subtle vertical coupling from recorded waveform when unoccluded (damped under horizontal mechanical occlusion)
+  const dyDeg = (wave?.dyDeg || 0) * scale * 0.35 * (1.0 - occl * 0.85);
 
   return { dxDeg, dyDeg, velDegS };
 }
@@ -264,10 +363,10 @@ export function updateSimState(state, dt) {
 
   state.occlOD = clamp(state.occlOD || 0, 0, 1);
   state.occlOS = clamp(state.occlOS || 0, 0, 1);
-  // MLN Patching Paradox: triggered by asymmetric monocular occlusion (one eye occluded, NOT both)
-  state.occlusionLevel = clamp(Math.abs(state.occlOD - state.occlOS), 0, 1);
+  // MLN Patching Paradox: asymmetric monocular occlusion when open; closed eyelids = symmetric darkness (0 occlusion)
+  state.occlusionLevel = state.eyesClosed ? 0 : clamp(Math.abs(state.occlOD - state.occlOS), 0, 1);
 
-  // Cortical focus suppression (C toggle / Space hold): active only when suppression mechanics apply
+  // Cortical focus suppression (C toggle): active only when suppression mechanics apply
   const wantsFocus = suppressionActive && Boolean(state.focusing) && !state.eyesClosed && !state.compareNormal;
   const decomp = computeDecompensation(state.fatigue);
   const fatigueBreakdown = 1.0 - 0.78 * decomp;
@@ -277,35 +376,74 @@ export function updateSimState(state, dt) {
     ? clamp((state.focusStrength || 0) + (targetFocusStrength - (state.focusStrength || 0)) * focusAlpha, 0, 1)
     : 0;
 
-  // Two-speed central visual fatigue dynamics (paused while settings drawer is open; gated to suppression mechanics)
+  // Glasses nose-slip dynamics (0..14 mm): gentle gravity slip when craning/looking down (~50-65s full slip);
+  // holding Space pins frames steady; holding Shift slides down as a manual variable-focus near loupe.
+  if (!state.glassesOn || s.lensProfile === 'none') {
+    state.glassesSlide = 0;
+    state.glassesPinned = false;
+  } else if (!paused && !state.compareNormal && !state.glassesPinned) {
+    const isAphakic = s.lensProfile === 'aphakic_bifocal';
+    const downTilt = smoothstep(-0.15, -0.78, state.pitch || 0);
+    const leanFactor = clamp(state.lean || 0, 0, 1);
+    const maxSlide = isAphakic ? 1.0 : 0.35;
+    const weightScale = isAphakic ? 1.0 : 0.22;
+    const slideRate = (0.004 + 0.015 * downTilt + 0.008 * leanFactor) * weightScale;
+    state.glassesSlide = clamp((state.glassesSlide || 0) + slideRate * step, 0, maxSlide);
+  }
+  // Decay tactile glasses-on spring settle
+  if (Math.abs(state.glassesBounce || 0) > 1e-4) {
+    state.glassesBounce *= Math.exp(-10 * step);
+    if (Math.abs(state.glassesBounce) < 1e-4) state.glassesBounce = 0;
+  }
+
+  // Reflex stenopeic squint when brute-forcing ultra-close held object (< 17 cm)
+  const targetSquint =
+    !state.compareNormal &&
+    !state.eyesClosed &&
+    state.holding &&
+    state.heldOffset &&
+    state.heldOffset.z < 0.17
+      ? smoothstep(0.17, 0.085, state.heldOffset.z)
+      : 0;
+  const squintAlpha = 1 - Math.exp(-7 * step);
+  state.squint = clamp((state.squint || 0) + (targetSquint - (state.squint || 0)) * squintAlpha, 0, 1);
+
+  // Two-speed central visual fatigue dynamics (~10x accelerated vs real schoolwork; tuned for Focused waking default)
   if (!paused) {
     if (state.eyesClosed || !suppressionActive) {
       const recovAlpha = 1 - Math.exp(-0.14 * step);
       state.fatigue = clamp(state.fatigue + (0.05 - state.fatigue) * recovAlpha, 0, 1);
     } else if (!state.compareNormal) {
       const isAphakic = s.lensProfile === 'aphakic_bifocal';
-      let rate = 0.0012;
-      if ((isAphakic || Math.abs(s.diplopiaH || 0) >= 0.01) && state.focusDistM > 0 && state.focusDistM < 0.7) {
-        rate += 0.0018;
+      const hasDip = Math.abs(s.diplopiaH || 0) >= 0.01 || Math.abs(s.diplopiaV || 0) >= 0.01;
+      let rate = 0.0009;
+      if ((isAphakic || hasDip) && state.focusDistM > 0 && state.focusDistM < 0.7) {
+        rate += 0.0010;
+      }
+      // Sub-15 cm binocular convergence mismatch strain (both eyes unoccluded, trying & failing to converge)
+      if ((isAphakic || hasDip) && state.focusDistM > 0 && state.focusDistM < 0.16 && state.occlOD < 0.25 && state.occlOS < 0.25) {
+        rate += 0.0016;
       }
       if ((s.mlnScale || 0) > 0.005 && state.occlusionLevel > 0.05) {
-        rate += 0.006 * state.occlusionLevel;
+        rate += 0.0035 * state.occlusionLevel;
       }
       if (isAphakic && !state.glassesOn) {
-        rate += 0.003;
+        rate += 0.0022;
       }
       if (wantsFocus) {
-        rate = rate * 2.4 + 0.0035;
+        rate = rate * 2.0 + 0.0014;
       }
       state.fatigue = clamp(state.fatigue + rate * step, 0, 1);
     }
   }
 
   // Separate MLN jerk drive from infantile albinism pendular nystagmus drive (no double-counting in optics.js)
+  // Closed eyelids behave like open + Focused (unaffected by monocular occlusion)
   const postDecomp = computeDecompensation(state.fatigue);
-  const unocclDrive = (0.15 + 0.34 * postDecomp) * (state.eyesClosed ? 0.35 : 1.0) * (1 - 0.68 * state.focusStrength);
+  const effFocusForMln = state.eyesClosed ? 1.0 : state.focusStrength;
+  const unocclDrive = (0.38 + 0.34 * postDecomp) * (1 - 0.58 * effFocusForMln);
   const mlnScale = clamp(s.mlnScale ?? 1, 0, 2);
-  const mlnDrive = (state.occlusionLevel * 0.95 + unocclDrive) * mlnScale;
+  const mlnDrive = clamp(state.occlusionLevel * 0.95 + unocclDrive * (1 - 0.45 * state.occlusionLevel), 0, 1.15) * mlnScale;
   const albinismDrive =
     clamp(s.albinism || 0, 0, 1) * 0.48 * (state.eyesClosed ? 0.25 : 1.0) * (1 - 0.35 * state.focusStrength);
   state.mlnOnlyIntensity = clamp(mlnDrive, 0, 1);

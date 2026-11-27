@@ -440,10 +440,15 @@ export function applyPersona(state, personaId) {
   state.personaId = persona.id;
   state.compareNormal = false;
   state.fatigue = 0.08;
-  state.focusing = false;
-  state.focusStrength = 0;
+  const suppression = hasSuppressionMechanics(state.settings);
+  state.focusing = suppression;
+  state.focusStrength = suppression ? 1 : 0;
   state.eyesClosed = false;
   state.eyelidClose = 0;
+  state.glassesSlide = 0;
+  state.glassesPinned = false;
+  state.glassesBounce = 0;
+  state.squint = 0;
   state.glassesOn =
     typeof persona.defaultGlassesOn === 'boolean'
       ? persona.defaultGlassesOn

@@ -201,25 +201,29 @@ export function createUpgradedPickables({ scene, addFocusMesh, makeCanvasTexture
       ctx.fillRect((i * 59) % w, (i * 37) % h, 2, 2);
     }
   });
-  const sleeveTex = makeTex(1024, 512, (ctx, w, h) => {
-    ctx.fillStyle = '#f2ede0';
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#c44646';
-    ctx.fillRect(0, 0, w * 0.14, h);
-    ctx.fillStyle = '#36659e';
-    ctx.fillRect(w * 0.86, 0, w * 0.14, h);
-    ctx.strokeStyle = '#252932';
-    ctx.lineWidth = 6;
-    ctx.strokeRect(24, 24, w - 48, h - 48);
-    ctx.fillStyle = '#1f232b';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = 'bold 54px Georgia, serif';
-    ctx.fillText('GOMMA · MATITA / PENNA', w * 0.5, h * 0.44);
-    ctx.font = 'bold 34px Georgia, serif';
-    ctx.fillStyle = '#484d57';
-    ctx.fillText('DOPPIO USO · ART. 40', w * 0.5, h * 0.66);
-  });
+  const makeSleeveTex = (withText) =>
+    makeTex(1024, 512, (ctx, w, h) => {
+      ctx.fillStyle = '#e4decb';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#c44646';
+      ctx.fillRect(0, 0, w * 0.12, h);
+      ctx.fillStyle = '#36659e';
+      ctx.fillRect(w * 0.88, 0, w * 0.12, h);
+      if (!withText) return;
+      ctx.strokeStyle = '#1b1f28';
+      ctx.lineWidth = 7;
+      ctx.strokeRect(24, 24, w - 48, h - 48);
+      ctx.fillStyle = '#14171e';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = 'bold 56px "Helvetica Neue", Arial, sans-serif';
+      ctx.fillText('GOMMA · MATITA / PENNA', w * 0.5, h * 0.42);
+      ctx.font = 'bold 40px "Helvetica Neue", Arial, sans-serif';
+      ctx.fillStyle = '#262b36';
+      ctx.fillText('DOPPIO USO · ART. 40', w * 0.5, h * 0.66);
+    });
+  const sleeveLabelTex = makeSleeveTex(true);
+  const sleeveBlankTex = makeSleeveTex(false);
 
   const redRubber = new THREE.Mesh(
     new THREE.BoxGeometry(0.032, 0.013, 0.024),
@@ -235,9 +239,12 @@ export function createUpgradedPickables({ scene, addFocusMesh, makeCanvasTexture
   blueRubber.position.set(0.016, 0, 0);
   blueRubber.castShadow = true;
 
+  const sleeveLabelMat = new THREE.MeshStandardMaterial({ map: sleeveLabelTex, roughness: 0.90 });
+  const sleeveBlankMat = new THREE.MeshStandardMaterial({ map: sleeveBlankTex, roughness: 0.90 });
+  const sleeveEndMat = new THREE.MeshStandardMaterial({ color: '#e4decb', roughness: 0.90 });
   const paperSleeve = new THREE.Mesh(
     new THREE.BoxGeometry(0.026, 0.0138, 0.0248),
-    new THREE.MeshStandardMaterial({ map: sleeveTex, roughness: 0.72 })
+    [sleeveEndMat, sleeveEndMat, sleeveLabelMat, sleeveBlankMat, sleeveBlankMat, sleeveBlankMat]
   );
   paperSleeve.position.set(0.001, 0, 0);
   paperSleeve.castShadow = true;

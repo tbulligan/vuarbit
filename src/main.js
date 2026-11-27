@@ -1,6 +1,11 @@
 import * as THREE from 'three';
-import { createSimState, updateSimState } from './state.js';
-import { QUALITY_PRESETS, TIME_OF_DAY_PRESETS, applyPersona, updateVisualSetting } from './personas.js';
+import { createSimState, toggleCompareNormal, toggleGlasses, updateSimState } from './state.js';
+import {
+  QUALITY_PRESETS,
+  TIME_OF_DAY_PRESETS,
+  applyPersona,
+  updateVisualSetting,
+} from './personas.js';
 import { createClassroomScene } from './scene.js';
 import { createControls } from './controls.js';
 import { createOpticsRenderer } from './optics.js';
@@ -89,17 +94,10 @@ async function init() {
       applyPersona(state, 'vuarbit_1994');
     },
     onCompareToggle() {
-      state.compareNormal = !state.compareNormal;
-      state.fatigue = 0.05;
-      if (!state.compareNormal) {
-        state.focusing = false;
-        state.focusStrength = 0;
-      }
+      toggleCompareNormal(state);
     },
     onGlassesToggle() {
-      if (state.settings?.lensProfile !== 'none') {
-        state.glassesOn = !state.glassesOn;
-      }
+      toggleGlasses(state);
     },
     onTimeOfDayChange(todId) {
       if (!TIME_OF_DAY_PRESETS[todId]) return;

@@ -5,16 +5,30 @@ const FREQ_C9 = 8372.02;
 const MAX_TOTAL_GAIN = 0.028;
 
 /**
- * Web Audio API dual-tone tinnitus synthesizer (E7 + C9), modulated by fatigue and eye rest.
+ * Web Audio API dual-tone tinnitus synthesizer:
+ * E7 (2637.02 Hz) panned right; C9 (8372.02 Hz) centered intracranially ("inside head") via slight binaural split.
  */
 export function createTinnitusAudio() {
   let ctx = null;
   let masterGain = null;
   let gainE7 = null;
-  let gainC9 = null;
+  let gainC9L = null;
+  let gainC9R = null;
   let oscE7 = null;
-  let oscC9 = null;
+  let oscC9L = null;
+  let oscC9R = null;
   let started = false;
+
+  function connectPanned(node, panVal) {
+    if (typeof ctx.createStereoPanner === 'function') {
+      const panner = ctx.createStereoPanner();
+      panner.pan.value = panVal;
+      node.connect(panner);
+      panner.connect(masterGain);
+    } else {
+      node.connect(masterGain);
+    }
+  }
 
   function start() {
     if (started) {
@@ -33,13 +47,10 @@ export function createTinnitusAudio() {
       masterGain.gain.value = 0;
       masterGain.connect(ctx.destination);
 
+      // E7 strongly right-lateralized
       gainE7 = ctx.createGain();
       gainE7.gain.value = 0.66;
-      gainE7.connect(masterGain);
-
-      gainC9 = ctx.createGain();
-      gainC9.gain.value = 0.34;
-      gainC9.connect(masterGain);
+      connectPanned(gainE7, 0.82);
 
       oscE7 = ctx.createOscillator();
       oscE7.type = 'sine';
@@ -47,11 +58,26 @@ export function createTinnitusAudio() {
       oscE7.connect(gainE7);
       oscE7.start();
 
-      oscC9 = ctx.createOscillator();
-      oscC9.type = 'sine';
-      oscC9.frequency.value = FREQ_C9;
-      oscC9.connect(gainC9);
-      oscC9.start();
+      // C9 centered inside head (subtle ±0.15 Hz binaural decorrelation localizes intracranially on headphones)
+      gainC9L = ctx.createGain();
+      gainC9L.gain.value = 0.17;
+      connectPanned(gainC9L, -0.35);
+
+      gainC9R = ctx.createGain();
+      gainC9R.gain.value = 0.17;
+      connectPanned(gainC9R, 0.35);
+
+      oscC9L = ctx.createOscillator();
+      oscC9L.type = 'sine';
+      oscC9L.frequency.value = FREQ_C9 - 0.15;
+      oscC9L.connect(gainC9L);
+      oscC9L.start();
+
+      oscC9R = ctx.createOscillator();
+      oscC9R.type = 'sine';
+      oscC9R.frequency.value = FREQ_C9 + 0.15;
+      oscC9R.connect(gainC9R);
+      oscC9R.start();
 
       if (ctx.state === 'suspended') {
         ctx.resume().catch(() => {});
@@ -82,7 +108,8 @@ export function createTinnitusAudio() {
     if (!started) return;
     try {
       oscE7?.stop();
-      oscC9?.stop();
+      oscC9L?.stop();
+      oscC9R?.stop();
       ctx?.close();
     } catch {
       // Ignore cleanup errors on closed AudioContext
@@ -90,8 +117,12 @@ export function createTinnitusAudio() {
     started = false;
     ctx = null;
     masterGain = null;
+    gainE7 = null;
+    gainC9L = null;
+    gainC9R = null;
     oscE7 = null;
-    oscC9 = null;
+    oscC9L = null;
+    oscC9R = null;
   }
 
   return { start, update, dispose };

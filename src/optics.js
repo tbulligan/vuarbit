@@ -1,5 +1,11 @@
 import * as THREE from 'three';
-import { computeMlnAngleDeg, computeMlnFreqScale } from './state.js';
+import {
+  computeDecompensation,
+  computeDiplopiaOffsetDeg,
+  computeEffectiveLensPower,
+  computeMlnAngleDeg,
+  computeMlnFreqScale,
+} from './state.js';
 import {
   QUALITY_PRESETS,
   createDefaultVisualSettings,
@@ -12,7 +18,8 @@ const EYE_HALF_IPD_M = 0.029;
 const NEAR_CLIP = 0.02;
 const FAR_CLIP = 30.0;
 const OD_FOV_DEG = 62;
-const TARGET_MLN_FREQ_HZ = 5.5; // 5-6 beats/sec clinical MLN beat rate
+const TAN_HALF_Y = Math.tan(THREE.MathUtils.degToRad(OD_FOV_DEG * 0.5));
+const TARGET_MLN_FREQ_HZ = 2.5; // Calibrated relaxed MLN beat rate (~20 beats / 8 s; ~1.125 Hz calmly focused)
 const CVD_TYPE_MAP = { none: 0, deutan: 1, protan: 2, tritan: 3 };
 const LENS_PROFILE_MAP = { none: 0, aphakic_bifocal: 1, single_vision: 2, bifocal: 3, progressive: 4 };
 const FRAME_SHAPE_MAP = { auto: 0, round: 1, rect: 2, rounded_rect: 3, semi_rimless: 4, rimless: 5 };
@@ -109,6 +116,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
   const aspect = initW / initH;
 
   const odCamera = new THREE.PerspectiveCamera(OD_FOV_DEG, aspect, NEAR_CLIP, FAR_CLIP);
+  const nonDomCamera = new THREE.PerspectiveCamera(OD_FOV_DEG, aspect, NEAR_CLIP, FAR_CLIP);
 
   // Half-float linear HDR targets (with safe 8-bit fallback) so optical defocus/HOAs run in linear light before ACES + sRGB
   const useHalfFloat =
@@ -116,15 +124,13 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     Boolean(renderer.extensions?.has('EXT_color_buffer_float'));
   const rtType = useHalfFloat ? THREE.HalfFloatType : THREE.UnsignedByteType;
 
-  // 4x WebGL2 MSAA on dominant OD target + quarter-res separable blur targets for smooth +13 D defocus
+  // 4x WebGL2 MSAA on dominant OD target + quarter-res separable blur & non-dominant stereo eye targets
   const rtOD = createEyeRenderTarget(initW, initH, 4, rtType);
   const blurW = Math.max(1, Math.floor(initW * 0.25));
   const blurH = Math.max(1, Math.floor(initH * 0.25));
   const rtBlurH = createBlurRenderTarget(blurW, blurH, rtType);
   const rtBlurV = createBlurRenderTarget(blurW, blurH, rtType);
-
-  const baseFreq = waveformData?.phases?.mln_occluded?.dominant_freq_hz || waveformData?.waveform?.cycle_freq_hz || 0.85;
-  const waveSpeedScale = THREE.MathUtils.clamp(TARGET_MLN_FREQ_HZ / Math.max(0.25, baseFreq), 1.0, 9.0);
+  const rtNonDom = createEyeRenderTarget(blurW, blurH, 0, rtType);
 
   const blurStepUV = 0.0042;
   const blurStepH = new THREE.Vector2(blurStepUV / aspect, 0);
@@ -138,26 +144,35 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     tColorOD: { value: rtOD.texture },
     tBlurOD: { value: rtBlurV.texture },
     tDepthOD: { value: rtOD.depthTexture },
+    tColorNonDom: { value: rtNonDom.texture },
+    tDepthNonDom: { value: rtNonDom.depthTexture },
+    uHasNonDomRT: { value: 0.0 },
     uNear: { value: NEAR_CLIP },
     uFar: { value: FAR_CLIP },
     uAspect: { value: aspect },
     uTime: { value: 0 },
     uGlassesOn: { value: 1 },
+    uGlassesSlide: { value: 0 },
+    uGlassesBounce: { value: 0 },
+    uSquint: { value: 0 },
     uEyelidClose: { value: 0 },
     uEyelidLight: { value: 0.35 },
     uAmbientLight: { value: 1.0 },
     uFatigue: { value: 0.08 },
     uOcclOD: { value: 0 },
+    uOcclNonDom: { value: 0 },
     uFocusEffort: { value: 0 },
     uCompareNormal: { value: 0 },
     uMlnOffsetUV: { value: new THREE.Vector2(0, 0) },
     uMlnVelUV: { value: 0 },
+    uEyeOffset: { value: new THREE.Vector2(0, 0) },
     uExposure: { value: renderer.toneMappingExposure || 1.0 },
     uResolution: { value: new THREE.Vector2(initW, initH) },
     uLensProfile: { value: 1.0 },
     uFrameShape: { value: 0.0 },
     uFrameColor: { value: 0.0 },
     uLensPowerD: { value: 13.0 },
+    uEffLensPowerD: { value: 13.0 },
     uNearAddD: { value: 4.0 },
     uLensCylD: { value: 0.0 },
     uLensAxisRad: { value: Math.PI * 0.5 },
@@ -214,11 +229,14 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
   const rightVec = new THREE.Vector3();
   const mlnEuler = new THREE.Euler(0, 0, 0, 'YXZ');
   const mlnQuat = new THREE.Quaternion();
+  const nonDomEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  const nonDomQuat = new THREE.Quaternion();
 
   let elapsed = 0;
   let mlnElapsed = 0;
   let shadowFrame = 0;
   let adaptedExposure = computeAdaptedExposure(1.0);
+  let smoothConvVergence = 1.0 / 3.8; // Smooth physiological vergence (diopters) prevents 1-frame ghost teleport across edges
 
   function render(dt, state) {
     elapsed += dt;
@@ -241,7 +259,8 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     const vosAcuity = s.vosAcuity ?? 0.15;
     const rawDomBlur = computeAcuityBlurUV(domIsOS ? vosAcuity : vodAcuity);
     const acuityBlurNonDom = computeAcuityBlurUV(domIsOS ? vodAcuity : vosAcuity);
-    const hasDiplopia = Math.abs(s.diplopiaH ?? -1.53) >= 0.01 || Math.abs(s.diplopiaV ?? 0.31) >= 0.01;
+    const dipDeg = computeDiplopiaOffsetDeg(state.focusDistM, s);
+    const hasDiplopia = Math.abs(dipDeg.dxDeg) >= 0.01 || Math.abs(dipDeg.dyDeg) >= 0.01;
     // In single-vision / no-lens mode without diplopia, blend non-dominant acuity via binocular summation so OS acuity stays active
     const acuityBlurDom =
       lensProfile !== 'aphakic_bifocal' && !hasDiplopia
@@ -249,21 +268,34 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
         : rawDomBlur;
     const mlnUserScale = s.mlnScale ?? 1.0;
 
-    // Instantaneous gaze-shift nystagmus: prominent when turning head/mouse (strongest unfocused), stops immediately on 0 speed
-    const gazeSpike = Math.min(1.0, (state.gazeVel || 0) * 1.10);
+    // Calibrated MLN (2.5 Hz relaxed, ~1.125 Hz calmly focused) + Alexander's law directional gaze asymmetry:
+    // Closed eyelids behave like open + Focused (unaffected by monocular occlusion or gaze pan).
+    const domSign = domIsOS ? -1 : 1;
+    const isClosed = Boolean(state.eyesClosed);
+    const effOccl = isClosed ? 0 : (state.occlusionLevel || 0);
+    const effFocus = isClosed ? 1.0 : (state.focusStrength || 0);
+    const beatDir =
+      effOccl > 0.08
+        ? (state.occlOD || 0) > (state.occlOS || 0)
+          ? -1
+          : 1
+        : domSign;
+    const gazeSpike = isClosed ? 0 : Math.min(1.0, (state.gazeVel || 0) * 1.10);
+    const fastPanSpike = isClosed ? 0 : Math.min(1.0, Math.max(0, beatDir * (state.gazeVelX || 0)) * 1.15);
 
     const isNormal = Boolean(state.compareNormal);
+    const beatIdx = Math.floor(mlnElapsed * TARGET_MLN_FREQ_HZ);
     const freqScale = isNormal
       ? 1.0
-      : computeMlnFreqScale(state.focusStrength || 0, state.fatigue || 0, state.occlusionLevel || 0, gazeSpike);
+      : computeMlnFreqScale(effFocus, state.fatigue || 0, effOccl, fastPanSpike, beatIdx);
     mlnElapsed += dt * freqScale;
 
-    const wave = sampleLoopingWaveform(waveformData, mlnElapsed, waveSpeedScale);
-    const mlnBase = state.mlnOnlyIntensity ?? state.mlnIntensity ?? 0;
+    const wave = sampleLoopingWaveform(waveformData, elapsed, 1.0);
+    const decompBoost = 1.0 + 0.25 * computeDecompensation(state.fatigue || 0);
     const mlnScale =
       isNormal || mlnUserScale <= 0.005
         ? 0
-        : Math.min(1.25, mlnBase + gazeSpike * 0.55 * mlnUserScale);
+        : THREE.MathUtils.clamp(mlnUserScale * decompBoost, 0, 1.35);
     const mln =
       isNormal || mlnUserScale <= 0.005
         ? { dxDeg: 0, dyDeg: 0, velDegS: 0 }
@@ -271,10 +303,12 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
             wave,
             mlnElapsed,
             TARGET_MLN_FREQ_HZ,
-            state.occlusionLevel || 0,
+            effOccl,
             mlnScale,
-            gazeSpike * mlnUserScale,
-            state.focusStrength || 0,
+            gazeSpike,
+            effFocus,
+            beatDir,
+            fastPanSpike,
           );
     let effVelDegS = mln.velDegS * freqScale;
 
@@ -305,7 +339,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     }
     shadowFrame += 1;
 
-    odCamera.position.copy(savedPos).addScaledVector(rightVec, isNormal ? 0 : EYE_HALF_IPD_M * (domIsOS ? -1 : 1));
+    odCamera.position.copy(savedPos).addScaledVector(rightVec, isNormal ? 0 : EYE_HALF_IPD_M * domSign);
     odCamera.quaternion.copy(savedQuat).multiply(mlnQuat);
     odCamera.updateMatrixWorld(true);
 
@@ -316,16 +350,47 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     renderer.render(scene, odCamera);
     renderer.shadowMap.needsUpdate = false;
 
-    // Skip quarter-res blur passes when eyelids are closed, comparing normal, or no blur-using optics/pathology active
+    // Keep physiological vergence smoothly tracked down to 6 cm (no 22 cm wall that flips OS to the right!)
+    const targetVerg = 1.0 / THREE.MathUtils.clamp(state.focusDistM || 3.8, 0.06, 20.0);
+    smoothConvVergence += (targetVerg - smoothConvVergence) * (1 - Math.exp(-8.5 * Math.min(dt || 0, 0.1)));
+
+    // Render quarter-res stereo 2nd camera ONLY when dominant eye is genuinely covered by an obstacle while non-dom is open
+    // (keeps workbook reading & held-item inspection at 100% single-pass 60 FPS with OS strictly left!)
+    const occlDom = domIsOS ? (state.occlOS || 0) : (state.occlOD || 0);
+    const occlNonDom = domIsOS ? (state.occlOD || 0) : (state.occlOS || 0);
+    const domCoveredByObstacle = !state.holding && occlDom > 0.45 && occlNonDom < 0.55;
+    const renderNonDom = !isNormal && (state.eyelidClose || 0) < 0.995 && hasDiplopia && domCoveredByObstacle;
+    if (renderNonDom) {
+      const convYaw = Math.atan((EYE_HALF_IPD_M * 2.0) * smoothConvVergence) * -domSign;
+      nonDomEuler.set(
+        THREE.MathUtils.degToRad(-dipDeg.dyDeg),
+        convYaw + THREE.MathUtils.degToRad(dipDeg.dxDeg),
+        0,
+        'YXZ',
+      );
+      nonDomQuat.setFromEuler(nonDomEuler);
+      nonDomCamera.position.copy(savedPos).addScaledVector(rightVec, -EYE_HALF_IPD_M * domSign);
+      nonDomCamera.quaternion.copy(odCamera.quaternion).multiply(nonDomQuat);
+      nonDomCamera.updateMatrixWorld(true);
+
+      renderer.setRenderTarget(rtNonDom);
+      renderer.clear();
+      renderer.render(scene, nonDomCamera);
+    }
+
+    // Skip quarter-res blur passes only when no blur-, boundary-, diplopia-, or phosphene-edge consumer reads tBlurOD
     const needBlur =
       !isNormal &&
       (state.eyelidClose || 0) < 0.995 &&
       (lensProfileCode > 0 ||
+        hasDiplopia ||
         glaucoma > 0.01 ||
         amd > 0.01 ||
         cataract > 0.01 ||
         albinism > 0.01 ||
         diabeticRetinopathy > 0.01 ||
+        retinitisPigmentosa > 0.01 ||
+        (s.phosphenes || 0) > 0.005 ||
         myopiaD > 0.1 ||
         presbyopiaD > 0.1 ||
         astigmatismD > 0.1 ||
@@ -348,24 +413,44 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     odCamera.updateMatrixWorld(true);
 
     uniforms.uTime.value = elapsed;
+    uniforms.uHasNonDomRT.value = renderNonDom ? 1.0 : 0.0;
     uniforms.uGlassesOn.value = state.glassesOn ? 1.0 : 0.0;
+    uniforms.uGlassesSlide.value = state.glassesSlide || 0.0;
+    uniforms.uGlassesBounce.value = state.glassesBounce || 0.0;
+    uniforms.uSquint.value = state.squint || 0.0;
     uniforms.uEyelidClose.value = state.eyelidClose || 0.0;
     uniforms.uEyelidLight.value = state.eyelidLight ?? 0.35;
     uniforms.uAmbientLight.value = state.ambientLight ?? 1.0;
     uniforms.uFatigue.value = state.fatigue || 0.0;
     uniforms.uOcclOD.value = domIsOS ? (state.occlOS || 0.0) : (state.occlOD || 0.0);
+    uniforms.uOcclNonDom.value = domIsOS ? (state.occlOD || 0.0) : (state.occlOS || 0.0);
     uniforms.uFocusEffort.value = state.focusStrength || 0.0;
     uniforms.uCompareNormal.value = isNormal ? 1.0 : 0.0;
+
+    // Asymmetric retinal adaptation: fast cone light adaptation (~1.2s) vs slow rod dark adaptation (~13s, slower in RP)
     const targetExposure = computeAdaptedExposure(state.ambientLight ?? 1.0);
-    adaptedExposure += (targetExposure - adaptedExposure) * (1 - Math.exp(-5.0 * Math.min(dt || 0, 0.1)));
+    if (isNormal) {
+      adaptedExposure = targetExposure;
+    } else {
+      const stepDt = Math.min(dt || 0, 0.1);
+      const isDarkening = targetExposure > adaptedExposure;
+      const adaptRate = isDarkening ? 0.075 / (1.0 + retinitisPigmentosa * 1.8) : 0.85;
+      adaptedExposure += (targetExposure - adaptedExposure) * (1 - Math.exp(-adaptRate * stepDt));
+    }
     uniforms.uExposure.value = (renderer.toneMappingExposure || 1.0) * adaptedExposure;
     uniforms.uMlnOffsetUV.value.set(mln.dxDeg / 62.0, mln.dyDeg / 62.0);
-    uniforms.uMlnVelUV.value = THREE.MathUtils.clamp(Math.abs(effVelDegS) / 900.0, 0.0, 0.015);
+    uniforms.uMlnVelUV.value = THREE.MathUtils.clamp(Math.abs(effVelDegS) / 1350.0, 0.0, 0.011);
+    uniforms.uEyeOffset.value.set(
+      -Math.tan(state.eyeYaw || 0) / (2.0 * TAN_HALF_Y),
+      Math.tan(state.eyePitch || 0) / (2.0 * TAN_HALF_Y),
+    );
 
+    const lensPowerD = s.lensPowerD ?? 13.0;
     uniforms.uLensProfile.value = lensProfileCode;
     uniforms.uFrameShape.value = FRAME_SHAPE_MAP[s.frameShape] ?? 0;
     uniforms.uFrameColor.value = FRAME_COLOR_MAP[s.frameColor] ?? 0;
-    uniforms.uLensPowerD.value = s.lensPowerD ?? 13.0;
+    uniforms.uLensPowerD.value = lensPowerD;
+    uniforms.uEffLensPowerD.value = computeEffectiveLensPower(lensPowerD, state.glassesSlide || 0);
     uniforms.uNearAddD.value = s.nearAddD ?? 4.0;
     uniforms.uLensCylD.value = lensCylD;
     uniforms.uLensAxisRad.value = THREE.MathUtils.degToRad(s.lensAxisDeg ?? 90);
@@ -377,8 +462,8 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uniforms.uAcuityBlurDom.value = acuityBlurDom;
     uniforms.uAcuityBlurNonDom.value = acuityBlurNonDom;
     uniforms.uDiplopiaTan.value.set(
-      Math.tan(THREE.MathUtils.degToRad(s.diplopiaH ?? -1.53)),
-      Math.tan(THREE.MathUtils.degToRad(s.diplopiaV ?? 0.31)),
+      Math.tan(THREE.MathUtils.degToRad(dipDeg.dxDeg)),
+      Math.tan(THREE.MathUtils.degToRad(dipDeg.dyDeg)),
     );
     uniforms.uPhospheneScale.value = s.phosphenes ?? 1.0;
     uniforms.uFloaterScale.value = s.floaters ?? 1.0;
@@ -409,12 +494,15 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
 
     odCamera.aspect = newAspect;
     odCamera.updateProjectionMatrix();
+    nonDomCamera.aspect = newAspect;
+    nonDomCamera.updateProjectionMatrix();
 
     rtOD.setSize(bw, bh);
     const nextBlurW = Math.max(1, Math.floor(bw * 0.25));
     const nextBlurH = Math.max(1, Math.floor(bh * 0.25));
     rtBlurH.setSize(nextBlurW, nextBlurH);
     rtBlurV.setSize(nextBlurW, nextBlurH);
+    rtNonDom.setSize(nextBlurW, nextBlurH);
     blurStepH.set(blurStepUV / newAspect, 0);
     uniforms.uAspect.value = newAspect;
     uniforms.uResolution.value.set(bw, bh);
@@ -424,6 +512,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     rtOD.dispose();
     rtBlurH.dispose();
     rtBlurV.dispose();
+    rtNonDom.dispose();
     quadGeo.dispose();
     blurMat.dispose();
     quadMaterial.dispose();

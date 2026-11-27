@@ -15,14 +15,20 @@
   - [x] Lightweight graphics DPR quality preset (`High 1.75x` / `Balanced 1.25x` / `Performance 1.0x`).
   - [x] Optional Frame customization dropdown (shape & color) in Optics Details for users representing their own eyewear.
 
-## P3 — Second Scene: Car Passenger (Outdoor / Night & Daylight Motion)
-- Scene switcher architecture (`1994 Classroom` ↔ `Car Passenger`) + seated cabin camera (dashboard, windshield, side mirror/window) with head look & posture lean.
+## P3 — Second Scene: Optometry Exam Room (Diagnostic & Calibration)
+- Scene switcher architecture (`1994 Classroom` ↔ `Exam Room`, extensible to later scenes).
+- Compact clinical exam room with angular-calibrated targets: 4 m backlit ETDRS/Snellen acuity chart, Pelli-Robson contrast chart, Amsler grid (Wet AMD metamorphopsia), Ishihara plates (CVD), handheld near Jaeger reading card (bifocal/presbyopia), and point-light glare source (astigmatism/cataract/IOL halos).
+- Validates MAR acuity and pathology calibration across all presets without breaking 1994 classroom immersion.
+
+## P4 — Third Scene: Car Passenger (Outdoor / Night & Daylight Motion)
+- Seated cabin camera (dashboard, windshield, side mirror/window) with head look & posture lean.
 - Looping outdoor road environment (`T` Time of Day: bright sun glare, overcast, dusk, night oncoming headlights, streetlights, taillights, wet-road speculars, passing road signs/trees/cars).
 - Unlocks clinical optics impossible indoors: aphakic `+13 D` ring scotoma ("jack-in-the-box" passing objects), astigmatism/cataract headlight starbursts & disability glare, RP nyctalopia, glaucoma/RP peripheral field loss in motion, and traffic-depth diplopia.
 
-## P4 — Third Scene: 2026 Open Office (Work Desk + Pseudophakic IOL)
+## P5 — Fourth Scene: 2026 Open Office (Work Desk + Pseudophakic IOL)
 - Compact open office (~10×10 m bay) combining near/intermediate/distance depths: work desk (dual monitors/laptop, smartphone, printed docs, desk lamp), coworkers, whiteboard, glass meeting room, and tall daylight windows.
-- `Vuarbit 2026 (IOL)` persona + pseudophakic IOL optical profile (removes `+13 D` magnification/ring scotoma, adds fixed focal plane & mild IOL halos/dysphotopsia — also testable in P3 night traffic) + 3-glasses cycle keybind (distance, intermediate/monitor, near reading).
+- `Vuarbit 2026 (IOL)` persona + pseudophakic IOL optical profile (removes `+13 D` magnification/ring scotoma, adds fixed focal plane & mild IOL halos/dysphotopsia — also testable in P3/P4) + 3-glasses cycle keybind (distance, intermediate/monitor, near reading).
 
-## P5 — Input & Display Expansion
+## P6 — Optional Guided Prompts & Input/Display Expansion
+- Lightweight, opt-in diegetic classroom prompts (off by default, no arcade timers/scores) guiding first-time visitors through real failure modes: copying blackboard line to workbook (bifocal switch), finding dropped desk item (ring scotoma), reading classmate expression across room (acuity/glare).
 - Mobile touch controls and WebXR / stereo VR headset dual-eye rendering mode.

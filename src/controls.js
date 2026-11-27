@@ -1,5 +1,14 @@
 import * as THREE from 'three';
-import { clamp, computeHeldRestOffset, computeMaxYaw, cycleTimeOfDay, updateHeldRotation } from './state.js';
+import {
+  clamp,
+  computeHeldRestOffset,
+  computeMaxYaw,
+  cycleTimeOfDay,
+  hasSuppressionMechanics,
+  toggleCompareNormal,
+  toggleGlasses,
+  updateHeldRotation,
+} from './state.js';
 
 /**
  * Pointer-lock mouse look, standing collision movement, seating toggle,
@@ -12,7 +21,10 @@ export function createControls(domElement, state, sceneApi) {
   const seatPos = sceneApi.seatPose.position;
   const playerRadius = 0.30;
 
-  let angularAccum = 0;
+  let dxAccum = 0;
+  let dyAccum = 0;
+  const MAX_EYE_YAW = 0.26;
+  const MAX_EYE_PITCH = 0.21;
   const raycaster = new THREE.Raycaster();
   const forward = new THREE.Vector3();
   const right = new THREE.Vector3();
@@ -20,9 +32,13 @@ export function createControls(domElement, state, sceneApi) {
   const toItem = new THREE.Vector3();
   const pickableMeshes = sceneApi.pickables.map((p) => p.mesh);
 
-  // Initialize camera pose from standPose
+  // Initialize camera & head pose from standPose
   state.yaw = sceneApi.standPose.yaw;
   state.pitch = sceneApi.standPose.pitch;
+  state.headYaw = state.yaw;
+  state.headPitch = state.pitch;
+  state.eyeYaw = 0;
+  state.eyePitch = 0;
 
   function placeBackHeldObject() {
     state.heldRot.yaw = 0;
@@ -91,7 +107,7 @@ export function createControls(domElement, state, sceneApi) {
     if (chosen) {
       state.holding = chosen.id;
       // Start centered in dominant eye's lower bifocal reading sweet spot (~22cm for +17 D)
-      state.heldOffset = computeHeldRestOffset(0.22, state.glassesOn, state.settings?.dominantEye);
+      state.heldOffset = computeHeldRestOffset(0.22, state.glassesOn, state.settings?.dominantEye, state.glassesSlide);
       state.heldRot.yaw = 0;
       state.heldRot.pitch = 0;
     }
@@ -108,6 +124,10 @@ export function createControls(domElement, state, sceneApi) {
       seatPanZ = 0;
       state.yaw = sceneApi.seatPose.yaw;
       state.pitch = sceneApi.seatPose.pitch;
+      state.headYaw = state.yaw;
+      state.headPitch = state.pitch;
+      state.eyeYaw = 0;
+      state.eyePitch = 0;
     } else {
       placeBackHeldObject();
       state.mode = 'standing';
@@ -115,6 +135,10 @@ export function createControls(domElement, state, sceneApi) {
       seatPanX = 0;
       seatPanZ = 0;
       standPos.copy(sceneApi.standPose.position);
+      state.headYaw = state.yaw;
+      state.headPitch = state.pitch;
+      state.eyeYaw = 0;
+      state.eyePitch = 0;
     }
   }
 
@@ -135,7 +159,6 @@ export function createControls(domElement, state, sceneApi) {
   }
 
   let latestCamera = null;
-  let focusToggle = false;
   let wheelDeltaAccum = 0;
   let rmbDown = false;
 
@@ -186,7 +209,9 @@ export function createControls(domElement, state, sceneApi) {
     if (Number.isFinite(maxYaw)) {
       state.yaw = clamp(state.yaw, -maxYaw, maxYaw);
     }
-    angularAccum += Math.hypot(dx, dy) * sens;
+    // Positive dxAccum = mouse moving right (panning right); positive dyAccum = mouse moving up
+    dxAccum += dx * sens;
+    dyAccum += -dy * sens;
   };
 
   const onWheel = (e) => {
@@ -210,7 +235,7 @@ export function createControls(domElement, state, sceneApi) {
         keys.clear();
         rmbDown = false;
         wheelDeltaAccum = 0;
-        state.focusing = focusToggle;
+        state.glassesPinned = false;
       } else if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }
@@ -227,21 +252,13 @@ export function createControls(domElement, state, sceneApi) {
 
     if (!e.repeat && e.code === 'KeyV') {
       if (state.settingsOpen) e.preventDefault();
-      state.compareNormal = !state.compareNormal;
-      state.fatigue = 0.05;
-      if (!state.compareNormal) {
-        focusToggle = false;
-        state.focusing = state.settingsOpen ? false : keys.has('Space');
-        state.focusStrength = 0;
-      }
+      toggleCompareNormal(state);
       return;
     }
 
     if (!e.repeat && e.code === 'KeyZ') {
       if (state.settingsOpen) e.preventDefault();
-      if (state.settings?.lensProfile !== 'none') {
-        state.glassesOn = !state.glassesOn;
-      }
+      toggleGlasses(state);
       return;
     }
 
@@ -264,8 +281,7 @@ export function createControls(domElement, state, sceneApi) {
 
     if (!e.repeat && e.code === 'KeyC') {
       if (state.settingsOpen) e.preventDefault();
-      focusToggle = !focusToggle;
-      state.focusing = focusToggle || (!state.settingsOpen && keys.has('Space'));
+      state.focusing = !state.focusing;
       return;
     }
 
@@ -274,7 +290,6 @@ export function createControls(domElement, state, sceneApi) {
     keys.add(e.code);
     if (e.code === 'Space') {
       e.preventDefault();
-      state.focusing = true;
     }
     if (e.repeat) return;
 
@@ -287,8 +302,12 @@ export function createControls(domElement, state, sceneApi) {
         break;
       case 'KeyR':
         state.eyesClosed = !state.eyesClosed;
-        focusToggle = false;
-        state.focusing = state.eyesClosed ? false : keys.has('Space');
+        if (state.eyesClosed) {
+          state.focusing = false;
+        } else {
+          // Resume Focused if suppression applies; let updateSimState ramp focusStrength respecting current fatigue reserve
+          state.focusing = hasSuppressionMechanics(state.settings);
+        }
         break;
       case 'KeyM':
         state.muted = !state.muted;
@@ -303,15 +322,12 @@ export function createControls(domElement, state, sceneApi) {
 
   const onKeyUp = (e) => {
     keys.delete(e.code);
-    if (e.code === 'Space') {
-      state.focusing = focusToggle;
-    }
   };
 
   const onBlur = () => {
     keys.clear();
     rmbDown = false;
-    state.focusing = focusToggle;
+    state.glassesPinned = false;
   };
 
   domElement.addEventListener('click', onCanvasClick);
@@ -328,14 +344,34 @@ export function createControls(domElement, state, sceneApi) {
   function update(dt, camera) {
     latestCamera = camera;
     const step = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.1);
-    if (!state.focusing && focusToggle) {
-      focusToggle = false;
+
+    // Signed directional gaze velocity (rad/s); crisp stop when mouse stops
+    const instVx = step > 1e-4 ? dxAccum / step : 0;
+    const instVy = step > 1e-4 ? dyAccum / step : 0;
+    dxAccum = 0;
+    dyAccum = 0;
+    const instVel = Math.hypot(instVx, instVy);
+    if (state.settingsOpen || instVel < 0.04) {
+      state.gazeVel = 0;
+      state.gazeVelX = 0;
+      state.gazeVelY = 0;
+    } else {
+      state.gazeVel = instVel;
+      state.gazeVelX = instVx;
+      state.gazeVelY = instVy;
     }
 
-    // Instantaneous angular velocity (rad/s): drops immediately to 0 the frame mouse movement stops
-    const instVel = step > 1e-4 ? angularAccum / step : 0;
-    angularAccum = 0;
-    state.gazeVel = state.settingsOpen || instVel < 0.04 ? 0 : instVel;
+    // Symmetric glasses slide control: Hold Shift slides down (near loupe); Hold Space slides up smoothly & pins at 0 mm
+    const canAdjustGlasses = !state.settingsOpen && Boolean(state.glassesOn) && state.settings?.lensProfile !== 'none';
+    const holdingSpace = canAdjustGlasses && keys.has('Space');
+    const holdingShift = canAdjustGlasses && (keys.has('ShiftLeft') || keys.has('ShiftRight')) && !holdingSpace;
+    state.glassesPinned = holdingSpace;
+    if (holdingSpace) {
+      state.glassesSlide = Math.max(0, (state.glassesSlide || 0) - 1.15 * step);
+    } else if (holdingShift) {
+      const maxSlide = state.settings?.lensProfile === 'aphakic_bifocal' ? 1.0 : 0.35;
+      state.glassesSlide = clamp((state.glassesSlide || 0) + 1.15 * step, 0, maxSlide);
+    }
 
     const suppressed = Boolean(state.settingsOpen);
     const fwdInput = suppressed
@@ -363,12 +399,14 @@ export function createControls(domElement, state, sceneApi) {
       const halfDepth = heldItem?.halfDepth || 0.048;
       const minZ = (state.glassesOn ? 0.048 : 0.042) + halfDepth;
 
-      const xySpeed = 0.42;
-      const zSpeed = 0.45;
+      // Distance-scaled precision speed: keeps constant gentle angular speed up close (10-15 cm) while staying brisk at arm's length
+      const zDist = clamp(state.heldOffset.z, 0.07, 0.50);
+      const xySpeed = 0.68 * zDist;
+      const zSpeed = 0.20 + 0.45 * zDist;
       state.heldOffset.x = clamp(state.heldOffset.x + strafeInput * xySpeed * step, -0.22, 0.22);
       state.heldOffset.y = clamp(state.heldOffset.y + fwdInput * xySpeed * step, -0.18, 0.16);
       // Scroll down (wheelStep < 0) pulls held object closer; scroll up (wheelStep > 0) pushes it further away
-      const zDelta = (leanIn - leanOut) * zSpeed * step - wheelStep * 0.032;
+      const zDelta = (leanIn - leanOut) * zSpeed * step - wheelStep * (0.014 + 0.045 * zDist);
       state.heldOffset.z = clamp(state.heldOffset.z - zDelta, minZ, 0.65);
 
       // Moving object closer (E or scroll down) guides its center directly into the lower dominant bifocal lens
@@ -377,7 +415,8 @@ export function createControls(domElement, state, sceneApi) {
         const target = computeHeldRestOffset(
           state.heldOffset.z,
           state.glassesOn,
-          state.settings?.dominantEye
+          state.settings?.dominantEye,
+          state.glassesSlide
         );
         state.heldOffset.x += (target.x - state.heldOffset.x) * pullAlpha;
         state.heldOffset.y += (target.y - state.heldOffset.y) * pullAlpha;
@@ -398,11 +437,14 @@ export function createControls(domElement, state, sceneApi) {
           .addScaledVector(right, strafeInput);
         if (moveDir.lengthSq() > 1e-6) {
           if (state.mode === 'seated') {
-            // Slower fine panning when leaned close over the workbook (~0.24 m/s at 20cm, ~0.16 m/s closest)
-            const panSpeed = 0.32 - 0.16 * clamp(state.lean, 0, 1);
+            // Smooth full-workbook torso panning while craned over desk (clamped directly on combined pose -> zero windup!)
+            const panSpeed = 0.34 - 0.14 * clamp(state.lean, 0, 1);
             moveDir.normalize().multiplyScalar(panSpeed * step);
-            seatPanX = clamp(seatPanX + moveDir.x, -0.30, 0.30);
-            seatPanZ = clamp(seatPanZ + moveDir.z, -0.36, 0.10);
+            const fwdLean = state.lean * 0.28;
+            const fwdX = -Math.sin(state.yaw) * fwdLean;
+            const fwdZ = -Math.cos(state.yaw) * fwdLean;
+            seatPanX = clamp(seatPanX + moveDir.x, -0.34 - fwdX, 0.34 - fwdX);
+            seatPanZ = clamp(seatPanZ + moveDir.z, -0.48 - fwdZ, 0.12 - fwdZ);
           } else if (state.mode === 'standing') {
             moveDir.normalize().multiplyScalar(2.4 * step);
             const nextX = standPos.x + moveDir.x;
@@ -418,24 +460,46 @@ export function createControls(domElement, state, sceneApi) {
       }
     }
 
-    if (camera) {
-      const maxYaw = computeMaxYaw(state.mode, state.lean);
-      if (Number.isFinite(maxYaw)) {
-        state.yaw = clamp(state.yaw, -maxYaw, maxYaw);
-      }
+    const maxYaw = computeMaxYaw(state.mode, state.lean);
+    if (Number.isFinite(maxYaw)) {
+      state.yaw = clamp(state.yaw, -maxYaw, maxYaw);
+    }
 
+    // Eye-in-head gaze lead computed after final yaw/lean clamp so headYaw & eyeYaw never lag a clamped turn
+    if (state.headYaw === undefined) state.headYaw = state.yaw;
+    if (state.headPitch === undefined) state.headPitch = state.pitch;
+    let rawEyeYaw = state.yaw - state.headYaw;
+    let rawEyePitch = state.pitch - state.headPitch;
+    if (Math.abs(rawEyeYaw) > MAX_EYE_YAW) {
+      state.headYaw = state.yaw - Math.sign(rawEyeYaw) * MAX_EYE_YAW;
+      rawEyeYaw = state.yaw - state.headYaw;
+    }
+    if (Math.abs(rawEyePitch) > MAX_EYE_PITCH) {
+      state.headPitch = state.pitch - Math.sign(rawEyePitch) * MAX_EYE_PITCH;
+      rawEyePitch = state.pitch - state.headPitch;
+    }
+    const yawFollowRate = 1.6 + 4.4 * clamp((Math.abs(rawEyeYaw) - 0.05) / 0.18, 0, 1);
+    const pitchFollowRate = 1.1 + 3.0 * clamp((Math.abs(rawEyePitch) - 0.06) / 0.15, 0, 1);
+    state.headYaw += rawEyeYaw * (1 - Math.exp(-yawFollowRate * step));
+    state.headPitch += rawEyePitch * (1 - Math.exp(-pitchFollowRate * step));
+    state.eyeYaw = clamp(state.yaw - state.headYaw, -MAX_EYE_YAW, MAX_EYE_YAW);
+    state.eyePitch = clamp(state.pitch - state.headPitch, -MAX_EYE_PITCH, MAX_EYE_PITCH);
+
+    if (camera) {
       camera.rotation.order = 'YXZ';
       camera.rotation.y = state.yaw;
       camera.rotation.x = state.pitch;
       camera.rotation.z = 0;
 
       if (state.mode === 'seated') {
-        // Yaw-aligned slouch (E/Q/Scroll) + desk-aligned torso pan (WASD), clamped to clear classmate & desk bounds
+        // Yaw-aligned slouch (E/Q/Scroll) + desk-aligned torso pan (WASD); keep seatPan clamped to live bounds (no windup)
         const fwdLean = state.lean * 0.28;
         const dropLean = Math.max(0, state.lean) * 0.24 - Math.min(0, state.lean) * 0.05;
-        const dx = clamp(-Math.sin(state.yaw) * fwdLean + seatPanX, -0.30, 0.30);
-        const dz = clamp(-Math.cos(state.yaw) * fwdLean + seatPanZ, -0.36, 0.10);
-        camera.position.set(seatPos.x + dx, seatPos.y - dropLean, seatPos.z + dz);
+        const fwdX = -Math.sin(state.yaw) * fwdLean;
+        const fwdZ = -Math.cos(state.yaw) * fwdLean;
+        seatPanX = clamp(seatPanX, -0.34 - fwdX, 0.34 - fwdX);
+        seatPanZ = clamp(seatPanZ, -0.48 - fwdZ, 0.12 - fwdZ);
+        camera.position.set(seatPos.x + fwdX + seatPanX, seatPos.y - dropLean, seatPos.z + fwdZ + seatPanZ);
       } else {
         const fwdLean = state.lean * 0.20;
         const dropLean = Math.max(0, state.lean) * 0.08;

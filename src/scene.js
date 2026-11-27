@@ -1159,6 +1159,9 @@ export function createClassroomScene(renderer = null) {
   // Reusable scratch objects for zero-GC update loop
   let simTime = 0;
   let heldLiftY = 0;
+  let envRayFrame = 0;
+  let cachedEnvOcclOD = 0;
+  let cachedEnvOcclOS = 0;
   let lastTimeOfDay = null;
   let lastLightsOn = null;
   let lastSkyTod = 'sunny';
@@ -1176,6 +1179,8 @@ export function createClassroomScene(renderer = null) {
   const toTarget = new THREE.Vector3();
   const heldBox = new THREE.Box3();
   const heldTiltQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.35, 0.45, -0.55));
+  // Orient eraser broad sleeve face (+Y) directly toward viewer so small printed text is inspectable up close
+  const eraserTiltQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(1.38, -0.08, 0));
   const heldRotEuler = new THREE.Euler(0, 0, 0, 'YXZ');
   const heldRotQuat = new THREE.Quaternion();
   const deskBounds = { minX: -2.91, maxX: -1.59, y: 0.73, minZ: -1.72, maxZ: -1.18 };
@@ -1261,7 +1266,8 @@ export function createClassroomScene(renderer = null) {
         heldEntry.mesh.position.copy(heldWorldPos);
         heldRotEuler.set(state.heldRot?.pitch || 0, state.heldRot?.yaw || 0, 0, 'YXZ');
         heldRotQuat.setFromEuler(heldRotEuler);
-        heldEntry.mesh.quaternion.copy(camera.quaternion).multiply(heldRotQuat).multiply(heldTiltQuat);
+        const baseTilt = heldEntry.id === 'eraser' ? eraserTiltQuat : heldTiltQuat;
+        heldEntry.mesh.quaternion.copy(camera.quaternion).multiply(heldRotQuat).multiply(baseTilt);
         heldEntry.mesh.updateMatrixWorld(true);
 
         heldBox.setFromObject(heldEntry.mesh);
@@ -1306,7 +1312,8 @@ export function createClassroomScene(renderer = null) {
         const distSq = toTarget.lengthSq();
         const lateralDist = Math.sqrt(Math.max(0, distSq - depthAlongRay * depthAlongRay));
         if (lateralDist > maxLat) return 0;
-        return computeOcclusionFromDistance(Math.max(0.01, Math.sqrt(distSq) - r));
+        // Use near-surface distance (half bounding radius) so 11 cm inspection ramps occlusion gently (~40%) rather than 80%
+        return computeOcclusionFromDistance(Math.max(0.01, Math.sqrt(distSq) - r * 0.45));
       };
       const domIsOS = state.settings?.dominantEye === 'OS';
       occlOD = Math.max(occlOD, evalHeldOccl(eyeOD, domIsOS ? 0.038 : 0.055));
@@ -1314,21 +1321,39 @@ export function createClassroomScene(renderer = null) {
     }
 
     // 2. Per-eye surface occlusion (desk edge, workbook, props, walls, classmate) via short per-eye rays
-    //    Excludes currently held item (handled by evalHeldOccl) and skips when eyelids closed or in Normal Compare
+    //    Throttled to every 2nd frame and zero-allocation ancestry check (skips held item without .filter())
     if (state.eyelidClose <= 0.8 && !state.compareNormal) {
-      const envTargets = heldEntry ? focusTargets.filter((obj) => obj !== heldEntry.mesh) : focusTargets;
-      const evalEyeRayOccl = (eyePos) => {
-        raycaster.set(eyePos, forward);
-        raycaster.near = 0.01;
-        raycaster.far = 0.25;
-        const eyeHits = raycaster.intersectObjects(envTargets, true);
-        if (eyeHits.length > 0) {
-          return computeOcclusionFromDistance(eyeHits[0].distance);
-        }
-        return 0;
-      };
-      occlOD = Math.max(occlOD, evalEyeRayOccl(eyeOD));
-      occlOS = Math.max(occlOS, evalEyeRayOccl(eyeOS));
+      if (envRayFrame % 2 === 0) {
+        const heldRoot = heldEntry?.mesh || null;
+        const isHeldObj = (obj) => {
+          let cur = obj;
+          while (cur) {
+            if (cur === heldRoot) return true;
+            cur = cur.parent;
+          }
+          return false;
+        };
+        const evalEyeRayOccl = (eyePos) => {
+          raycaster.set(eyePos, forward);
+          raycaster.near = 0.01;
+          raycaster.far = 0.25;
+          const eyeHits = raycaster.intersectObjects(focusTargets, true);
+          for (let i = 0; i < eyeHits.length; i += 1) {
+            if (!heldRoot || !isHeldObj(eyeHits[i].object)) {
+              return computeOcclusionFromDistance(eyeHits[i].distance);
+            }
+          }
+          return 0;
+        };
+        cachedEnvOcclOD = evalEyeRayOccl(eyeOD);
+        cachedEnvOcclOS = evalEyeRayOccl(eyeOS);
+      }
+      envRayFrame += 1;
+      occlOD = Math.max(occlOD, cachedEnvOcclOD);
+      occlOS = Math.max(occlOS, cachedEnvOcclOS);
+    } else {
+      cachedEnvOcclOD = 0;
+      cachedEnvOcclOS = 0;
     }
 
     state.occlOD = occlOD;
@@ -1360,8 +1385,28 @@ export function createClassroomScene(renderer = null) {
   }
 
   function dispose() {
+    const geos = new Set();
+    const mats = new Set();
+    const texs = new Set([skyTex]);
+    const mapKeys = ['map', 'roughnessMap', 'metalnessMap', 'bumpMap', 'normalMap', 'emissiveMap', 'alphaMap'];
+    scene.traverse((obj) => {
+      if (obj.geometry) geos.add(obj.geometry);
+      if (!obj.material) return;
+      const list = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const mat of list) {
+        if (!mat) continue;
+        mats.add(mat);
+        for (const key of mapKeys) {
+          if (mat[key]?.dispose) texs.add(mat[key]);
+        }
+      }
+    });
+    for (const g of geos) g.dispose();
+    for (const t of texs) t.dispose();
+    for (const m of mats) m.dispose();
     envRT?.dispose();
-    skyTex.dispose();
+    scene.environment = null;
+    scene.background = null;
   }
 
   return {

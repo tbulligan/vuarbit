@@ -40,7 +40,15 @@ function glassesLabel(state) {
   const hasAdd = lp !== 'single_vision' && a > 0.1;
   const cylStr = lp !== 'aphakic_bifocal' && cyl > 0.1 ? ` / ${cyl.toFixed(2)} cyl ×${Math.round(ax)}°` : '';
   const rx = hasAdd ? `${fmtD(p)} / +${a.toFixed(1)} add${cylStr}` : `${fmtD(p)}${cylStr}`;
-  return state.glassesOn ? `ON (${rx})` : `OFF (${rx}, press Z)`;
+  const slideMm = Math.round((state.glassesSlide || 0) * 14);
+  const slideNote = !state.glassesOn
+    ? ''
+    : state.glassesPinned
+      ? ', pinned'
+      : slideMm >= 3
+        ? `, slipped ${slideMm}mm (Space)`
+        : '';
+  return state.glassesOn ? `ON (${rx}${slideNote})` : `OFF (${rx}, press Z)`;
 }
 
 function personaLabel(state) {
@@ -70,15 +78,15 @@ export function createHud(rootElement, initialState) {
   const rGlasses = makeRow('Glasses');
   const rZone = makeRow('Optical Zone');
   const rFocus = makeRow('Focus Dist');
-  const rEffort = makeRow('Focus Effort');
+  const rEffort = makeRow('Focus');
   const rNystagmus = makeRow('Nystagmus');
-  const rFatigue = makeRow('Fatigue');
+  const rFatigue = makeRow('Fatigue (10x)');
   const rTinnitus = makeRow('Tinnitus');
 
   const controlsLegend = makeEl(
     'div',
     'hud-controls',
-    'WASD Move/Adjust | E/Q/Wheel Lean/Near-Far | X Sit | F Pick | RMB Rotate | C/Space Focus | Z Glasses | L Lights | T Time | R Rest | V Compare | M Mute | P Settings | H HUD | F11 Fullscreen',
+    'WASD Move/Adjust | E/Q/Wheel Lean/Near-Far | X Sit | F Pick | RMB Rotate | C Focus | Space Slide Up/Pin | Shift Slide Down (Near) | Z Glasses | L Lights | T Time | R Rest | V Compare | M Mute | P Settings | H HUD | F11 Fullscreen',
   );
 
   const reticle = makeEl('div', 'hud-reticle');
@@ -145,7 +153,7 @@ export function createHud(rootElement, initialState) {
     rEffort.val.textContent = isClosed || state.compareNormal
       ? 'Inactive'
       : state.focusing
-        ? `ACTIVE (${effortPct}%, 2.4x fatigue)`
+        ? `Focused (${effortPct}%, 2.0x)`
         : 'Relaxed';
     const occlPct = Math.round((state.occlusionLevel || 0) * 100);
     const nystPct = Math.round((state.mlnIntensity || 0) * 100);
