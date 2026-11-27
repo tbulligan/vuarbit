@@ -1,4 +1,4 @@
-import { getPersonaById, getSceneById, hasSuppressionMechanics } from './personas.js';
+import { getPersonaById, getSceneById, hasSuppressionMechanics, resolveIolGlassesOptics } from './personas.js';
 import { normalizeLanguage, t } from './i18n.js';
 
 function makeEl(tag, className, text) {
@@ -18,6 +18,20 @@ function zoneLabel(state, lang) {
   const lp = state.settings?.lensProfile || 'aphakic_bifocal';
   if (lp === 'none' || state.activeZone === 'emmetropic') {
     return t(lang, 'hud.zone.none');
+  }
+  if (lp === 'pseudophakic_iol') {
+    const iol = resolveIolGlassesOptics(state.settings, state.glassesSlot, state.glassesOn);
+    if (!iol.glassesOn || iol.slot === 'off') {
+      const dist = Number.isFinite(iol.focalDistM) ? `${iol.focalDistM.toFixed(1)} m` : '∞';
+      return t(lang, 'hud.zone.iolOff', { dist });
+    }
+    if (iol.slot === 'intermediate') {
+      return t(lang, 'hud.zone.iolIntermediate', { power: fmtD(iol.lensPowerD) });
+    }
+    if (iol.slot === 'near') {
+      return t(lang, 'hud.zone.iolNear', { power: fmtD(iol.lensPowerD) });
+    }
+    return t(lang, 'hud.zone.iolDistance', { power: fmtD(iol.lensPowerD) });
   }
   const p = Number.isFinite(state.settings?.lensPowerD) ? state.settings.lensPowerD : 13.0;
   const a = Number.isFinite(state.settings?.nearAddD) ? state.settings.nearAddD : 4.0;
@@ -40,6 +54,22 @@ function glassesLabel(state, lang) {
   if (state.compareNormal) return t(lang, 'hud.glasses.normalCompare');
   const lp = state.settings?.lensProfile || 'aphakic_bifocal';
   if (lp === 'none') return t(lang, 'hud.glasses.none');
+  if (lp === 'pseudophakic_iol') {
+    const iol = resolveIolGlassesOptics(state.settings, state.glassesSlot, state.glassesOn);
+    if (!iol.glassesOn || iol.slot === 'off') {
+      return t(lang, 'hud.glasses.iolOff');
+    }
+    const slotName = t(lang, `hud.glasses.slot.${iol.slot}`);
+    const ax = Number.isFinite(state.settings?.lensAxisDeg) ? state.settings.lensAxisDeg : 90;
+    const cylStr = iol.lensCylD > 0.1 ? ` / ${iol.lensCylD.toFixed(2)} cyl ×${Math.round(ax)}°` : '';
+    const slideMm = Math.round((state.glassesSlide || 0) * 14);
+    const slideNote = state.glassesPinned
+      ? t(lang, 'hud.glasses.pinned')
+      : slideMm >= 3
+        ? t(lang, 'hud.glasses.slipped', { mm: slideMm })
+        : '';
+    return `${slotName} (${fmtD(iol.lensPowerD)}${cylStr}${slideNote})`;
+  }
   const p = Number.isFinite(state.settings?.lensPowerD) ? state.settings.lensPowerD : 13.0;
   const a = Number.isFinite(state.settings?.nearAddD) ? state.settings.nearAddD : 4.0;
   const cyl = Number.isFinite(state.settings?.lensCylD) ? state.settings.lensCylD : 0;

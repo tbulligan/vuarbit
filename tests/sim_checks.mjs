@@ -8,10 +8,12 @@ import {
   TIME_OF_DAY_PRESETS,
   FRAME_SHAPES,
   FRAME_COLORS,
+  IOL_GLASSES_SLOTS,
   getPersonaById,
   getSceneById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
+  resolveIolGlassesOptics,
   applyPersona,
   updateVisualSetting,
   computeAcuityBlurUV,
@@ -363,9 +365,21 @@ assert.equal(QUALITY_PRESETS.high.dprCap, 1.75);
 assert.equal(QUALITY_PRESETS.balanced.dprCap, 1.25);
 assert.equal(QUALITY_PRESETS.performance.dprCap, 1.0);
 
-assert.equal(PERSONAS.length, 12, 'must define exactly 12 clinical presets');
+assert.equal(PERSONAS.length, 13, 'must define exactly 13 clinical presets');
 const expectedPersonas = {
   vuarbit_frut: { shortName: 'Vuarbit Frut', lensProfile: 'aphakic_bifocal', vodAcuity: 0.70, vosAcuity: 0.15, mlnScale: 1.0 },
+  vuarbit_grant: {
+    shortName: 'Vuarbit Grant',
+    lensProfile: 'pseudophakic_iol',
+    myopiaD: 1.0,
+    lensPowerD: -1.0,
+    nearAddD: 2.5,
+    vodAcuity: 0.70,
+    vosAcuity: 0.15,
+    diplopiaH: -1.53,
+    diplopiaV: 0.31,
+    mlnScale: 1.0,
+  },
   normal: { shortName: 'Normal Vision', lensProfile: 'none', vodAcuity: 1.0, vosAcuity: 1.0, mlnScale: 0.0 },
   glaucoma: { shortName: 'Glaucoma', lensProfile: 'none', vodAcuity: 0.90, vosAcuity: 0.85, glaucoma: 0.65 },
   amd: { shortName: 'Wet AMD', lensProfile: 'none', vodAcuity: 0.45, vosAcuity: 0.40, amd: 0.70 },
@@ -750,6 +764,61 @@ assert.equal(toggleGlasses(stToggle), false, 'toggleGlasses turns glasses off');
 assert.equal(toggleGlasses(stToggle), true, 'toggleGlasses turns glasses back on');
 assert.equal(stToggle.glassesSlide, 0, 'putting glasses on resets slide');
 assert.ok(stToggle.glassesBounce < 0, 'putting glasses on sets tactile bounce');
+
+// P5: Vuarbit Grant (Adult Monofocal Pseudophakic IOL) & 3-glasses cycle (Distance -> Computer 65cm -> Reading +2.5 OTC -> Off)
+assert.deepEqual(IOL_GLASSES_SLOTS, ['distance', 'intermediate', 'near', 'off']);
+const stGrant = createSimState();
+assert.equal(applyPersona(stGrant, 'vuarbit_grant'), true);
+assert.equal(stGrant.personaId, 'vuarbit_grant');
+assert.equal(stGrant.glassesOn, true);
+assert.equal(stGrant.glassesSlot, 'distance');
+assert.equal(hasSuppressionMechanics(stGrant.settings), true, 'Vuarbit Grant retains MLN & diplopia suppression mechanics');
+
+const iolDist = resolveIolGlassesOptics(stGrant.settings, 'distance', true);
+assert.equal(iolDist.lensPowerD, -1.0);
+assert.equal(iolDist.domNetFocusD, 0.0, 'Distance -1.0 D neutralizes OD -1.0 D residual to infinity');
+assert.equal(iolDist.osNetFocusD, 0.0, 'Custom distance pair neutralizes OS -1.75 D residual');
+assert.equal(iolDist.focalDistM, Infinity);
+
+const iolComp = resolveIolGlassesOptics(stGrant.settings, 'intermediate', true);
+assert.equal(iolComp.lensPowerD, 0.5, 'Computer pair (+1.5 D add over -1.0 D) = +0.50 D');
+assert.ok(Math.abs(iolComp.focalDistM - 0.667) < 0.02, `Computer pair must focus near 65 cm, got ${iolComp.focalDistM}`);
+assert.equal(iolComp.osExtraMyopiaD, 0.0, 'Custom computer pair matches OS residual');
+
+const grantWithCyl = { ...stGrant.settings, lensCylD: 1.25 };
+const iolNear = resolveIolGlassesOptics(grantWithCyl, 'near', true);
+assert.equal(iolNear.lensPowerD, 2.5, 'OTC reading pair uses +2.5 D sphere');
+assert.equal(iolNear.lensCylD, 0.0, 'OTC reading glasses must have zero astigmatism correction');
+assert.ok(Math.abs(iolNear.focalDistM - 1 / 3.5) < 1e-4, 'OTC +2.5 D over -1.0 D residual focuses at ~28.6 cm');
+assert.equal(iolNear.osNetFocusD, 4.25, 'OTC equal lenses preserve 0.75 D OD/OS residual difference');
+
+const iolOff = resolveIolGlassesOptics(stGrant.settings, 'off', false);
+assert.equal(iolOff.glassesOn, false);
+assert.equal(iolOff.domNetFocusD, 1.0, 'Bare IOL OD focuses fixed at 1.0 m (-1.00 D residual)');
+assert.equal(iolOff.osNetFocusD, 1.75, 'Bare IOL OS focuses fixed at ~0.57 m (-1.75 D residual)');
+assert.equal(iolOff.focalDistM, 1.0);
+
+// Z cycle on Vuarbit Grant: distance -> intermediate -> near -> off -> distance
+updateSimState(stGrant, 0.016);
+assert.equal(stGrant.activeZone, 'distance');
+assert.equal(toggleGlasses(stGrant), true);
+assert.equal(stGrant.glassesSlot, 'intermediate');
+updateSimState(stGrant, 0.016);
+assert.equal(stGrant.activeZone, 'intermediate');
+assert.equal(toggleGlasses(stGrant), true);
+assert.equal(stGrant.glassesSlot, 'near');
+updateSimState(stGrant, 0.016);
+assert.equal(stGrant.activeZone, 'near');
+assert.equal(toggleGlasses(stGrant), false);
+assert.equal(stGrant.glassesSlot, 'off');
+updateSimState(stGrant, 0.016);
+assert.equal(stGrant.activeZone, 'uncorrected');
+assert.equal(toggleGlasses(stGrant), true);
+assert.equal(stGrant.glassesSlot, 'distance');
+
+// Verify GLSL IOL fixed focal plane & positive dysphotopsia halo invariants
+assert.ok(fragSrc.includes('uIolHalo') && fragSrc.includes('uOsExtraMyopiaD'), 'vision.frag.glsl must define IOL halo & OS residual uniforms');
+assert.ok(fragSrc.includes('isIol > 0.5 ? 0.0'), 'vision.frag.glsl must enforce zero accommodation on monofocal IOL');
 
 // 8. Validate P3/P4 Scene Registry & Exam Room Clinical Calibration Math
 assert.equal(SCENES.length, 3, 'must register 3 scenes (classroom, car_passenger, exam_room)');

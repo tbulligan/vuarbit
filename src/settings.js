@@ -7,11 +7,13 @@ import {
   formatSnellenAcuity,
   getPersonaById,
   getSceneById,
+  resolveIolGlassesOptics,
 } from './personas.js';
 import { LANGUAGE_OPTIONS, normalizeLanguage, t } from './i18n.js';
 
 const LENS_PROFILE_OPTIONS = [
   { value: 'aphakic_bifocal', key: 'opt.lens.aphakic_bifocal' },
+  { value: 'pseudophakic_iol', key: 'opt.lens.pseudophakic_iol' },
   { value: 'single_vision', key: 'opt.lens.single_vision' },
   { value: 'bifocal', key: 'opt.lens.bifocal' },
   { value: 'progressive', key: 'opt.lens.progressive' },
@@ -442,9 +444,11 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   let lastOpen = null;
   let lastLang = null;
   let lastSceneId = null;
+  let lastSceneLoading = null;
   let lastPersonaId = null;
   let lastCompare = null;
   let lastGlassesOn = null;
+  let lastGlassesSlot = null;
   let lastGlassesDisabled = null;
   let lastTimeOfDay = null;
   let lastLightsOn = null;
@@ -490,6 +494,11 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     const refresh = force || langChanged;
 
     const sceneId = state.sceneId || 'classroom';
+    const sceneLoading = Boolean(state.sceneLoading);
+    if (refresh || sceneLoading !== lastSceneLoading) {
+      lastSceneLoading = sceneLoading;
+      sceneSelect.disabled = sceneLoading;
+    }
     if (refresh || sceneId !== lastSceneId) {
       lastSceneId = sceneId;
       if (document.activeElement !== sceneSelect) {
@@ -535,15 +544,26 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     const cvdDisabled = !s.cvdType || s.cvdType === 'none';
 
     const gOn = Boolean(state.glassesOn) && !lensDisabled;
-    if (refresh || gOn !== lastGlassesOn || lensDisabled !== lastGlassesDisabled) {
+    const isIol = s.lensProfile === 'pseudophakic_iol';
+    const gSlot = isIol ? (gOn ? state.glassesSlot || 'distance' : 'off') : '';
+    if (refresh || gOn !== lastGlassesOn || gSlot !== lastGlassesSlot || lensDisabled !== lastGlassesDisabled) {
       lastGlassesOn = gOn;
+      lastGlassesSlot = gSlot;
       lastGlassesDisabled = lensDisabled;
       glassesToggleBtn.disabled = lensDisabled;
-      glassesToggleBtn.textContent = lensDisabled
-        ? t(lang, 'settings.noLens')
-        : gOn
-          ? t(lang, 'settings.on')
-          : t(lang, 'settings.off');
+      if (lensDisabled) {
+        glassesToggleBtn.textContent = t(lang, 'settings.noLens');
+      } else if (isIol) {
+        if (!gOn || gSlot === 'off') {
+          glassesToggleBtn.textContent = t(lang, 'settings.off');
+        } else {
+          const iol = resolveIolGlassesOptics(s, gSlot, gOn);
+          const sign = iol.lensPowerD > 0.001 ? '+' : '';
+          glassesToggleBtn.textContent = `${t(lang, `hud.glasses.slot.${iol.slot}`)} (${sign}${iol.lensPowerD.toFixed(1)} D)`;
+        }
+      } else {
+        glassesToggleBtn.textContent = gOn ? t(lang, 'settings.on') : t(lang, 'settings.off');
+      }
       glassesToggleBtn.classList.toggle('is-active', gOn);
       glassesToggleBtn.setAttribute('aria-pressed', gOn ? 'true' : 'false');
       glassesRow.classList.toggle('is-disabled', lensDisabled);

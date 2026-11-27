@@ -52,6 +52,8 @@ uniform float uDiabeticRetinopathy;
 uniform float uRetinitisPigmentosa;
 uniform float uCvdType;
 uniform float uCvdSeverity;
+uniform float uOsExtraMyopiaD;
+uniform float uIolHalo;
 
 varying vec2 vUv;
 
@@ -177,6 +179,7 @@ vec3 sampleOD(
   float astBlurUV,
   vec2 astDir,
   float hoaStrength,
+  float iolHalo,
   float motionSmearUV,
   float chromaShiftUV,
   vec2 radialDir,
@@ -283,13 +286,33 @@ vec3 sampleOD(
     col += flare * hoaStrength;
   }
 
+  // Monofocal pseudophakic IOL positive dysphotopsia: concentric truncated-edge halo ring + gentle night glare on HDR sources
+  if (iolHalo > 0.01) {
+    float iolLo = mix(1.05, 1.80, clamp(uAmbientLight, 0.0, 1.0));
+    float iolHi = mix(2.25, 3.05, clamp(uAmbientLight, 0.0, 1.0));
+    float jitter = fract(angleSeed * 0.15915494);
+    vec3 ringAcc = vec3(0.0);
+    const int IOL_TAPS = 8;
+    float ringR = 0.0175 + 0.0025 * sin(jitter * 6.2831853);
+    for (int k = 0; k < IOL_TAPS; k++) {
+      float ang = (float(k) + jitter) * (6.2831853 / float(IOL_TAPS));
+      vec2 rOff = vec2(cos(ang), sin(ang)) * ringR * invAspect;
+      vec3 cR = texture2D(tColorOD, clamp(baseUv + rOff, vec2(0.002), vec2(0.998))).rgb;
+      float bR = pow(smoothstep(iolLo, iolHi, dot(cR, vec3(0.2126, 0.7152, 0.0722))), 1.6);
+      ringAcc += cR * bR;
+    }
+    vec3 iolGlow = texture2D(tBlurOD, clamp(baseUv, vec2(0.003), vec2(0.997))).rgb;
+    float gB = pow(smoothstep(iolLo * 0.55, iolHi * 0.90, dot(iolGlow, vec3(0.2126, 0.7152, 0.0722))), 1.5);
+    col += (ringAcc * (0.20 / float(IOL_TAPS)) + iolGlow * gB * 0.14) * iolHalo;
+  }
+
   // Add subtle linear intraocular glare before ACES + sRGB (prevents lifting blacks into gray haze)
   col += vec3(0.98, 0.96, 0.92) * veilAmount;
   return col;
 }
 
 // Uniform Vogel disk for amblyopic non-dominant eye + bilateral HOA glare streaks/halo on bright night lights
-vec3 sampleOS(vec2 baseUv, float isoBlurUV, float motionSmearUV, vec2 astDirOS, float hoaOS, float veilAmount, float angleSeed) {
+vec3 sampleOS(vec2 baseUv, float isoBlurUV, float motionSmearUV, vec2 astDirOS, float hoaOS, float iolHaloOS, float veilAmount, float angleSeed) {
   vec2 invAspect = vec2(1.0 / uAspect, 1.0);
   vec3 col = vec3(0.0);
   if (uHasNonDomRT > 0.5) {
@@ -353,6 +376,27 @@ vec3 sampleOS(vec2 baseUv, float isoBlurUV, float motionSmearUV, vec2 astDirOS, 
     float haloB = pow(smoothstep(hoaLo * 0.45, hoaHi * 0.85, dot(haloOS, vec3(0.2126, 0.7152, 0.0722))), 1.5);
     flareOS += haloOS * haloB * 0.28;
     col += flareOS * hoaOS;
+  }
+
+  if (iolHaloOS > 0.01) {
+    float iolLo = mix(1.05, 1.80, clamp(uAmbientLight, 0.0, 1.0));
+    float iolHi = mix(2.25, 3.05, clamp(uAmbientLight, 0.0, 1.0));
+    float jitter = fract(angleSeed * 0.15915494);
+    vec3 ringOS = vec3(0.0);
+    const int IOL_OS_TAPS = 8;
+    float ringR = 0.0175 + 0.0025 * sin(jitter * 6.2831853);
+    for (int k = 0; k < IOL_OS_TAPS; k++) {
+      float ang = (float(k) + jitter) * (6.2831853 / float(IOL_OS_TAPS));
+      vec2 uvR = clamp(baseUv + vec2(cos(ang), sin(ang)) * ringR * invAspect, vec2(0.002), vec2(0.998));
+      vec3 cR = uHasNonDomRT > 0.5 ? texture2D(tColorNonDom, uvR).rgb : texture2D(tColorOD, uvR).rgb;
+      float bR = pow(smoothstep(iolLo, iolHi, dot(cR, vec3(0.2126, 0.7152, 0.0722))), 1.6);
+      ringOS += cR * bR;
+    }
+    vec3 glowOS = uHasNonDomRT > 0.5
+      ? texture2D(tColorNonDom, clamp(baseUv, vec2(0.003), vec2(0.997))).rgb
+      : texture2D(tBlurOD, clamp(baseUv, vec2(0.003), vec2(0.997))).rgb;
+    float gB = pow(smoothstep(iolLo * 0.55, iolHi * 0.90, dot(glowOS, vec3(0.2126, 0.7152, 0.0722))), 1.5);
+    col += (ringOS * (0.18 / float(IOL_OS_TAPS)) + glowOS * gB * 0.13) * iolHaloOS;
   }
 
   col += vec3(0.98, 0.96, 0.92) * veilAmount;
@@ -605,7 +649,8 @@ void main() {
   float hasLens = step(0.5, uLensProfile);
   float isAphakic = hasLens * (1.0 - step(1.5, uLensProfile));
   float isModernBifocal = step(2.5, uLensProfile) * (1.0 - step(3.5, uLensProfile));
-  float isProgressive = step(3.5, uLensProfile);
+  float isProgressive = step(3.5, uLensProfile) * (1.0 - step(4.5, uLensProfile));
+  float isIol = step(4.5, uLensProfile);
   float isModernLens = step(1.5, uLensProfile);
   float glassesOn = hasLens * step(0.5, uGlassesOn);
   float powerRatio = clamp(abs(uEffLensPowerD) / 13.0, 0.35, 1.5);
@@ -616,8 +661,9 @@ void main() {
   vec2 pFrame = p + uEyeOffset + vec2(0.0, slideDropY);
 
   // Resolve cosmetic frame shape & color (0 = Auto matched to lens profile; optics stay strictly tied to uLensProfile)
-  float effShape = uFrameShape > 0.5 ? uFrameShape : uLensProfile;
-  float effColor = uFrameColor > 0.5 ? uFrameColor : uLensProfile;
+  float autoLensStyle = isIol > 0.5 ? 2.0 : uLensProfile;
+  float effShape = uFrameShape > 0.5 ? uFrameShape : autoLensStyle;
+  float effColor = uFrameColor > 0.5 ? uFrameColor : autoLensStyle;
   float shapeRound = step(0.5, effShape) * (1.0 - step(1.5, effShape));
   float shapeRoundedRect = step(2.5, effShape) * (1.0 - step(3.5, effShape));
   float shapeSemiRim = step(3.5, effShape) * (1.0 - step(4.5, effShape));
@@ -757,11 +803,12 @@ void main() {
     float dofTolerance = mix(0.30, 0.72, inBifocal) / pupilScale;
     float aphakicCocD = isAphakic * max(0.0, abs(objVergence - targetVergence) - dofTolerance);
 
-    // Non-aphakic refractive vergence defocus (Myopia far-point, Presbyopia accommodation cap, pupil-scaled CoC)
-    float accAmp = uPresbyopiaD > 0.05 ? max(0.25, 4.5 - uPresbyopiaD * 1.05) : 6.0;
+    // Non-aphakic refractive vergence defocus (Myopia far-point, Presbyopia accommodation cap, fixed-plane monofocal IOL)
+    float accAmp = isIol > 0.5 ? 0.0 : (uPresbyopiaD > 0.05 ? max(0.25, 4.5 - uPresbyopiaD * 1.05) : 6.0);
+    float refDofTol = (isIol > 0.5 ? 0.28 : 0.22) / pupilScale;
     float minFocusD = uMyopiaD + effModernD;
     float maxFocusD = minFocusD + accAmp;
-    float refDefocusD = (1.0 - isAphakic) * max(0.0, max(minFocusD - objVergence, objVergence - maxFocusD) - (0.22 / pupilScale));
+    float refDefocusD = (1.0 - isAphakic) * max(0.0, max(minFocusD - objVergence, objVergence - maxFocusD) - refDofTol);
     float refBlur = clamp(refDefocusD * 0.0056 * pupilScale, 0.0, 0.036);
 
     // Real Jackson cross-cylinder vector subtraction: eye astigmatism minus toric lens correction (mismatched axis induces oblique astigmatism!)
@@ -797,13 +844,14 @@ void main() {
       ? (mix(0.011, 0.0010 + inNonDomOnly * 0.0022 + periphFactor * 0.0032, inLens) + decomp * 0.0014) * (1.0 - 0.35 * clamp(uSquint, 0.0, 1.0))
       : (residualAstigD * 0.0046 * pupilScale + palSwim * 0.0055);
     float pupilHoaBoost = 1.0 + dimness * 0.75;
+    float iolHaloOD = uIolHalo * (0.18 + 0.82 * smoothstep(0.08, 0.88, dimness));
     float hoaOD = (isAphakic > 0.5
       ? mix(0.55, 0.34 + decomp * 0.24, inLens)
-      : clamp(residualAstigD * 0.24, 0.0, 0.85)) * pupilHoaBoost;
+      : clamp(residualAstigD * 0.24 + iolHaloOD * 0.16, 0.0, 0.85)) * pupilHoaBoost;
     float chromaOD = isAphakic * inLens * clamp(rLens * rLens * 0.0072 * powerRatio, 0.0, 0.009);
 
     vec3 linOD = sampleOD(
-      uvOD, depthOD, depthCocShare, isoBlurOD, astBlurOD, astDirOD, hoaOD, uMlnVelUV, chromaOD, radialDir, veil, noiseAngle
+      uvOD, depthOD, depthCocShare, isoBlurOD, astBlurOD, astDirOD, hoaOD, iolHaloOD, uMlnVelUV, chromaOD, radialDir, veil, noiseAngle
     );
     linOD = applyLinearPathologies(linOD, uvOD, p, pFovea, false);
     // Genuine mesopic sensitivity attenuation in linear light for Glaucoma / Wet AMD / DR (strongest on dim unlit targets)
@@ -837,13 +885,19 @@ void main() {
       }
 
       float focusClamped = clamp(uFocusEffort, 0.0, 1.0);
-      float cocOS = isAphakic * max(0.0, abs(1.0 / max(depthOS, 0.02) - targetVergence) - dofTolerance);
+      float osVerg = 1.0 / max(depthOS, 0.02);
+      float cocOS = isAphakic * max(0.0, abs(osVerg - targetVergence) - dofTolerance);
+      float osMinFocusD = uMyopiaD + uOsExtraMyopiaD + effModernD;
+      float osMaxFocusD = osMinFocusD + accAmp;
+      float osRefDefocusD = (1.0 - isAphakic) * max(0.0, max(osMinFocusD - osVerg, osVerg - osMaxFocusD) - refDofTol);
+      float osRefBlur = clamp(osRefDefocusD * 0.0056 * pupilScale, 0.0, 0.036);
       // Unfocused fake OS contour registers crisper/sharper ("two sharp images"); Focus attentionally softens & deprioritizes OS
-      float nonDomBlur = max(0.00035, uAcuityBlurNonDom * mix(0.22, 0.52, focusClamped)) + uCataract * 0.0095 + uAlbinism * 0.0025 + refBlur;
+      float nonDomBlur = max(0.00035, uAcuityBlurNonDom * mix(0.22, 0.52, focusClamped)) + uCataract * 0.0095 + uAlbinism * 0.0025 + osRefBlur;
       float isoBlurOS = mix(aphakicBlur, nonDomBlur + clamp(cocOS * 0.0072 * powerRatio, 0.0, 0.028), inCorrection);
       vec2 astDirOS = isAphakic > 0.5 ? vec2(1.0, 0.0) : userAstDir;
       float hoaOS = hoaOD * mix(0.98, 0.80, focusClamped);
-      vec3 linOS = sampleOS(uvOS, isoBlurOS, uMlnVelUV, astDirOS, hoaOS, veil, noiseAngle + 1.57);
+      float iolHaloOS = iolHaloOD * mix(0.90, 0.72, focusClamped);
+      vec3 linOS = sampleOS(uvOS, isoBlurOS, uMlnVelUV, astDirOS, hoaOS, iolHaloOS, veil, noiseAngle + 1.57);
       linOS = applyLinearPathologies(linOS, uvOS, p, pFovea, uHasNonDomRT > 0.5);
       linOS *= (1.0 - mesopicPath * 0.48);
       vec3 colOS = linearToDisplay(linOS);

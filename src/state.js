@@ -10,12 +10,16 @@ import {
   QUALITY_PRESETS,
   TIME_OF_DAY_PRESETS,
   LENS_PROFILES,
+  IOL_GLASSES_SLOTS,
+  IOL_INTERMEDIATE_ADD_D,
+  IOL_OS_RESIDUAL_DIFF_D,
   FRAME_SHAPES,
   FRAME_COLORS,
   getPersonaById,
   getSceneById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
+  resolveIolGlassesOptics,
   applyPersona,
   updateVisualSetting,
   computeAcuityBlurUV,
@@ -46,12 +50,16 @@ export {
   QUALITY_PRESETS,
   TIME_OF_DAY_PRESETS,
   LENS_PROFILES,
+  IOL_GLASSES_SLOTS,
+  IOL_INTERMEDIATE_ADD_D,
+  IOL_OS_RESIDUAL_DIFF_D,
   FRAME_SHAPES,
   FRAME_COLORS,
   getPersonaById,
   getSceneById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
+  resolveIolGlassesOptics,
   applyPersona,
   updateVisualSetting,
   computeAcuityBlurUV,
@@ -185,11 +193,27 @@ export function toggleCompareNormal(state) {
 }
 
 /**
- * Shared Glasses ON/OFF (Z) toggle used by both keyboard controls and settings drawer.
+ * Shared Glasses ON/OFF (Z) toggle, or 3-glasses cycle (Distance -> Computer -> Reading -> Off) for pseudophakic IOL.
  */
 export function toggleGlasses(state) {
   if (!state || state.settings?.lensProfile === 'none') return false;
+  if (state.settings?.lensProfile === 'pseudophakic_iol') {
+    const curSlot = !state.glassesOn
+      ? 'off'
+      : IOL_GLASSES_SLOTS.includes(state.glassesSlot)
+        ? state.glassesSlot
+        : 'distance';
+    const nextSlot = IOL_GLASSES_SLOTS[(IOL_GLASSES_SLOTS.indexOf(curSlot) + 1) % IOL_GLASSES_SLOTS.length];
+    state.glassesSlot = nextSlot;
+    state.glassesOn = nextSlot !== 'off';
+    state.glassesSlide = 0;
+    if (state.glassesOn) {
+      state.glassesBounce = -0.014;
+    }
+    return state.glassesOn;
+  }
   state.glassesOn = !state.glassesOn;
+  state.glassesSlot = state.glassesOn ? 'distance' : 'off';
   if (state.glassesOn) {
     state.glassesSlide = 0;
     state.glassesBounce = -0.014;
@@ -204,6 +228,7 @@ export function createSimState() {
   return {
     language: detectDefaultLanguage(),
     sceneId: 'classroom',
+    sceneLoading: false,
     personaId: 'vuarbit_frut',
     settings: createDefaultVisualSettings(),
     settingsOpen: false,
@@ -215,6 +240,7 @@ export function createSimState() {
     mode: 'standing',
     aimingPickable: false,
     glassesOn: true,
+    glassesSlot: 'distance',
     glassesSlide: 0,
     glassesPinned: false,
     glassesBounce: 0,
@@ -484,6 +510,14 @@ export function updateSimState(state, dt) {
     state.activeZone = 'emmetropic';
   } else if (!state.glassesOn) {
     state.activeZone = 'uncorrected';
+  } else if (s.lensProfile === 'pseudophakic_iol') {
+    if (state.glassesSlot === 'intermediate') {
+      state.activeZone = 'intermediate';
+    } else if (state.glassesSlot === 'near') {
+      state.activeZone = 'near';
+    } else {
+      state.activeZone = 'distance';
+    }
   } else if (
     (s.lensProfile === 'aphakic_bifocal' || s.lensProfile === 'bifocal' || s.lensProfile === 'progressive') &&
     s.nearAddD > 0.25 &&

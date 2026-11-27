@@ -138,11 +138,65 @@ export function computeAdaptedExposure(ambientLight) {
 
 export const LENS_PROFILES = Object.freeze([
   'aphakic_bifocal',
+  'pseudophakic_iol',
   'single_vision',
   'bifocal',
   'progressive',
   'none',
 ]);
+
+export const IOL_GLASSES_SLOTS = Object.freeze(['distance', 'intermediate', 'near', 'off']);
+export const IOL_INTERMEDIATE_ADD_D = 1.5; // +1.50 D over distance Rx -> exact ~0.65-0.67 m computer plane
+export const IOL_OS_RESIDUAL_DIFF_D = 0.75; // Residual OS -1.75 D vs OD -1.00 D anisometropia
+
+/**
+ * Resolve effective spectacle lens power, cylinder, and OD/OS fixed focal planes for pseudophakic IOL 3-glasses cycle.
+ */
+export function resolveIolGlassesOptics(settings, glassesSlot = 'distance', glassesOn = true) {
+  const s = settings || createDefaultVisualSettings();
+  const myopiaD = Number.isFinite(s.myopiaD) ? s.myopiaD : 1.0;
+  const distRxD = Number.isFinite(s.lensPowerD) ? s.lensPowerD : -1.0;
+  const nearOtcD = Number.isFinite(s.nearAddD) ? s.nearAddD : 2.5;
+  const cylD = Number.isFinite(s.lensCylD) ? s.lensCylD : 0.0;
+  const slot = !glassesOn || glassesSlot === 'off'
+    ? 'off'
+    : IOL_GLASSES_SLOTS.includes(glassesSlot)
+      ? glassesSlot
+      : 'distance';
+  const osExtraBase = myopiaD > 0.05 ? Math.min(IOL_OS_RESIDUAL_DIFF_D, myopiaD * 0.75) : 0.0;
+
+  let lensPowerD = 0.0;
+  let lensCylD = 0.0;
+  let osExtraMyopiaD = osExtraBase;
+
+  if (slot === 'distance') {
+    lensPowerD = distRxD;
+    lensCylD = cylD;
+    osExtraMyopiaD = 0.0;
+  } else if (slot === 'intermediate') {
+    lensPowerD = distRxD + IOL_INTERMEDIATE_ADD_D;
+    lensCylD = cylD;
+    osExtraMyopiaD = 0.0;
+  } else if (slot === 'near') {
+    // Off-the-shelf +2.50 D reading glasses: identical sphere both eyes, zero astigmatism correction
+    lensPowerD = nearOtcD;
+    lensCylD = 0.0;
+    osExtraMyopiaD = osExtraBase;
+  }
+
+  const domNetFocusD = myopiaD + lensPowerD;
+  const osNetFocusD = myopiaD + osExtraMyopiaD + lensPowerD;
+  return {
+    slot,
+    glassesOn: slot !== 'off',
+    lensPowerD,
+    lensCylD,
+    domNetFocusD,
+    osNetFocusD,
+    osExtraMyopiaD,
+    focalDistM: domNetFocusD > 0.01 ? 1.0 / domNetFocusD : Infinity,
+  };
+}
 
 export const FRAME_SHAPES = Object.freeze([
   'auto',
@@ -276,6 +330,26 @@ export const PERSONAS = Object.freeze([
     shortName: 'Vuarbit Frut',
     description: 'Child (Friulian: Frut) with bilateral childhood aphakia (+13/+17 D amber executive bifocal), OD-dominant, OS amblyopia & diplopia, manifest latent nystagmus (MLN).',
     settings: Object.freeze(createDefaultVisualSettings()),
+  }),
+  Object.freeze({
+    id: 'vuarbit_grant',
+    group: 'vuarbit',
+    defaultGlassesOn: true,
+    defaultGlassesSlot: 'distance',
+    name: 'Vuarbit Grant (Adult · Pseudophakic IOL)',
+    shortName: 'Vuarbit Grant',
+    description: 'Adult (Friulian: Grant) with monofocal pseudophakic IOLs (fixed focal plane, residual OD -1.00 / OS -1.75 D, mild night halos), OD/OS acuity, diplopia & MLN. Press Z to cycle Distance / Computer (65 cm) / Reading (+2.5 D OTC) / Off.',
+    settings: Object.freeze(sanitizeVisualSettings({
+      lensProfile: 'pseudophakic_iol',
+      lensPowerD: -1.0,
+      nearAddD: 2.5,
+      lensCylD: 0.0,
+      lensAxisDeg: 90,
+      myopiaD: 1.0,
+      presbyopiaD: 0.0,
+      astigmatismD: 0.0,
+      astigmatismAxisDeg: 90,
+    })),
   }),
   Object.freeze({
     id: 'normal',
@@ -484,6 +558,8 @@ export function applyPersona(state, personaId) {
     typeof persona.defaultGlassesOn === 'boolean'
       ? persona.defaultGlassesOn
       : persona.settings.lensProfile !== 'none';
+  state.glassesSlot =
+    persona.defaultGlassesSlot || (state.glassesOn ? 'distance' : 'off');
   return true;
 }
 
@@ -503,8 +579,15 @@ export function updateVisualSetting(state, key, value) {
   state.personaId = 'custom';
   if (key === 'lensProfile') {
     state.glassesOn = validated !== 'none';
+    state.glassesSlot = validated === 'none' ? 'off' : 'distance';
     if ((validated === 'bifocal' || validated === 'progressive') && (state.settings.nearAddD || 0) < 0.5) {
       state.settings.nearAddD = 2.5;
+    } else if (validated === 'pseudophakic_iol') {
+      if ((state.settings.lensPowerD || 0) > 6) {
+        state.settings.lensPowerD = -1.0;
+        if ((state.settings.myopiaD || 0) < 0.05) state.settings.myopiaD = 1.0;
+      }
+      if ((state.settings.nearAddD || 0) < 0.5) state.settings.nearAddD = 2.5;
     } else if (validated === 'aphakic_bifocal') {
       if ((state.settings.lensPowerD || 0) < 6) state.settings.lensPowerD = 13.0;
       if ((state.settings.nearAddD || 0) < 0.5) state.settings.nearAddD = 4.0;
