@@ -1410,6 +1410,9 @@ export function createClassroomScene(renderer = null) {
   }
 
   return {
+    id: 'classroom',
+    defaultMode: 'standing',
+    bounds: { minX: -3.8, maxX: 3.8, minZ: -4.15, maxZ: 4.2 },
     scene,
     deskPos,
     seatPose,
