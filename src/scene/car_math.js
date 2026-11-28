@@ -131,8 +131,8 @@ export function computeLeadCarZ(simTime) {
 const ROAD_LIGHTING_PROFILES = Object.freeze({
   sunny: Object.freeze({
     fogColor: '#b9d6ef',
-    fogNear: 56,
-    fogFar: 136,
+    fogNear: 46,
+    fogFar: 108,
     skyTop: '#357bd1',
     skyMid: '#86bbea',
     skyHorizon: '#e5eef8',
@@ -154,8 +154,8 @@ const ROAD_LIGHTING_PROFILES = Object.freeze({
   }),
   overcast: Object.freeze({
     fogColor: '#8e9aa6',
-    fogNear: 44,
-    fogFar: 122,
+    fogNear: 38,
+    fogFar: 100,
     skyTop: '#6b7785',
     skyMid: '#8d99a6',
     skyHorizon: '#b9c4cf',
@@ -177,8 +177,8 @@ const ROAD_LIGHTING_PROFILES = Object.freeze({
   }),
   dusk: Object.freeze({
     fogColor: '#2a2236',
-    fogNear: 40,
-    fogFar: 120,
+    fogNear: 34,
+    fogFar: 98,
     skyTop: '#141730',
     skyMid: '#4c344f',
     skyHorizon: '#d97244',
@@ -200,8 +200,8 @@ const ROAD_LIGHTING_PROFILES = Object.freeze({
   }),
   night: Object.freeze({
     fogColor: '#040710',
-    fogNear: 28,
-    fogFar: 112,
+    fogNear: 24,
+    fogFar: 92,
     skyTop: '#02040a',
     skyMid: '#060c1a',
     skyHorizon: '#0e182c',

@@ -50,6 +50,7 @@ const CVD_TYPE_OPTIONS = [
   { value: 'deutan', key: 'opt.cvd.deutan' },
   { value: 'protan', key: 'opt.cvd.protan' },
   { value: 'tritan', key: 'opt.cvd.tritan' },
+  { value: 'achromatopsia', key: 'opt.cvd.achromatopsia' },
 ];
 
 function makeEl(tag, className, text) {
@@ -124,6 +125,7 @@ function formatDeg(value) {
 
 const PRIMARY_GROUPS = [
   {
+    id: 'conditions',
     titleKey: 'settings.section.conditions',
     controls: [
       { key: 'glaucoma', labelKey: 'param.glaucoma', kind: 'range', format: formatGlaucoma },
@@ -132,6 +134,12 @@ const PRIMARY_GROUPS = [
       { key: 'diabeticRetinopathy', labelKey: 'param.diabeticRetinopathy', kind: 'range', format: formatDr },
       { key: 'retinitisPigmentosa', labelKey: 'param.retinitisPigmentosa', kind: 'range', format: formatRp },
       { key: 'albinism', labelKey: 'param.albinism', kind: 'range', format: formatPct },
+    ],
+  },
+  {
+    id: 'refraction',
+    titleKey: 'settings.section.refraction',
+    controls: [
       { key: 'myopiaD', labelKey: 'param.myopiaD', kind: 'range', format: formatMinusDiopter },
       { key: 'presbyopiaD', labelKey: 'param.presbyopiaD', kind: 'range', format: (v) => formatDiopter(v, 2) },
       { key: 'astigmatismD', labelKey: 'param.astigmatismD', kind: 'range', format: (v) => formatDiopter(v, 2) },
@@ -140,6 +148,7 @@ const PRIMARY_GROUPS = [
     ],
   },
   {
+    id: 'symptoms',
     titleKey: 'settings.section.symptoms',
     controls: [
       { key: '_acuityBoth', labelKey: 'param.acuityBoth', kind: 'acuityBoth', format: formatSnellenAcuity },
@@ -150,6 +159,23 @@ const PRIMARY_GROUPS = [
     ],
   },
 ];
+
+const HIGHLIGHT_ZERO_KEYS = new Set([
+  'glaucoma',
+  'amd',
+  'cataract',
+  'diabeticRetinopathy',
+  'retinitisPigmentosa',
+  'albinism',
+  'myopiaD',
+  'presbyopiaD',
+  'astigmatismD',
+  'cvdSeverity',
+  'mlnScale',
+  'floaters',
+  'phosphenes',
+  'tinnitus',
+]);
 
 const ADVANCED_CONTROLS = [
   { key: 'lensProfile', labelKey: 'param.lensProfile', kind: 'select', options: LENS_PROFILE_OPTIONS },
@@ -186,7 +212,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   const header = makeEl('div', 'settings-header');
   const titleWrap = makeEl('div', 'settings-title-wrap');
   const title = bindText(makeEl('h2', 'settings-title'), 'settings.title');
-  const statusBadge = makeEl('span', 'settings-badge', 'Vuarbit Frut');
+  const statusBadge = makeEl('span', 'settings-badge', 'Frut');
   titleWrap.replaceChildren(title, statusBadge);
 
   const headerActions = makeEl('div', 'settings-header-actions');
@@ -242,13 +268,15 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   sceneSection.replaceChildren(sceneHeading, sceneRow, langRow, sceneDesc);
   body.appendChild(sceneSection);
 
-  // Presets section (Profiles vs Eye Conditions)
+  // Presets section (Profiles vs Ocular Conditions vs Refraction & Color)
   const presetSection = makeEl('section', 'setting-group');
   const presetHeading = bindText(makeEl('h3', 'setting-group-title'), 'settings.section.presets');
   const vuarbitSub = bindText(makeEl('div', 'persona-sublabel'), 'settings.sub.profiles');
   const vuarbitGrid = makeEl('div', 'persona-grid');
   const condSub = bindText(makeEl('div', 'persona-sublabel'), 'settings.sub.conditions');
   const condGrid = makeEl('div', 'persona-grid');
+  const refSub = bindText(makeEl('div', 'persona-sublabel'), 'settings.sub.refraction');
+  const refGrid = makeEl('div', 'persona-grid');
   const personaButtons = new Map();
 
   for (const persona of PERSONAS) {
@@ -256,12 +284,23 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     btn.type = 'button';
     btn.setAttribute('data-persona-id', persona.id);
     btn.setAttribute('aria-pressed', 'false');
-    (persona.group === 'vuarbit' ? vuarbitGrid : condGrid).appendChild(btn);
+    const targetGrid =
+      persona.group === 'vuarbit' ? vuarbitGrid : persona.group === 'refraction' ? refGrid : condGrid;
+    targetGrid.appendChild(btn);
     personaButtons.set(persona.id, btn);
   }
 
   const personaDesc = makeEl('p', 'persona-desc', '');
-  presetSection.replaceChildren(presetHeading, vuarbitSub, vuarbitGrid, condSub, condGrid, personaDesc);
+  presetSection.replaceChildren(
+    presetHeading,
+    vuarbitSub,
+    vuarbitGrid,
+    condSub,
+    condGrid,
+    refSub,
+    refGrid,
+    personaDesc
+  );
   body.appendChild(presetSection);
 
   const settingControls = new Map();
@@ -301,9 +340,13 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       const val = Number(input.value);
       readout.textContent = cfg.format(val, currentLang);
       if (cfg.kind === 'acuityBoth') {
+        readout.classList.toggle('is-nonzero', val < 0.99);
         callbacks.onSettingChange?.('vodAcuity', val);
         callbacks.onSettingChange?.('vosAcuity', val);
       } else {
+        if (HIGHLIGHT_ZERO_KEYS.has(cfg.key)) {
+          readout.classList.toggle('is-nonzero', val > 0.005);
+        }
         callbacks.onSettingChange?.(cfg.key, val);
       }
     });
@@ -319,19 +362,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     return row;
   }
 
-  for (const group of PRIMARY_GROUPS) {
-    const section = makeEl('section', 'setting-group');
-    section.appendChild(bindText(makeEl('h3', 'setting-group-title'), group.titleKey));
-    for (const cfg of group.controls) {
-      section.appendChild(buildControlRow(cfg));
-    }
-    body.appendChild(section);
-  }
-
-  // Collapsed Optics & Binocular Details accordion
-  const advDetails = makeEl('details', 'setting-group setting-details');
-  const advSummary = bindText(makeEl('summary', 'setting-details-summary'), 'settings.section.optics');
-  const advBody = makeEl('div', 'setting-details-body');
+  // Top-level Wear Glasses (Z) button (placed at top of Refraction & Color so users immediately find it)
   const glassesRow = makeEl('div', 'setting-row');
   const glassesLbl = bindText(makeEl('span', 'setting-label'), 'settings.label.wearGlasses');
   const glassesToggleBtn = makeEl('button', 'settings-btn', t(currentLang, 'settings.off'));
@@ -341,7 +372,37 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     callbacks.onGlassesToggle?.();
   });
   glassesRow.replaceChildren(glassesLbl, glassesToggleBtn);
-  advBody.appendChild(glassesRow);
+
+  // Quick Tinnitus Audio Mute (M) button inside Vision & Symptoms
+  const muteRow = makeEl('div', 'setting-row');
+  const muteLbl = bindText(makeEl('span', 'setting-label'), 'settings.label.muteAudio');
+  const muteBtn = makeEl('button', 'settings-btn', t(currentLang, 'settings.on'));
+  muteBtn.type = 'button';
+  muteBtn.setAttribute('aria-pressed', 'true');
+  listen(muteBtn, 'click', () => {
+    callbacks.onMuteToggle?.();
+  });
+  muteRow.replaceChildren(muteLbl, muteBtn);
+
+  for (const group of PRIMARY_GROUPS) {
+    const section = makeEl('section', 'setting-group');
+    section.appendChild(bindText(makeEl('h3', 'setting-group-title'), group.titleKey));
+    if (group.id === 'refraction') {
+      section.appendChild(glassesRow);
+    }
+    for (const cfg of group.controls) {
+      section.appendChild(buildControlRow(cfg));
+    }
+    if (group.id === 'symptoms') {
+      section.appendChild(muteRow);
+    }
+    body.appendChild(section);
+  }
+
+  // Collapsed Optics & Binocular Details accordion
+  const advDetails = makeEl('details', 'setting-group setting-details');
+  const advSummary = bindText(makeEl('summary', 'setting-details-summary'), 'settings.section.optics');
+  const advBody = makeEl('div', 'setting-details-body');
   for (const cfg of ADVANCED_CONTROLS) {
     advBody.appendChild(buildControlRow(cfg));
   }
@@ -422,6 +483,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   };
   listen(vuarbitGrid, 'click', onPresetClick);
   listen(condGrid, 'click', onPresetClick);
+  listen(refGrid, 'click', onPresetClick);
 
   listen(drawer, 'mousedown', (e) => e.stopPropagation());
   listen(drawer, 'click', (e) => e.stopPropagation());
@@ -434,7 +496,8 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       e.code === 'KeyZ' ||
       e.code === 'KeyL' ||
       e.code === 'KeyT' ||
-      e.code === 'KeyC'
+      e.code === 'KeyC' ||
+      e.code === 'KeyM'
     ) {
       return;
     }
@@ -450,11 +513,12 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   let lastGlassesOn = null;
   let lastGlassesLabel = null;
   let lastGlassesDisabled = null;
+  let lastMuted = null;
   let lastTimeOfDay = null;
   let lastLightsOn = null;
   let lastGlareLightOn = null;
   let lastQuality = null;
-  let lastAcuityBoth = null;
+  let lastAcuitySig = null;
   const lastValues = new Map();
   const lastDisabled = new Map();
 
@@ -573,15 +637,29 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       glassesRow.classList.toggle('is-disabled', lensDisabled);
     }
 
+    const isMuted = Boolean(state.muted);
+    if (refresh || isMuted !== lastMuted) {
+      lastMuted = isMuted;
+      muteBtn.textContent = isMuted ? t(lang, 'hud.tinnitus.muted') : t(lang, 'settings.on');
+      muteBtn.classList.toggle('is-active', !isMuted);
+      muteBtn.setAttribute('aria-pressed', !isMuted ? 'true' : 'false');
+    }
+
     if (acuityBothCtrl) {
-      const domKey = s.dominantEye === 'OS' ? 'vosAcuity' : 'vodAcuity';
-      const domAcuity = Number.isFinite(s[domKey]) ? s[domKey] : SETTING_SPECS.vodAcuity.default;
+      const vod = Number.isFinite(s.vodAcuity) ? s.vodAcuity : SETTING_SPECS.vodAcuity.default;
+      const vos = Number.isFinite(s.vosAcuity) ? s.vosAcuity : SETTING_SPECS.vosAcuity.default;
+      const domAcuity = s.dominantEye === 'OS' ? vos : vod;
+      const asym = Math.abs(vod - vos) > 0.01;
+      const acuitySig = `${vod.toFixed(2)}|${vos.toFixed(2)}|${s.dominantEye}`;
       const active = document.activeElement === acuityBothCtrl.input;
-      if (refresh || domAcuity !== lastAcuityBoth) {
-        acuityBothCtrl.readout.textContent = acuityBothCtrl.format(domAcuity, lang);
+      if (refresh || acuitySig !== lastAcuitySig) {
+        acuityBothCtrl.readout.textContent = asym
+          ? `${vod.toFixed(2)} / ${vos.toFixed(2)}`
+          : acuityBothCtrl.format(domAcuity, lang);
+        acuityBothCtrl.readout.classList.toggle('is-nonzero', Math.min(vod, vos) < 0.99);
         if (!active) {
           acuityBothCtrl.input.value = String(domAcuity);
-          lastAcuityBoth = domAcuity;
+          lastAcuitySig = acuitySig;
         }
       }
     }
@@ -601,6 +679,9 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
         const active = document.activeElement === ctrl.input;
         if (refresh || numVal !== prevVal) {
           ctrl.readout.textContent = ctrl.format(numVal, lang);
+          if (HIGHLIGHT_ZERO_KEYS.has(key)) {
+            ctrl.readout.classList.toggle('is-nonzero', numVal > 0.005);
+          }
           if (!active) {
             ctrl.input.value = String(numVal);
             lastValues.set(key, numVal);

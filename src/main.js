@@ -188,6 +188,9 @@ async function init() {
     onGlassesToggle() {
       toggleGlasses(state);
     },
+    onMuteToggle() {
+      state.muted = !state.muted;
+    },
     onTimeOfDayChange(todId) {
       if (!TIME_OF_DAY_PRESETS[todId]) return;
       state.timeOfDay = todId;

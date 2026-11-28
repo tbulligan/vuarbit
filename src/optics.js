@@ -21,7 +21,7 @@ const FAR_CLIP = 30.0;
 const OD_FOV_DEG = 62;
 const TAN_HALF_Y = Math.tan(THREE.MathUtils.degToRad(OD_FOV_DEG * 0.5));
 const TARGET_MLN_FREQ_HZ = 2.5; // Calibrated relaxed MLN beat rate (~20 beats / 8 s; ~1.125 Hz calmly focused)
-const CVD_TYPE_MAP = { none: 0, deutan: 1, protan: 2, tritan: 3 };
+const CVD_TYPE_MAP = { none: 0, deutan: 1, protan: 2, tritan: 3, achromatopsia: 4 };
 const LENS_PROFILE_MAP = { none: 0, aphakic_bifocal: 1, single_vision: 2, bifocal: 3, progressive: 4, pseudophakic_iol: 5 };
 const FRAME_SHAPE_MAP = { auto: 0, round: 1, rect: 2, rounded_rect: 3, semi_rimless: 4, rimless: 5 };
 const FRAME_COLOR_MAP = { auto: 0, amber: 1, charcoal: 2, tortoise: 3, titanium: 4, gold: 5, navy: 6, burgundy: 7 };
@@ -202,6 +202,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uCvdType: { value: 0.0 },
     uCvdSeverity: { value: 0.0 },
     uOsExtraMyopiaD: { value: 0.0 },
+    uOsResidualCylD: { value: 0.0 },
     uIolHalo: { value: 0.0 },
   };
 
@@ -486,6 +487,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uniforms.uCvdType.value = CVD_TYPE_MAP[s.cvdType] ?? 0;
     uniforms.uCvdSeverity.value = s.cvdSeverity || 0.0;
     uniforms.uOsExtraMyopiaD.value = isIol ? iol.osExtraMyopiaD : 0.0;
+    uniforms.uOsResidualCylD.value = isIol ? iol.osResidualCylD : 0.0;
     uniforms.uIolHalo.value = isIol ? 1.0 : 0.0;
 
     renderer.setRenderTarget(prevTarget);

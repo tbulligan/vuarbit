@@ -24,9 +24,9 @@ export const SCENES = Object.freeze([
   }),
   Object.freeze({
     id: 'car_passenger',
-    label: 'Car Passenger (Friuli Road)',
+    label: 'Car Passenger',
     shortName: 'Car Passenger',
-    description: 'Seated cabin cruising the curving Friuli moraine road (Udine → Fagagna → San Daniele) with Julian Prealps horizon, day sun glare, and wet-road night headlights.',
+    description: 'Seated passenger cabin cruising a curving hillside road with mountain horizon, low sun glare, oncoming traffic, and wet-road night headlights.',
     defaultMode: 'seated',
     seatedOnly: true,
   }),
@@ -122,8 +122,12 @@ export function cycleTimeOfDay(current) {
   return TIME_OF_DAY_ORDER[(idx + 1) % TIME_OF_DAY_ORDER.length];
 }
 
-export function computeAmbientLight(timeOfDay, lightsOn) {
+export function computeAmbientLight(timeOfDay, lightsOn, sceneId = 'classroom') {
   const preset = TIME_OF_DAY_PRESETS[timeOfDay] || TIME_OF_DAY_PRESETS.sunny;
+  if (sceneId === 'car_passenger') {
+    const roadArtLux = lightsOn && (timeOfDay === 'dusk' || timeOfDay === 'night') ? 0.11 : 0.0;
+    return clamp(preset.outdoorLux + roadArtLux, 0.03, 1.0);
+  }
   const artLux = lightsOn ? 0.52 : 0.0;
   return clamp(preset.outdoorLux * 0.78 + artLux, 0.03, 1.0);
 }
@@ -148,6 +152,7 @@ export const LENS_PROFILES = Object.freeze([
 export const IOL_GLASSES_SLOTS = Object.freeze(['distance', 'intermediate', 'near', 'off']);
 export const IOL_INTERMEDIATE_ADD_D = 1.5; // +1.50 D over distance Rx -> exact ~0.65-0.67 m computer plane
 export const IOL_OS_RESIDUAL_DIFF_D = 0.75; // Residual OS -1.75 D vs OD -1.00 D anisometropia
+export const IOL_OS_RESIDUAL_CYL_D = 1.5; // Residual OS -1.50 D × 180° astigmatism when bare or wearing spherical OTC readers
 
 /**
  * Resolve effective spectacle lens power, cylinder, and OD/OS fixed focal planes for pseudophakic IOL 3-glasses cycle.
@@ -158,16 +163,19 @@ export function resolveIolGlassesOptics(settings, glassesSlot = 'distance', glas
   const distRxD = Number.isFinite(s.lensPowerD) ? s.lensPowerD : -1.0;
   const nearOtcD = Number.isFinite(s.nearAddD) ? s.nearAddD : 2.5;
   const cylD = Number.isFinite(s.lensCylD) ? s.lensCylD : 0.0;
+  const eyeAstigD = Number.isFinite(s.astigmatismD) ? s.astigmatismD : 0.0;
   const slot = !glassesOn || glassesSlot === 'off'
     ? 'off'
     : IOL_GLASSES_SLOTS.includes(glassesSlot)
       ? glassesSlot
       : 'distance';
   const osExtraBase = myopiaD > 0.05 ? Math.min(IOL_OS_RESIDUAL_DIFF_D, myopiaD * 0.75) : 0.0;
+  const osCylBase = eyeAstigD > 0.05 ? Math.min(IOL_OS_RESIDUAL_CYL_D, eyeAstigD * 0.75) : 0.0;
 
   let lensPowerD = 0.0;
   let lensCylD = 0.0;
   let osExtraMyopiaD = osExtraBase;
+  let osResidualCylD = osCylBase;
   let frameShape = 'auto';
   let frameColor = 'auto';
 
@@ -175,12 +183,14 @@ export function resolveIolGlassesOptics(settings, glassesSlot = 'distance', glas
     lensPowerD = distRxD;
     lensCylD = cylD;
     osExtraMyopiaD = 0.0;
+    osResidualCylD = 0.0;
     frameShape = 'rounded_rect';
     frameColor = 'navy';
   } else if (slot === 'intermediate') {
     lensPowerD = distRxD + IOL_INTERMEDIATE_ADD_D;
     lensCylD = cylD;
     osExtraMyopiaD = 0.0;
+    osResidualCylD = 0.0;
     frameShape = 'rect';
     frameColor = 'charcoal';
   } else if (slot === 'near') {
@@ -188,6 +198,7 @@ export function resolveIolGlassesOptics(settings, glassesSlot = 'distance', glas
     lensPowerD = nearOtcD;
     lensCylD = 0.0;
     osExtraMyopiaD = osExtraBase;
+    osResidualCylD = osCylBase;
     frameShape = 'round';
     frameColor = 'burgundy';
   }
@@ -204,6 +215,7 @@ export function resolveIolGlassesOptics(settings, glassesSlot = 'distance', glas
     domNetFocusD,
     osNetFocusD,
     osExtraMyopiaD,
+    osResidualCylD,
     focalDistM: domNetFocusD > 0.01 ? 1.0 / domNetFocusD : Infinity,
   };
 }
@@ -234,12 +246,12 @@ export const SETTING_SPECS = Object.freeze({
   frameColor: Object.freeze({ type: 'enum', values: FRAME_COLORS, default: 'auto' }),
   lensPowerD: Object.freeze({ type: 'number', min: -12.0, max: 18.0, step: 0.25, default: 13.0 }),
   nearAddD: Object.freeze({ type: 'number', min: 0.0, max: 5.0, step: 0.25, default: 4.0 }),
-  lensCylD: Object.freeze({ type: 'number', min: 0.0, max: 5.0, step: 0.25, default: 0.0 }),
-  lensAxisDeg: Object.freeze({ type: 'number', min: 0, max: 180, step: 5, default: 90 }),
+  lensCylD: Object.freeze({ type: 'number', min: 0.0, max: 5.0, step: 0.25, default: 2.0 }),
+  lensAxisDeg: Object.freeze({ type: 'number', min: 0, max: 180, step: 1, default: 123 }),
   myopiaD: Object.freeze({ type: 'number', min: 0.0, max: 10.0, step: 0.25, default: 0.0 }),
   presbyopiaD: Object.freeze({ type: 'number', min: 0.0, max: 4.0, step: 0.25, default: 0.0 }),
-  astigmatismD: Object.freeze({ type: 'number', min: 0.0, max: 5.0, step: 0.25, default: 0.0 }),
-  astigmatismAxisDeg: Object.freeze({ type: 'number', min: 0, max: 180, step: 5, default: 90 }),
+  astigmatismD: Object.freeze({ type: 'number', min: 0.0, max: 5.0, step: 0.25, default: 2.0 }),
+  astigmatismAxisDeg: Object.freeze({ type: 'number', min: 0, max: 180, step: 1, default: 123 }),
   dominantEye: Object.freeze({ type: 'enum', values: ['OD', 'OS'], default: 'OD' }),
   vodAcuity: Object.freeze({ type: 'number', min: 0.05, max: 1.0, step: 0.05, default: 0.70 }),
   vosAcuity: Object.freeze({ type: 'number', min: 0.05, max: 1.0, step: 0.05, default: 0.15 }),
@@ -255,7 +267,7 @@ export const SETTING_SPECS = Object.freeze({
   cataract: Object.freeze({ type: 'number', min: 0, max: 1.0, step: 0.05, default: 0.0 }),
   diabeticRetinopathy: Object.freeze({ type: 'number', min: 0, max: 1.0, step: 0.05, default: 0.0 }),
   retinitisPigmentosa: Object.freeze({ type: 'number', min: 0, max: 1.0, step: 0.05, default: 0.0 }),
-  cvdType: Object.freeze({ type: 'enum', values: ['none', 'deutan', 'protan', 'tritan'], default: 'none' }),
+  cvdType: Object.freeze({ type: 'enum', values: ['none', 'deutan', 'protan', 'tritan', 'achromatopsia'], default: 'none' }),
   cvdSeverity: Object.freeze({ type: 'number', min: 0, max: 1.0, step: 0.05, default: 0.0 }),
 });
 
@@ -336,9 +348,9 @@ export const PERSONAS = Object.freeze([
     id: 'vuarbit_frut',
     group: 'vuarbit',
     defaultGlassesOn: true,
-    name: 'Vuarbit Frut (Child · Aphakia)',
-    shortName: 'Vuarbit Frut',
-    description: 'Child (Friulian: Frut) with bilateral childhood aphakia (+13/+17 D amber executive bifocal), OD-dominant, OS amblyopia & diplopia, manifest latent nystagmus (MLN).',
+    name: 'Frut (Childhood Aphakia)',
+    shortName: 'Frut',
+    description: 'Childhood bilateral aphakia (+13/+17 D amber executive bifocal), OD-dominant (0.70) with OS amblyopia (0.15) & diplopia, corneal astigmatism/HOAs (123°/180°), and manifest latent nystagmus (MLN).',
     settings: Object.freeze(createDefaultVisualSettings()),
   }),
   Object.freeze({
@@ -346,19 +358,19 @@ export const PERSONAS = Object.freeze([
     group: 'vuarbit',
     defaultGlassesOn: true,
     defaultGlassesSlot: 'distance',
-    name: 'Vuarbit Grant (Adult · Pseudophakic IOL)',
-    shortName: 'Vuarbit Grant',
-    description: 'Adult (Friulian: Grant) with monofocal pseudophakic IOLs (fixed focal plane, residual OD -1.00 / OS -1.75 D, mild night halos), OD/OS acuity, diplopia & MLN. Press Z to cycle Distance / Computer (65 cm) / Reading (+2.5 D OTC) / Off.',
+    name: 'Grant (Adult Pseudophakic IOL)',
+    shortName: 'Grant',
+    description: 'Adult monofocal pseudophakic IOLs (fixed focal plane, residual OD -1.00 / -2.00×123° · OS -1.75 / -1.50×180°, mild night halos), OD 0.70 / OS 0.15 acuity, diplopia & MLN. Press Z to cycle Distance / Computer / Off-the-shelf Reading / Off.',
     settings: Object.freeze(sanitizeVisualSettings({
       lensProfile: 'pseudophakic_iol',
       lensPowerD: -1.0,
       nearAddD: 2.5,
-      lensCylD: 0.0,
-      lensAxisDeg: 90,
+      lensCylD: 2.0,
+      lensAxisDeg: 123,
       myopiaD: 1.0,
       presbyopiaD: 0.0,
-      astigmatismD: 0.0,
-      astigmatismAxisDeg: 90,
+      astigmatismD: 2.0,
+      astigmatismAxisDeg: 123,
     })),
   }),
   Object.freeze({
@@ -367,7 +379,7 @@ export const PERSONAS = Object.freeze([
     defaultGlassesOn: false,
     name: 'Normal Vision',
     shortName: 'Normal Vision',
-    description: 'Healthy 20/20 binocular vision with no refractive error or ocular pathology.',
+    description: 'Healthy 20/20 binocular vision with full accommodation and no refractive error or ocular disease.',
     settings: Object.freeze(sanitizeVisualSettings(EMMETROPIC_BASE)),
   }),
   Object.freeze({
@@ -376,7 +388,7 @@ export const PERSONAS = Object.freeze([
     defaultGlassesOn: false,
     name: 'Primary Open-Angle Glaucoma',
     shortName: 'Glaucoma',
-    description: 'Arcuate & peripheral visual-field loss with Crabb (2013) perceptual filling-in; 100% reaches total blindness.',
+    description: 'Arcuate & outer-field blind spots filled in by the brain as soft blur rather than black holes; 100% reaches total blindness.',
     settings: Object.freeze(sanitizeVisualSettings({
       ...EMMETROPIC_BASE,
       vodAcuity: 0.90,
@@ -449,9 +461,9 @@ export const PERSONAS = Object.freeze([
     id: 'albinism',
     group: 'condition',
     defaultGlassesOn: false,
-    name: 'Ocular Albinism',
-    shortName: 'Ocular Albinism',
-    description: 'Foveal hypoplasia, iris-transillumination photophobia glare, and ~3.8 Hz infantile nystagmus.',
+    name: 'Albinism',
+    shortName: 'Albinism',
+    description: 'Underdeveloped fovea (reduced sharpness), strong bright-light photophobia glare, and continuous horizontal nystagmus (~3.8 Hz).',
     settings: Object.freeze(sanitizeVisualSettings({
       ...EMMETROPIC_BASE,
       vodAcuity: 0.25,
@@ -463,11 +475,11 @@ export const PERSONAS = Object.freeze([
   }),
   Object.freeze({
     id: 'deuteranopia',
-    group: 'condition',
+    group: 'refraction',
     defaultGlassesOn: false,
     name: 'Deuteranopia (Red-Green CVD)',
     shortName: 'Deuteranopia',
-    description: 'Complete M-cone deficiency (Machado 2009 red-green shift) with normal spatial acuity.',
+    description: 'Red-green color blindness from missing M-cones with normal spatial sharpness.',
     settings: Object.freeze(sanitizeVisualSettings({
       ...EMMETROPIC_BASE,
       cvdType: 'deutan',
@@ -476,11 +488,11 @@ export const PERSONAS = Object.freeze([
   }),
   Object.freeze({
     id: 'myopia',
-    group: 'condition',
+    group: 'refraction',
     defaultGlassesOn: false,
-    name: 'Myopia (-4.0 D Nearsighted)',
-    shortName: 'Myopia (-4 D)',
-    description: 'Depth-accurate -4.0 D nearsightedness: workbook sharp up close, blackboard deeply blurred. Press Z to wear -4.0 D glasses.',
+    name: 'Myopia (Nearsighted)',
+    shortName: 'Myopia',
+    description: 'Nearsightedness: close objects stay sharp while distant ones blur. Press Z to wear glasses.',
     settings: Object.freeze(sanitizeVisualSettings({
       ...EMMETROPIC_BASE,
       lensProfile: 'single_vision',
@@ -490,11 +502,11 @@ export const PERSONAS = Object.freeze([
   }),
   Object.freeze({
     id: 'astigmatism',
-    group: 'condition',
+    group: 'refraction',
     defaultGlassesOn: false,
-    name: 'Astigmatism (2.75 D Cyl)',
+    name: 'Astigmatism',
     shortName: 'Astigmatism',
-    description: 'Directional corneal blur & light streaks at 135°. Press Z for matched 2.75 D × 135° toric glasses (detune lens axis in Optics Details).',
+    description: 'Directional blur & light streaks along one axis. Press Z for toric glasses (detune axis in Optics Details).',
     settings: Object.freeze(sanitizeVisualSettings({
       ...EMMETROPIC_BASE,
       lensProfile: 'single_vision',
@@ -507,11 +519,11 @@ export const PERSONAS = Object.freeze([
   }),
   Object.freeze({
     id: 'presbyopia',
-    group: 'condition',
+    group: 'refraction',
     defaultGlassesOn: false,
-    name: 'Presbyopia (+2.5 D Near Loss)',
+    name: 'Presbyopia (Near Loss)',
     shortName: 'Presbyopia',
-    description: 'Age-related near accommodation loss: blackboard sharp, workbook & held items blurry. Press Z for progressive glasses.',
+    description: 'Age-related near focus loss: distance stays sharp while close print blurs. Press Z for progressive glasses.',
     settings: Object.freeze(sanitizeVisualSettings({
       ...EMMETROPIC_BASE,
       lensProfile: 'progressive',
@@ -605,18 +617,25 @@ export function updateVisualSetting(state, key, value) {
   } else if (key === 'dominantEye' && state.holding && state.heldOffset) {
     const absX = Math.abs(state.heldOffset.x || 0);
     state.heldOffset.x = validated === 'OS' ? -absX : absX;
+  } else if (key === 'cvdType') {
+    if (validated === 'none') {
+      state.settings.cvdSeverity = 0.0;
+    } else if ((state.settings.cvdSeverity || 0) < 0.05) {
+      state.settings.cvdSeverity = 1.0;
+    }
   }
   return validated;
 }
 
 /**
  * Convert Snellen decimal acuity [0.05, 1.0] into MAR-calibrated UV blur radius [0, 0.034].
- * 1.00 (20/20) -> 0.0, 0.70 (20/29) -> ~0.00134, 0.15 (20/133) -> ~0.0100, 0.05 (20/400) -> ~0.0258.
+ * Calibrated to 62 deg vertical FOV (1 MAR stroke = 0.000269 / acuity UV):
+ * 1.00 (20/20) -> 0.0, 0.70 (20/29) -> ~0.00079, 0.15 (20/133) -> ~0.0056, 0.05 (20/400) -> ~0.0141.
  */
 export function computeAcuityBlurUV(acuityDecimal) {
   const a = clamp(Number.isFinite(acuityDecimal) ? acuityDecimal : 1.0, 0.05, 1.0);
   const marExcess = 1.0 / a - 1.0;
-  return clamp(0.0026 * Math.pow(marExcess, 0.78), 0, 0.034);
+  return clamp(0.0015 * Math.pow(marExcess, 0.76), 0, 0.034);
 }
 
 /**

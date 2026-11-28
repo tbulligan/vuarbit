@@ -369,13 +369,25 @@ assert.equal(QUALITY_PRESETS.performance.dprCap, 1.0);
 
 assert.equal(PERSONAS.length, 13, 'must define exactly 13 clinical presets');
 const expectedPersonas = {
-  vuarbit_frut: { shortName: 'Vuarbit Frut', lensProfile: 'aphakic_bifocal', vodAcuity: 0.70, vosAcuity: 0.15, mlnScale: 1.0 },
+  vuarbit_frut: {
+    shortName: 'Frut',
+    lensProfile: 'aphakic_bifocal',
+    vodAcuity: 0.70,
+    vosAcuity: 0.15,
+    astigmatismD: 2.0,
+    astigmatismAxisDeg: 123,
+    mlnScale: 1.0,
+  },
   vuarbit_grant: {
-    shortName: 'Vuarbit Grant',
+    shortName: 'Grant',
     lensProfile: 'pseudophakic_iol',
     myopiaD: 1.0,
     lensPowerD: -1.0,
     nearAddD: 2.5,
+    astigmatismD: 2.0,
+    astigmatismAxisDeg: 123,
+    lensCylD: 2.0,
+    lensAxisDeg: 123,
     vodAcuity: 0.70,
     vosAcuity: 0.15,
     diplopiaH: -1.53,
@@ -388,9 +400,9 @@ const expectedPersonas = {
   cataracts: { shortName: 'Cataracts', lensProfile: 'none', vodAcuity: 0.40, vosAcuity: 0.35, cataract: 0.72 },
   diabetic_retinopathy: { shortName: 'Diabetic Retinop.', lensProfile: 'none', diabeticRetinopathy: 0.65 },
   retinitis_pigmentosa: { shortName: 'Retinitis Pigm.', lensProfile: 'none', retinitisPigmentosa: 0.65 },
-  albinism: { shortName: 'Ocular Albinism', lensProfile: 'none', vodAcuity: 0.25, vosAcuity: 0.25, albinism: 0.75, mlnScale: 0.0 },
+  albinism: { shortName: 'Albinism', lensProfile: 'none', vodAcuity: 0.25, vosAcuity: 0.25, albinism: 0.75, mlnScale: 0.0 },
   deuteranopia: { shortName: 'Deuteranopia', lensProfile: 'none', vodAcuity: 1.0, vosAcuity: 1.0, cvdType: 'deutan', cvdSeverity: 1.0 },
-  myopia: { shortName: 'Myopia (-4 D)', lensProfile: 'single_vision', lensPowerD: -4.0, myopiaD: 4.0 },
+  myopia: { shortName: 'Myopia', lensProfile: 'single_vision', lensPowerD: -4.0, myopiaD: 4.0 },
   astigmatism: { shortName: 'Astigmatism', lensProfile: 'single_vision', astigmatismD: 2.75, astigmatismAxisDeg: 135, lensCylD: 2.75, lensAxisDeg: 135 },
   presbyopia: { shortName: 'Presbyopia', lensProfile: 'progressive', nearAddD: 2.5, presbyopiaD: 2.75 },
 };
@@ -445,14 +457,14 @@ assert.equal(Object.hasOwn(sanitized, 'unknownHack'), false, 'unknown keys must 
 assert.equal(computeAcuityBlurUV(1.0), 0);
 assert.equal(computeAcuityBlurUV(2.0), 0);
 assert.equal(computeAcuityBlurUV(NaN), 0);
-assert.ok(computeAcuityBlurUV(0.05) >= 0.025 && computeAcuityBlurUV(0.05) <= 0.034, '0.05 (20/400) must produce strong blur');
+assert.ok(computeAcuityBlurUV(0.05) >= 0.013 && computeAcuityBlurUV(0.05) <= 0.020, '0.05 (20/400) must produce strong MAR-calibrated blur');
 assert.equal(computeAcuityBlurUV(0.01), computeAcuityBlurUV(0.05));
 const blur006 = computeAcuityBlurUV(0.06);
 const blur015 = computeAcuityBlurUV(0.15);
 const blur040 = computeAcuityBlurUV(0.40);
 const blur070 = computeAcuityBlurUV(0.70);
-assert.ok(blur070 > 0.0011, `VOD 0.70 blur (${blur070}) must produce visible softness above full-blur ramp`);
-assert.ok(blur015 > 0.0085, `VOS 0.15 blur (${blur015}) must produce strong amblyopic blur`);
+assert.ok(blur070 > 0.0007 && blur070 < 0.0012, `VOD 0.70 blur (${blur070}) must produce subtle 20/29 softness above full-blur ramp`);
+assert.ok(blur015 > 0.0045 && blur015 < 0.0068, `VOS 0.15 blur (${blur015}) must match 20/133 MAR without wiping close large print`);
 assert.ok(
   blur006 > blur015 && blur015 > blur040 && blur040 > blur070 && blur070 > 0,
   'computeAcuityBlurUV must be strictly decreasing with higher acuity'
@@ -779,6 +791,8 @@ assert.equal(hasSuppressionMechanics(stGrant.settings), true, 'Vuarbit Grant ret
 
 const iolDist = resolveIolGlassesOptics(stGrant.settings, 'distance', true);
 assert.equal(iolDist.lensPowerD, -1.0);
+assert.equal(iolDist.lensCylD, 2.0, 'Custom distance pair must apply 2.00 D toric cylinder');
+assert.equal(iolDist.osResidualCylD, 0.0, 'Custom distance pair neutralizes OS -1.50 D cylinder');
 assert.equal(iolDist.domNetFocusD, 0.0, 'Distance -1.0 D neutralizes OD -1.0 D residual to infinity');
 assert.equal(iolDist.osNetFocusD, 0.0, 'Custom distance pair neutralizes OS -1.75 D residual');
 assert.equal(iolDist.focalDistM, Infinity);
@@ -787,15 +801,17 @@ assert.equal(iolDist.frameColor, 'navy');
 
 const iolComp = resolveIolGlassesOptics(stGrant.settings, 'intermediate', true);
 assert.equal(iolComp.lensPowerD, 0.5, 'Computer pair (+1.5 D add over -1.0 D) = +0.50 D');
+assert.equal(iolComp.lensCylD, 2.0, 'Custom computer pair retains 2.00 D toric cylinder');
+assert.equal(iolComp.osResidualCylD, 0.0, 'Custom computer pair neutralizes OS cylinder');
 assert.ok(Math.abs(iolComp.focalDistM - 0.667) < 0.02, `Computer pair must focus near 65 cm, got ${iolComp.focalDistM}`);
 assert.equal(iolComp.osExtraMyopiaD, 0.0, 'Custom computer pair matches OS residual');
 assert.equal(iolComp.frameShape, 'rect');
 assert.equal(iolComp.frameColor, 'charcoal');
 
-const grantWithCyl = { ...stGrant.settings, lensCylD: 1.25 };
-const iolNear = resolveIolGlassesOptics(grantWithCyl, 'near', true);
+const iolNear = resolveIolGlassesOptics(stGrant.settings, 'near', true);
 assert.equal(iolNear.lensPowerD, 2.5, 'OTC reading pair uses +2.5 D sphere');
 assert.equal(iolNear.lensCylD, 0.0, 'OTC reading glasses must have zero astigmatism correction');
+assert.equal(iolNear.osResidualCylD, 1.5, 'OTC reading glasses leave OS -1.50 D cylinder uncorrected');
 assert.ok(Math.abs(iolNear.focalDistM - 1 / 3.5) < 1e-4, 'OTC +2.5 D over -1.0 D residual focuses at ~28.6 cm');
 assert.equal(iolNear.osNetFocusD, 4.25, 'OTC equal lenses preserve 0.75 D OD/OS residual difference');
 assert.equal(iolNear.frameShape, 'round');
@@ -803,9 +819,13 @@ assert.equal(iolNear.frameColor, 'burgundy');
 
 const iolOff = resolveIolGlassesOptics(stGrant.settings, 'off', false);
 assert.equal(iolOff.glassesOn, false);
+assert.equal(iolOff.lensCylD, 0.0);
+assert.equal(iolOff.osResidualCylD, 1.5, 'Bare IOL leaves OS -1.50 D cylinder uncorrected');
 assert.equal(iolOff.domNetFocusD, 1.0, 'Bare IOL OD focuses fixed at 1.0 m (-1.00 D residual)');
 assert.equal(iolOff.osNetFocusD, 1.75, 'Bare IOL OS focuses fixed at ~0.57 m (-1.75 D residual)');
 assert.equal(iolOff.focalDistM, 1.0);
+assert.equal(SETTING_SPECS.astigmatismAxisDeg.step, 1, 'Astigmatism axis slider must support 1 deg precision (e.g. 123 deg)');
+assert.equal(SETTING_SPECS.lensAxisDeg.step, 1, 'Glasses axis slider must support 1 deg precision');
 
 // Z cycle on Vuarbit Grant: distance -> intermediate -> near -> off -> distance
 updateSimState(stGrant, 0.016);
@@ -834,15 +854,47 @@ assert.equal(stSwitchIol.settings.lensPowerD, -1.0);
 assert.equal(stSwitchIol.settings.myopiaD, 1.0);
 assert.equal(stSwitchIol.settings.nearAddD, 4.0);
 
-// Verify GLSL IOL fixed focal plane, OD/OS acuity parity & positive dysphotopsia halo invariants
-assert.ok(fragSrc.includes('uIolHalo') && fragSrc.includes('uOsExtraMyopiaD'), 'vision.frag.glsl must define IOL halo & OS residual uniforms');
+// Verify GLSL IOL fixed focal plane, over-minus accommodation cap, OD/OS acuity & cylinder invariants
+assert.ok(fragSrc.includes('uIolHalo') && fragSrc.includes('uOsExtraMyopiaD') && fragSrc.includes('uOsResidualCylD'), 'vision.frag.glsl must define IOL halo & OS residual sphere/cyl uniforms');
 assert.ok(fragSrc.includes('isIol > 0.5 ? 0.0'), 'vision.frag.glsl must enforce zero accommodation on monofocal IOL');
+assert.ok(fragSrc.includes('effAccAmp') && fragSrc.includes('min(accAmp, 1.5)'), 'vision.frag.glsl must cap involuntary over-minus accommodation so -12 D on -6 D myopia blurs');
 assert.ok(!fragSrc.includes('inNonDomOnly * isAphakic'), 'left-lens non-dominant acuity blur must also apply to Vuarbit Grant IOL');
 assert.ok(!fragSrc.includes('mix(0.22, 0.52'), 'non-dominant OS acuity blur must not be slashed to 22%-52%');
-assert.ok(fragSrc.includes('osAcuityFactor'), 'OS acuity blur must preserve genuine VOS acuity including monocular fallback');
+assert.ok(fragSrc.includes('binocOsBlur') && fragSrc.includes('mix(binocOsBlur, uAcuityBlurNonDom, max(domBlocked, inNonDomOnly))'), 'diplopia must stay crisp in dominant lens while keeping left-only lens & monocular OS at true VOS 0.15 blur');
+assert.ok(fragSrc.includes('max(isoBlurOS, (isoBlurOD + astBlurOD * 0.55) * (1.0 - domBlocked))'), 'binocular fake non-dominant image must never render sharper than dominant eye');
+assert.ok(fragSrc.includes('smoothstep(0.010, 0.022, isoBlurUV)'), 'heavyBlurMix must start >= 0.010 UV so VOS 0.15 and OTC readers never get swallowed by +13 D tBlurOD fog');
+assert.ok(fragSrc.includes('effAccAmp + residualAstigD * 0.5'), 'minus-cylinder astigmatism must include Conoid of Sturm best-focus band');
+assert.ok(fragSrc.includes('smoothstep(0.85, 2.20, linLumaOS)'), 'osGlareBreak must trigger only on true HDR lights, not SDR chalk/faces on dark backgrounds');
+assert.ok(!fragSrc.includes('tunnelMask * 0.96'), 'RP dead outer retina must reach full 1.0 blackout so HDR lights never bleed through');
+assert.ok(fragSrc.includes('rpBorder') && fragSrc.includes('uCvdType < 3.5'), 'shader must include RP border photopsia and achromatopsia CVD');
+assert.ok(SETTING_SPECS.cvdType.values.includes('achromatopsia'), 'cvdType must support achromatopsia');
 const carSceneSrc = fs.readFileSync(new URL('../src/scene/car_passenger.js', import.meta.url), 'utf8');
+const controlsSrc = fs.readFileSync(new URL('../src/controls.js', import.meta.url), 'utf8');
+const settingsSrc = fs.readFileSync(new URL('../src/settings.js', import.meta.url), 'utf8');
 assert.ok(carSceneSrc.includes('createWetStreakRibbon') && carSceneSrc.includes('polygonOffset: true'), 'car wet reflections must conform to road spline with polygonOffset');
 assert.ok(carSceneSrc.includes('normalBias'), 'car sunLight shadow must set normalBias to prevent grazing self-shadow acne');
+assert.ok(carSceneSrc.includes('sunTarget') && carSceneSrc.includes('horizonPivot.updateMatrixWorld(true)'), 'car sunLight must target ahead of car and sync horizon matrix before reading sun direction');
+assert.ok(carSceneSrc.includes('computeEmbankmentY') && carSceneSrc.includes('worldDirty'), 'car scene must align roadside props to embankment slope and skip ribbon updates while paused');
+assert.ok(carSceneSrc.includes('dashBounceLight') && carSceneSrc.includes('sodiumHemiSky'), 'car scene must provide dim night dash bounce & sodium streetlight hemi fill');
+assert.ok(fragSrc.includes('wideAlb'), 'albinism glare must use wide blurred bright-scene scatter instead of lifting pitch-black shadows');
+const examSceneSrc = fs.readFileSync(new URL('../src/scene/exam_room.js', import.meta.url), 'utf8');
+assert.ok(examSceneSrc.includes('glareFlux'), 'exam room glare lamp must contribute to state.eyelidLight');
+const onKeyDownSrc = controlsSrc.slice(controlsSrc.indexOf('const onKeyDown ='));
+assert.ok(
+  onKeyDownSrc.indexOf("e.code === 'KeyM'") > 0 &&
+    onKeyDownSrc.indexOf("e.code === 'KeyM'") < onKeyDownSrc.indexOf('if (state.settingsOpen) return;'),
+  'M must mute tinnitus even when Pause/Settings drawer is open'
+);
+assert.ok(settingsSrc.includes("e.code === 'KeyM'"), 'settings drawer must let KeyM bubble to controls');
+assert.ok(computeRoadLighting('sunny', true).fogFar < 114, 'car scene fog.far must stay inside mountainRing radius (114 m) to prevent asset pop-in');
+assert.ok(computeAmbientLight('night', true, 'car_passenger') < 0.20, 'car night with streetlights must stay genuinely dark (no indoor ceiling-lamp lux lift)');
+assert.equal(computeAmbientLight('sunny', true, 'car_passenger'), 1.0, 'car sunny daylight must reach full 1.0 outdoor ambient');
+const stCvdAuto = createSimState();
+applyPersona(stCvdAuto, 'normal');
+assert.equal(updateVisualSetting(stCvdAuto, 'cvdType', 'achromatopsia'), 'achromatopsia');
+assert.equal(stCvdAuto.settings.cvdSeverity, 1.0, 'selecting a CVD type from 0% severity must auto-enable 100% severity');
+assert.equal(updateVisualSetting(stCvdAuto, 'cvdType', 'none'), 'none');
+assert.equal(stCvdAuto.settings.cvdSeverity, 0.0, 'clearing CVD type to none must reset severity to 0%');
 
 // P5: Mobile Observer Mode touch detection (hybrid touchscreen laptops stay desktop), balanced DPR default & look clamp
 assert.equal(detectTouchDevice({ maxTouchPoints: 0, coarsePointer: false, finePointer: true }), false);

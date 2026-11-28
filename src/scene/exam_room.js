@@ -953,9 +953,18 @@ export function createExamRoomScene(renderer = null) {
     const winAlign = Math.max(0, forward.dot(windowLightDir));
     const ceilAlign = Math.max(0, forward.y);
     const ceilFlux = lightsOn ? 0.56 : 0.0;
+    let glareFlux = 0;
+    if (glareOn) {
+      toTarget.copy(glarePointLight.position).sub(camera.position);
+      const gDist = toTarget.length();
+      if (gDist > 0.1) {
+        const gAlign = Math.max(0, forward.dot(toTarget.divideScalar(gDist)));
+        glareFlux = Math.pow(gAlign, 3.0) * Math.max(0, 1.0 - gDist / 8.0) * 0.65;
+      }
+    }
     state.eyelidLight = Math.min(
       1,
-      Math.max(0.02, 0.03 + todPreset.outdoorLux * 0.55 * (0.14 + winAlign * 0.65) + ceilFlux * (0.10 + ceilAlign * 0.48))
+      Math.max(0.02, 0.03 + todPreset.outdoorLux * 0.55 * (0.14 + winAlign * 0.65) + ceilFlux * (0.10 + ceilAlign * 0.48) + glareFlux)
     );
 
     // Move held diagnostic card into camera-relative reading space

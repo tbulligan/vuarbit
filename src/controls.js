@@ -378,6 +378,12 @@ export function createControls(domElement, state, sceneApi) {
       return;
     }
 
+    if (!e.repeat && e.code === 'KeyM') {
+      if (state.settingsOpen) e.preventDefault();
+      state.muted = !state.muted;
+      return;
+    }
+
     if (state.settingsOpen) return;
 
     keys.add(e.code);
@@ -401,9 +407,6 @@ export function createControls(domElement, state, sceneApi) {
           // Resume Focused if suppression applies; let updateSimState ramp focusStrength respecting current fatigue reserve
           state.focusing = hasSuppressionMechanics(state.settings);
         }
-        break;
-      case 'KeyM':
-        state.muted = !state.muted;
         break;
       case 'KeyH':
         state.hudVisible = !state.hudVisible;

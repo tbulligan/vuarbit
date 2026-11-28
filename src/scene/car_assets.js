@@ -349,7 +349,7 @@ export function createRoadSignTexture(kind) {
 /**
  * Julian & Carnic Prealps panoramic horizon ridge texture (painted dynamically per Time of Day).
  */
-export function paintMountainHorizonCanvas(ctx, w, h, nearHex, farHex) {
+export function paintMountainHorizonCanvas(ctx, w, h, nearHex, farHex, fogHex = null) {
   ctx.clearRect(0, 0, w, h);
 
   // Far high Prealps peaks (Monte Festa / Chiampon / Matajur style jagged ridge)
@@ -386,6 +386,19 @@ export function paintMountainHorizonCanvas(ctx, w, h, nearHex, farHex) {
   ctx.lineTo(w, h);
   ctx.closePath();
   ctx.fill();
+
+  // Softly blend lower horizon skirt into fogColor so distant road & props dissolve without pop-in
+  if (fogHex) {
+    const clean = fogHex.replace('#', '');
+    const r = parseInt(clean.slice(0, 2), 16);
+    const g = parseInt(clean.slice(2, 4), 16);
+    const b = parseInt(clean.slice(4, 6), 16);
+    const fg = ctx.createLinearGradient(0, h * 0.72, 0, h);
+    fg.addColorStop(0.0, `rgba(${r}, ${g}, ${b}, 0.0)`);
+    fg.addColorStop(1.0, `rgba(${r}, ${g}, ${b}, 0.95)`);
+    ctx.fillStyle = fg;
+    ctx.fillRect(0, h * 0.72, w, h * 0.28);
+  }
 }
 
 /**

@@ -13,6 +13,7 @@ import {
   IOL_GLASSES_SLOTS,
   IOL_INTERMEDIATE_ADD_D,
   IOL_OS_RESIDUAL_DIFF_D,
+  IOL_OS_RESIDUAL_CYL_D,
   FRAME_SHAPES,
   FRAME_COLORS,
   getPersonaById,
@@ -53,6 +54,7 @@ export {
   IOL_GLASSES_SLOTS,
   IOL_INTERMEDIATE_ADD_D,
   IOL_OS_RESIDUAL_DIFF_D,
+  IOL_OS_RESIDUAL_CYL_D,
   FRAME_SHAPES,
   FRAME_COLORS,
   getPersonaById,
@@ -432,7 +434,7 @@ export function computeMlnAngleDeg(
 export function updateSimState(state, dt) {
   const step = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.1);
   const s = state.settings || createDefaultVisualSettings();
-  state.ambientLight = computeAmbientLight(state.timeOfDay, state.lightsOn !== false);
+  state.ambientLight = computeAmbientLight(state.timeOfDay, state.lightsOn !== false, state.sceneId);
   const suppressionActive = hasSuppressionMechanics(s);
   const paused = Boolean(state.settingsOpen);
 

@@ -54,11 +54,14 @@ function createWetStreakRibbon(width, length, segZ, tex, colorHex) {
   return { mesh, geo, mat, baseX, baseZ };
 }
 
-function updateWetStreakRibbon(ribbon, lateralX, centerZ, travelDist, opacity) {
-  const show = opacity > 0.002 && centerZ > -145.0 && centerZ < 14.0;
+function updateWetStreakRibbon(ribbon, lateralX, centerZ, travelDist, opacity, fogFar = 108.0) {
+  const fadeEnd = fogFar - 2.0;
+  const distFade = Math.min(1, Math.max(0, (fadeEnd + centerZ) / 28.0));
+  const effOp = opacity * distFade;
+  const show = effOp > 0.002 && centerZ > -fadeEnd && centerZ < 14.0;
   ribbon.mesh.visible = show;
   if (!show) return;
-  ribbon.mat.opacity = opacity;
+  ribbon.mat.opacity = effOp;
   const { geo, baseX, baseZ } = ribbon;
   const pos = geo.attributes.position;
   const count = pos.count;
@@ -78,6 +81,12 @@ function updateWetStreakRibbon(ribbon, lateralX, centerZ, travelDist, opacity) {
   pos.needsUpdate = true;
 }
 
+function computeEmbankmentY(lateralX) {
+  if (lateralX > 3.2) return -0.04 + (lateralX - 3.2) * 0.045;
+  if (lateralX < -7.2) return -0.04 + (-7.2 - lateralX) * 0.035;
+  return 0;
+}
+
 function buildTrafficVehicle({
   bodyColor,
   kind = 'sedan',
@@ -87,13 +96,12 @@ function buildTrafficVehicle({
   taillightMat,
   wetHeadTex,
   wetTailTex,
+  shared,
   scene,
 }) {
   const group = new THREE.Group();
   const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.36, metalness: 0.40 });
-  const trimMat = new THREE.MeshStandardMaterial({ color: '#1b1e24', roughness: 0.72 });
-  const glassMat = new THREE.MeshStandardMaterial({ color: '#1a2430', roughness: 0.20, metalness: 0.50 });
-  const wheelMat = new THREE.MeshStandardMaterial({ color: '#16181c', roughness: 0.85 });
+  const { trimMat, glassMat, wheelMat, wheelGeo, plateMat } = shared;
 
   const isVan = kind === 'van';
   const isHatch = kind === 'hatch';
@@ -140,8 +148,6 @@ function buildTrafficVehicle({
   bumperR.position.set(0, 0.34, -(halfL - 0.02));
   group.add(bumperF, bumperR);
 
-  const wheelGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.20, 12);
-  wheelGeo.rotateZ(Math.PI / 2);
   const wheelZ = halfL - 0.78;
   for (const wx of [-(width * 0.47), width * 0.47]) {
     for (const wz of [-wheelZ, wheelZ]) {
@@ -173,10 +179,7 @@ function buildTrafficVehicle({
     }
   } else {
     const tailZ = halfL + 0.02;
-    const plate = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.46, 0.11),
-      new THREE.MeshStandardMaterial({ color: '#e5e7eb', roughness: 0.55 })
-    );
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.11), plateMat);
     plate.position.set(0, 0.50, tailZ + 0.01);
     group.add(plate);
 
@@ -241,17 +244,18 @@ function buildCabinInterior(dashTex, consoleTex, addFocusMesh) {
   const jacketMat = new THREE.MeshStandardMaterial({ color: '#27313d', roughness: 0.88 });
   const hairMat = new THREE.MeshStandardMaterial({ color: '#2f241c', roughness: 0.9 });
   const mirrorMat = new THREE.MeshStandardMaterial({ color: '#7b8c9d', metalness: 0.86, roughness: 0.14 });
+  const seatMat = new THREE.MeshStandardMaterial({ color: '#33373f', roughness: 0.90 });
   // CRITICAL: transparent glass MUST have depthWrite: false so tDepthOD reads true outdoor road/traffic distances!
-  const glassMat = new THREE.MeshStandardMaterial({
+  // MeshBasicMaterial avoids artificial floating PointLight specular dots on windshield & saves full-screen PBR cost.
+  const glassMat = new THREE.MeshBasicMaterial({
     color: '#c9dff0',
     transparent: true,
-    opacity: 0.055,
-    roughness: 0.12,
+    opacity: 0.04,
     depthWrite: false,
   });
 
-  const floorPan = new THREE.Mesh(new THREE.BoxGeometry(1.54, 0.06, 1.45), dashMat);
-  floorPan.position.set(0, 0.32, 0.0);
+  const floorPan = new THREE.Mesh(new THREE.BoxGeometry(1.54, 0.06, 2.30), dashMat);
+  floorPan.position.set(0, 0.32, 0.42);
 
   const dashUpper = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.14, 0.46), dashMat);
   dashUpper.position.set(0, 0.87, -0.52);
@@ -266,9 +270,9 @@ function buildCabinInterior(dashTex, consoleTex, addFocusMesh) {
   const gloveLatch = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.022, 0.026), trimMat);
   gloveLatch.position.set(0.42, 0.73, -0.288);
 
-  // Center console + 90s cassette stereo & HVAC panel + gearshift lever
-  const centerConsole = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.46, 0.56), dashMat);
-  centerConsole.position.set(0, 0.58, -0.24);
+  // Lower center gearshift tunnel + visible upper center-stack 90s cassette stereo & HVAC panel
+  const centerConsole = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.22, 0.56), dashMat);
+  centerConsole.position.set(0, 0.44, -0.14);
   const consoleFaceMat = new THREE.MeshStandardMaterial({
     map: consoleTex,
     emissiveMap: consoleTex,
@@ -276,17 +280,17 @@ function buildCabinInterior(dashTex, consoleTex, addFocusMesh) {
     emissiveIntensity: 0.18,
     roughness: 0.45,
   });
-  const consoleFace = new THREE.Mesh(new THREE.PlaneGeometry(0.23, 0.18), consoleFaceMat);
-  consoleFace.position.set(0, 0.71, -0.295);
-  consoleFace.rotation.x = -0.22;
+  const consoleFace = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.19), consoleFaceMat);
+  consoleFace.position.set(0, 0.70, -0.282);
+  consoleFace.rotation.x = -0.16;
 
   const gearStick = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.011, 0.18, 8), trimMat);
-  gearStick.position.set(0, 0.61, -0.10);
+  gearStick.position.set(0, 0.60, -0.06);
   gearStick.rotation.x = 0.18;
   const gearKnob = new THREE.Mesh(new THREE.SphereGeometry(0.024, 10, 8), dashMat);
-  gearKnob.position.set(0, 0.70, -0.08);
+  gearKnob.position.set(0, 0.69, -0.04);
 
-  // Driver instrument binnacle (left side, X = -0.36)
+  // Driver instrument binnacle (left side, X = -0.36; face sits cleanly in front of z = -0.34 front face)
   const binnacle = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.18, 0.24), dashMat);
   binnacle.position.set(-0.36, 0.97, -0.46);
   const dashFaceMat = new THREE.MeshStandardMaterial({
@@ -297,7 +301,7 @@ function buildCabinInterior(dashTex, consoleTex, addFocusMesh) {
     roughness: 0.35,
   });
   const dashFace = new THREE.Mesh(new THREE.PlaneGeometry(0.38, 0.12), dashFaceMat);
-  dashFace.position.set(-0.36, 0.95, -0.338);
+  dashFace.position.set(-0.36, 0.96, -0.324);
   dashFace.rotation.x = -0.18;
 
   // Turning steering wheel pivot with driver's hands gripping at 9 & 3 o'clock!
@@ -342,12 +346,52 @@ function buildCabinInterior(dashTex, consoleTex, addFocusMesh) {
   pillarR.rotation.x = 0.56;
 
   // Roof headliner & windshield upper header
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.50, 0.06, 1.18), roofMat);
-  roof.position.set(0, 1.49, 0.32);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.50, 0.06, 1.88), roofMat);
+  roof.position.set(0, 1.49, 0.67);
   roof.castShadow = true;
   const header = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.07, 0.14), roofMat);
   header.position.set(0, 1.47, -0.25);
   header.castShadow = true;
+  const rearHeader = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.07, 0.14), roofMat);
+  rearHeader.position.set(0, 1.46, 1.54);
+
+  // B-pillars & sloped C-pillars enclosing rear cabin
+  const bPillarGeo = new THREE.BoxGeometry(0.08, 0.64, 0.10);
+  const bPillarL = new THREE.Mesh(bPillarGeo, pillarMat);
+  bPillarL.position.set(-0.74, 1.18, 0.56);
+  const bPillarR = new THREE.Mesh(bPillarGeo, pillarMat);
+  bPillarR.position.set(0.74, 1.18, 0.56);
+  const cPillarGeo = new THREE.BoxGeometry(0.09, 0.64, 0.14);
+  const cPillarL = new THREE.Mesh(cPillarGeo, pillarMat);
+  cPillarL.position.set(-0.73, 1.18, 1.46);
+  cPillarL.rotation.x = -0.34;
+  const cPillarR = new THREE.Mesh(cPillarGeo, pillarMat);
+  cPillarR.position.set(0.73, 1.18, 1.46);
+  cPillarR.rotation.x = -0.34;
+
+  // Front seatbacks + headrests (clear of passenger camera pan maxZ = 0.28) & rear bench/parcel shelf/bulkhead
+  const seatBackGeo = new THREE.BoxGeometry(0.46, 0.58, 0.10);
+  const headrestGeo = new THREE.BoxGeometry(0.22, 0.16, 0.08);
+  const driverSeatBack = new THREE.Mesh(seatBackGeo, seatMat);
+  driverSeatBack.position.set(-0.38, 0.84, 0.36);
+  driverSeatBack.rotation.x = -0.10;
+  const driverHeadrest = new THREE.Mesh(headrestGeo, seatMat);
+  driverHeadrest.position.set(-0.38, 1.22, 0.39);
+  const passSeatBack = new THREE.Mesh(seatBackGeo, seatMat);
+  passSeatBack.position.set(0.36, 0.84, 0.42);
+  passSeatBack.rotation.x = -0.10;
+  const passHeadrest = new THREE.Mesh(headrestGeo, seatMat);
+  passHeadrest.position.set(0.36, 1.22, 0.45);
+
+  const rearBench = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.18, 0.48), seatMat);
+  rearBench.position.set(0, 0.48, 1.02);
+  const rearSeatBack = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.58, 0.14), seatMat);
+  rearSeatBack.position.set(0, 0.80, 1.28);
+  rearSeatBack.rotation.x = -0.16;
+  const parcelShelf = new THREE.Mesh(new THREE.BoxGeometry(1.46, 0.05, 0.34), dashMat);
+  parcelShelf.position.set(0, 1.02, 1.44);
+  const rearBulkhead = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.72, 0.08), trimMat);
+  rearBulkhead.position.set(0, 0.68, 1.56);
 
   // Interior rearview mirror
   const mirrorStem = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.09, 8), dashMat);
@@ -357,11 +401,11 @@ function buildCabinInterior(dashTex, consoleTex, addFocusMesh) {
   const mirrorGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.20, 0.052), mirrorMat);
   mirrorGlass.position.set(0, 1.36, -0.326);
 
-  // Side door panels
-  const doorR = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.56, 1.15), trimMat);
-  doorR.position.set(0.76, 0.62, 0.08);
-  const doorL = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.56, 1.15), trimMat);
-  doorL.position.set(-0.76, 0.62, 0.08);
+  // Full-length side door panels (front + rear doors)
+  const doorR = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.58, 2.05), trimMat);
+  doorR.position.set(0.76, 0.62, 0.53);
+  const doorL = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.58, 2.05), trimMat);
+  doorL.position.set(-0.76, 0.62, 0.53);
 
   // Right exterior passenger side mirror
   const sideMirrorArm = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.035, 0.05), dashMat);
@@ -417,6 +461,19 @@ function buildCabinInterior(dashTex, consoleTex, addFocusMesh) {
     addFocusMesh(pillarR),
     roof,
     header,
+    rearHeader,
+    bPillarL,
+    bPillarR,
+    cPillarL,
+    cPillarR,
+    driverSeatBack,
+    driverHeadrest,
+    passSeatBack,
+    passHeadrest,
+    rearBench,
+    rearSeatBack,
+    parcelShelf,
+    rearBulkhead,
     mirrorStem,
     mirrorCase,
     mirrorGlass,
@@ -433,35 +490,31 @@ function buildCabinInterior(dashTex, consoleTex, addFocusMesh) {
     handle
   );
 
-  return { cabin, wheelPivot, dashFaceMat, consoleFaceMat, mirrorMat };
+  return { cabin, wheelPivot, dashFaceMat, consoleFaceMat, mirrorMat, glassMat };
 }
 
-function buildTree(variant) {
+function buildTree(variant, shared) {
   const group = new THREE.Group();
-  const trunkMat = new THREE.MeshStandardMaterial({ color: '#4c3a2b', roughness: 0.92 });
-  const pineMat = new THREE.MeshStandardMaterial({ color: variant === 0 ? '#244028' : '#2e4f30', roughness: 0.88 });
-  const leafMat = new THREE.MeshStandardMaterial({ color: '#395a33', roughness: 0.86 });
-
   if (variant === 0) {
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.15, 1.6, 6), trunkMat);
+    const trunk = new THREE.Mesh(shared.trunkGeo0, shared.trunkMat);
     trunk.position.y = 0.8;
-    const foliage = new THREE.Mesh(new THREE.ConeGeometry(0.72, 6.2, 8), pineMat);
+    const foliage = new THREE.Mesh(shared.foliageGeo0, shared.pineMat0);
     foliage.position.y = 4.4;
     foliage.castShadow = true;
     group.add(trunk, foliage);
   } else if (variant === 1) {
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.20, 2.0, 6), trunkMat);
+    const trunk = new THREE.Mesh(shared.trunkGeo1, shared.trunkMat);
     trunk.position.y = 1.0;
-    const c1 = new THREE.Mesh(new THREE.ConeGeometry(1.7, 3.4, 7), pineMat);
+    const c1 = new THREE.Mesh(shared.coneGeo1a, shared.pineMat1);
     c1.position.y = 3.2;
-    const c2 = new THREE.Mesh(new THREE.ConeGeometry(1.25, 2.8, 7), pineMat);
+    const c2 = new THREE.Mesh(shared.coneGeo1b, shared.pineMat1);
     c2.position.y = 4.9;
     c1.castShadow = true;
     group.add(trunk, c1, c2);
   } else {
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.20, 2.5, 6), trunkMat);
+    const trunk = new THREE.Mesh(shared.trunkGeo2, shared.trunkMat);
     trunk.position.y = 1.25;
-    const crown = new THREE.Mesh(new THREE.DodecahedronGeometry(1.65, 1), leafMat);
+    const crown = new THREE.Mesh(shared.crownGeo2, shared.leafMat);
     crown.position.y = 3.7;
     crown.scale.set(1.0, 0.88, 1.0);
     crown.castShadow = true;
@@ -585,7 +638,7 @@ export function createCarPassengerScene(renderer = null) {
   const mtnCtx = mtnCanvas.getContext('2d');
   const mtnTex = new THREE.CanvasTexture(mtnCanvas);
   mtnTex.colorSpace = THREE.SRGBColorSpace;
-  paintMountainHorizonCanvas(mtnCtx, 1024, 256, '#3b5246', '#6b85a3');
+  paintMountainHorizonCanvas(mtnCtx, 1024, 256, '#3b5246', '#6b85a3', '#b9d6ef');
   mtnTex.needsUpdate = true;
 
   // Render mountains AFTER sunDisk (and closer at r=114 < sun r=124) so Prealps cleanly silhouette in front of setting sun
@@ -601,18 +654,23 @@ export function createCarPassengerScene(renderer = null) {
   const hemiLight = new THREE.HemisphereLight('#d9eaff', '#5d5548', 0.9);
   scene.add(hemiLight);
 
+  const sunTarget = new THREE.Object3D();
+  sunTarget.position.set(0, 0, -24);
+  scene.add(sunTarget);
+
   const sunLight = new THREE.DirectionalLight('#fff2dc', 2.8);
-  sunLight.position.set(-22, 20, -40);
+  sunLight.position.set(-22, 20, -64);
+  sunLight.target = sunTarget;
   sunLight.castShadow = true;
-  sunLight.shadow.mapSize.set(1024, 1024);
+  sunLight.shadow.mapSize.set(2048, 2048);
   sunLight.shadow.camera.near = 1;
-  sunLight.shadow.camera.far = 65;
-  sunLight.shadow.camera.left = -16;
-  sunLight.shadow.camera.right = 16;
-  sunLight.shadow.camera.top = 16;
-  sunLight.shadow.camera.bottom = -16;
-  sunLight.shadow.bias = -0.0006;
-  sunLight.shadow.normalBias = 0.03;
+  sunLight.shadow.camera.far = 115;
+  sunLight.shadow.camera.left = -36;
+  sunLight.shadow.camera.right = 36;
+  sunLight.shadow.camera.top = 36;
+  sunLight.shadow.camera.bottom = -36;
+  sunLight.shadow.bias = -0.0005;
+  sunLight.shadow.normalBias = 0.04;
   scene.add(sunLight);
 
   const ownBeamTargets = [];
@@ -638,6 +696,13 @@ export function createCarPassengerScene(renderer = null) {
   oncomingFlashLight.position.set(-3.9, 0.85, -30);
   scene.add(oncomingFlashLight);
 
+  // Soft overhead night cabin ambient fill (high & wide decay -> even dim cabin contours with zero dashboard hotspot)
+  const dashBounceLight = new THREE.PointLight('#b6c4ba', 0, 3.2, 1.0);
+  dashBounceLight.position.set(0.0, 1.32, 0.18);
+  scene.add(dashBounceLight);
+  const sodiumHemiSky = new THREE.Color('#ffbe66');
+  const sodiumHemiGround = new THREE.Color('#3b2c1d');
+
   // --- CURVING & ROLLING ROAD RIBBON + FRIULIAN MORAINE EMBANKMENTS ---
   const roadTileM = 16.0;
   const roadLenM = 168.0; // spans Z: [-152, +16]
@@ -651,11 +716,11 @@ export function createCarPassengerScene(renderer = null) {
 
   const groundTex = createRoadsideGroundTexture(4, roadLenM / roadTileM);
   const groundMat = new THREE.MeshStandardMaterial({ map: groundTex, roughness: 0.94 });
-  const groundRightRibbon = createDeformableRibbon(42, roadLenM, 2, 56, 23.25, -68, (x) => -0.04 + Math.max(0, x - 3.2) * 0.045);
+  const groundRightRibbon = createDeformableRibbon(42, roadLenM, 2, 56, 23.25, -68, computeEmbankmentY);
   const groundRight = new THREE.Mesh(groundRightRibbon.geo, groundMat);
   groundRight.receiveShadow = true;
   groundRight.frustumCulled = false;
-  const groundLeftRibbon = createDeformableRibbon(42, roadLenM, 2, 56, -27.15, -68, (x) => -0.04 + Math.max(0, -7.2 - x) * 0.035);
+  const groundLeftRibbon = createDeformableRibbon(42, roadLenM, 2, 56, -27.15, -68, computeEmbankmentY);
   const groundLeft = new THREE.Mesh(groundLeftRibbon.geo, groundMat);
   groundLeft.receiveShadow = true;
   groundLeft.frustumCulled = false;
@@ -664,7 +729,11 @@ export function createCarPassengerScene(renderer = null) {
   // --- PASSENGER CABIN ---
   const dashTex = createInstrumentClusterTexture();
   const consoleTex = createCenterConsoleTexture();
-  const { cabin, wheelPivot, dashFaceMat, consoleFaceMat, mirrorMat } = buildCabinInterior(dashTex, consoleTex, addFocusMesh);
+  const { cabin, wheelPivot, dashFaceMat, consoleFaceMat, mirrorMat, glassMat } = buildCabinInterior(
+    dashTex,
+    consoleTex,
+    addFocusMesh
+  );
   scene.add(cabin);
 
   // --- SHARED HDR MATERIALS ---
@@ -808,11 +877,24 @@ export function createCarPassengerScene(renderer = null) {
     return { group: mesh, s: h.s, lateralX: h.x, baseRotY: h.rotY };
   });
 
-  // --- ROADSIDE TREES (36 cypresses, pines & deciduous trees along 320 m route) ---
+  // --- ROADSIDE TREES (36 cypresses, pines & deciduous trees along 320 m route, shared materials & geometries) ---
+  const treeShared = {
+    trunkMat: new THREE.MeshStandardMaterial({ color: '#4c3a2b', roughness: 0.92 }),
+    pineMat0: new THREE.MeshStandardMaterial({ color: '#244028', roughness: 0.88 }),
+    pineMat1: new THREE.MeshStandardMaterial({ color: '#2e4f30', roughness: 0.88 }),
+    leafMat: new THREE.MeshStandardMaterial({ color: '#395a33', roughness: 0.86 }),
+    trunkGeo0: new THREE.CylinderGeometry(0.11, 0.15, 1.6, 6),
+    foliageGeo0: new THREE.ConeGeometry(0.72, 6.2, 8),
+    trunkGeo1: new THREE.CylinderGeometry(0.14, 0.20, 2.0, 6),
+    coneGeo1a: new THREE.ConeGeometry(1.7, 3.4, 7),
+    coneGeo1b: new THREE.ConeGeometry(1.25, 2.8, 7),
+    trunkGeo2: new THREE.CylinderGeometry(0.14, 0.20, 2.5, 6),
+    crownGeo2: new THREE.DodecahedronGeometry(1.65, 1),
+  };
   const trees = [];
   for (let i = 0; i < 36; i += 1) {
     const sideRight = i % 2 === 0;
-    const tree = buildTree(i % 3);
+    const tree = buildTree(i % 3, treeShared);
     const lateralJitter = ((i * 37) % 10) * 0.72;
     const x = sideRight ? 5.4 + lateralJitter : -(8.4 + lateralJitter);
     const scale = 0.85 + ((i * 19) % 7) * 0.08;
@@ -821,7 +903,16 @@ export function createCarPassengerScene(renderer = null) {
     trees.push({ group: tree, s: (i / 36) * ROAD_LOOP_LEN_M, lateralX: x });
   }
 
-  // --- TRAFFIC: LEAD HATCHBACK (our lane) & 4 VARIED ONCOMING VEHICLES (sedan, hatch, Italian van) ---
+  // --- TRAFFIC: LEAD HATCHBACK (our lane) & 4 VARIED ONCOMING VEHICLES (shared trim/glass/wheel assets) ---
+  const sharedWheelGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.20, 12);
+  sharedWheelGeo.rotateZ(Math.PI / 2);
+  const trafficShared = {
+    trimMat: new THREE.MeshStandardMaterial({ color: '#1b1e24', roughness: 0.72 }),
+    glassMat: new THREE.MeshStandardMaterial({ color: '#1a2430', roughness: 0.20, metalness: 0.50 }),
+    wheelMat: new THREE.MeshStandardMaterial({ color: '#16181c', roughness: 0.85 }),
+    plateMat: new THREE.MeshStandardMaterial({ color: '#e5e7eb', roughness: 0.55 }),
+    wheelGeo: sharedWheelGeo,
+  };
   const leadCar = buildTrafficVehicle({
     bodyColor: '#8d2d2d',
     kind: 'hatch',
@@ -831,6 +922,7 @@ export function createCarPassengerScene(renderer = null) {
     taillightMat,
     wetHeadTex,
     wetTailTex,
+    shared: trafficShared,
     scene,
   });
   scene.add(addFocusMesh(leadCar.group));
@@ -851,6 +943,7 @@ export function createCarPassengerScene(renderer = null) {
       taillightMat,
       wetHeadTex,
       wetTailTex,
+      shared: trafficShared,
       scene,
     });
     scene.add(addFocusMesh(car.group));
@@ -874,6 +967,10 @@ export function createCarPassengerScene(renderer = null) {
   let lastTimeOfDay = null;
   let lastLightsOn = null;
   let currentRoadLight = computeRoadLighting('sunny', true);
+  let worldDirty = true;
+  let closestOncomingZ = -999;
+  let closestOncomingX = -3.9;
+  let closestOncomingY = 0;
   let envRayFrame = 0;
   let cachedEnvOcclOD = 0;
   let cachedEnvOcclOS = 0;
@@ -886,14 +983,16 @@ export function createCarPassengerScene(renderer = null) {
   const localEyeOD = new THREE.Vector3(0.029, 0, 0);
   const localEyeOS = new THREE.Vector3(-0.029, 0, 0);
 
-  function placeRouteObject(objGroup, itemS, lateralX, yawBias = 0) {
+  function placeRouteObject(objGroup, itemS, lateralX, yawBias = 0, useEmbankment = false) {
     const ahead = wrapLoopZ(itemS - travelDist, -18.0, ROAD_LOOP_LEN_M);
     const z = -ahead;
-    const visible = z > -148.0 && z < 16.0;
+    // Spawn behind fog.far (<=108 m) inside CAR_FAR_CLIP so props dissolve seamlessly out of fog without pop-in
+    const visible = z > -118.0 && z < 16.0;
     objGroup.visible = visible;
     if (!visible) return z;
     const off = computeRoadRelativeOffset(z, travelDist);
-    objGroup.position.set(lateralX + off.dx, off.dy, z);
+    const embankY = useEmbankment ? computeEmbankmentY(lateralX) : 0;
+    objGroup.position.set(lateralX + off.dx, off.dy + embankY, z);
     objGroup.rotation.y = off.yaw + yawBias;
     return z;
   }
@@ -914,111 +1013,48 @@ export function createCarPassengerScene(renderer = null) {
       for (const oc of oncomingCars) {
         oc.relZ = wrapLoopZ(oc.relZ + oncomingDz, -142.0, 160.0);
       }
-    }
-
-    // Deform curving & rolling Friulian road + moraine hillsides
-    deformRibbon(roadRibbon, travelDist);
-    deformRibbon(groundRightRibbon, travelDist);
-    deformRibbon(groundLeftRibbon, travelDist);
-
-    // Rotate distant Julian Prealps & sun azimuth with road heading; steer wheel & subtle body roll into bends
-    const heading = computeRoadHeadingRad(travelDist);
-    horizonPivot.rotation.y = heading;
-    const steerAng = computeSteeringWheelAngle(travelDist);
-    wheelPivot.rotation.z = steerAng;
-    cabin.rotation.z = -steerAng * 0.022;
-
-    // Position looping route props & landmarks cleanly along the live curve
-    let near1Z = -999;
-    let near1X = 0.9;
-    let near2Z = -999;
-    let near2X = 0.9;
-    for (const st of streetlights) {
-      const z = placeRouteObject(st.group, st.s, 0);
-      if (z < 4.0 && z > -55.0) {
-        const off = computeRoadRelativeOffset(z, travelDist);
-        if (z > near1Z) {
-          near2Z = near1Z;
-          near2X = near1X;
-          near1Z = z;
-          near1X = 0.9 + off.dx;
-        } else if (z > near2Z) {
-          near2Z = z;
-          near2X = 0.9 + off.dx;
-        }
-      }
-    }
-    for (const sg of roadSigns) {
-      placeRouteObject(sg.group, sg.s, sg.lateralX, sg.yawBias);
-    }
-    for (const d of delineators) {
-      placeRouteObject(d.group, d.s, 0);
-    }
-    for (const h of houses) {
-      placeRouteObject(h.group, h.s, h.lateralX, h.baseRotY);
-    }
-    for (const tr of trees) {
-      placeRouteObject(tr.group, tr.s, tr.lateralX);
-    }
-
-    // Position lead car & oncoming cars on curved/rolling road surface
-    const leadZ = computeLeadCarZ(simTime);
-    const leadOff = computeRoadRelativeOffset(leadZ, travelDist);
-    leadCar.group.position.set(leadOff.dx, leadOff.dy + Math.sin(simTime * 5.2) * 0.008, leadZ);
-    leadCar.group.rotation.set(leadOff.pitch, leadOff.yaw, 0, 'YXZ');
-
-    let closestOncomingZ = -999;
-    let closestOncomingX = -3.9;
-    for (const oc of oncomingCars) {
-      const z = oc.relZ;
-      const off = computeRoadRelativeOffset(z, travelDist);
-      const wx = -3.90 + off.dx;
-      oc.group.position.set(wx, off.dy, z);
-      oc.group.rotation.set(off.pitch, off.yaw, 0, 'YXZ');
-      if (z < -1.0 && z > -48.0 && z > closestOncomingZ) {
-        closestOncomingZ = z;
-        closestOncomingX = wx;
-      }
-    }
-
-    // Aim own low-beam headlights gently into upcoming curve
-    const beamOff = computeRoadRelativeOffset(-24.0, travelDist);
-    for (let i = 0; i < ownBeamTargets.length; i += 1) {
-      ownBeamTargets[i].position.set((i === 0 ? -0.4 : 0.4) + beamOff.dx, beamOff.dy, -24.0);
+      worldDirty = true;
     }
 
     const todId = TIME_OF_DAY_PRESETS[state.timeOfDay] ? state.timeOfDay : 'sunny';
     const lightsOn = state.lightsOn !== false;
     const todPreset = TIME_OF_DAY_PRESETS[todId];
+    const lightingChanged = todId !== lastTimeOfDay || lightsOn !== lastLightsOn;
 
-    if (todId !== lastTimeOfDay || lightsOn !== lastLightsOn) {
+    if (lightingChanged) {
       lastTimeOfDay = todId;
       lastLightsOn = lightsOn;
       currentRoadLight = computeRoadLighting(todId, lightsOn);
+      worldDirty = true;
 
       scene.background.set(currentRoadLight.fogColor);
       scene.fog.color.set(currentRoadLight.fogColor);
       scene.fog.near = currentRoadLight.fogNear;
       scene.fog.far = currentRoadLight.fogFar;
       paintSky(currentRoadLight.skyTop, currentRoadLight.skyMid, currentRoadLight.skyHorizon);
-      paintMountainHorizonCanvas(mtnCtx, 1024, 256, currentRoadLight.mountainNear, currentRoadLight.mountainFar);
+      paintMountainHorizonCanvas(
+        mtnCtx,
+        1024,
+        256,
+        currentRoadLight.mountainNear,
+        currentRoadLight.mountainFar,
+        currentRoadLight.fogColor
+      );
       mtnTex.needsUpdate = true;
 
       sunDisk.visible = currentRoadLight.sunVisible;
       sunDisk.position.set(currentRoadLight.sunPos[0], currentRoadLight.sunPos[1], currentRoadLight.sunPos[2]);
       sunDiskMat.emissiveIntensity = currentRoadLight.sunEmissive;
 
-      hemiLight.color.set(todPreset.hemiSky);
-      hemiLight.groundColor.set(todPreset.hemiGround);
-      hemiLight.intensity = todPreset.hemiInt + (currentRoadLight.streetlightsOn ? 0.18 : 0.02);
+      const streetHemi = currentRoadLight.streetlightsOn ? 0.16 : 0.02;
+      const totalHemi = todPreset.hemiInt + streetHemi;
+      const sodiumFrac = currentRoadLight.streetlightsOn && totalHemi > 0 ? Math.min(0.62, streetHemi / totalHemi) : 0;
+      hemiLight.color.set(todPreset.hemiSky).lerp(sodiumHemiSky, sodiumFrac);
+      hemiLight.groundColor.set(todPreset.hemiGround).lerp(sodiumHemiGround, sodiumFrac);
+      hemiLight.intensity = totalHemi;
 
       sunLight.color.set(todPreset.sunColor);
       sunLight.intensity = todPreset.sunInt * 0.85;
-      sunLight.position.set(
-        currentRoadLight.sunPos[0] * 0.4,
-        Math.max(4.0, currentRoadLight.sunPos[1] * 0.8),
-        currentRoadLight.sunPos[2] * 0.35
-      );
 
       roadMat.roughness = currentRoadLight.roadRoughness;
       roadMat.metalness = currentRoadLight.roadMetalness;
@@ -1035,6 +1071,7 @@ export function createCarPassengerScene(renderer = null) {
       streetLampMat.emissiveIntensity = currentRoadLight.streetlightEmissive;
       houseWindowMat.emissiveIntensity = currentRoadLight.houseWindowEmissive;
       mirrorMat.color.set(currentRoadLight.mirrorColor);
+      glassMat.opacity = 0.005 + todPreset.outdoorLux * 0.032;
 
       for (const b of ownBeams) {
         b.intensity = currentRoadLight.ownBeamIntensity;
@@ -1042,62 +1079,165 @@ export function createCarPassengerScene(renderer = null) {
 
       reflectorRedMat.emissiveIntensity = todId === 'night' || todId === 'dusk' ? 1.8 : 0.2;
       reflectorWhiteMat.emissiveIntensity = todId === 'night' || todId === 'dusk' ? 1.4 : 0.15;
-      scene.environmentIntensity = 0.04 + todPreset.outdoorLux * 0.28 + (currentRoadLight.streetlightsOn ? 0.08 : 0.0);
+      dashBounceLight.intensity = todId === 'night' ? 0.085 : todId === 'dusk' ? 0.05 : 0.0;
+      scene.environmentIntensity = 0.08 + todPreset.outdoorLux * 0.26 + (currentRoadLight.streetlightsOn ? 0.06 : 0.0);
     }
 
-    // Update road-conforming wet reflections (follows roadGlobalX/Y spline to eliminate hill-clipping & Z-fighting flicker)
-    const wetHeadOp = currentRoadLight.wetness * 0.30;
-    const wetTailOp = currentRoadLight.wetness * 0.28;
-    const wetStreetOp = currentRoadLight.streetlightsOn ? currentRoadLight.wetness * 0.14 : 0.0;
-    for (const st of streetlights) {
-      const stZ = st.group.visible ? st.group.position.z : -999;
-      updateWetStreakRibbon(st.wetRibbon, 0.6, stZ, travelDist, wetStreetOp);
-    }
-    for (const wr of leadCar.wetRibbons) {
-      updateWetStreakRibbon(wr.ribbon, wr.lx, leadZ + wr.zOffset, travelDist, wetTailOp);
-    }
-    for (const oc of oncomingCars) {
-      for (const wr of oc.wetRibbons) {
-        updateWetStreakRibbon(wr.ribbon, -3.90 + wr.lx, oc.relZ + wr.zOffset, travelDist, wetHeadOp);
+    if (worldDirty) {
+      // Deform curving & rolling road + grassy hillsides
+      deformRibbon(roadRibbon, travelDist);
+      deformRibbon(groundRightRibbon, travelDist);
+      deformRibbon(groundLeftRibbon, travelDist);
+
+      // Rotate distant horizon & sun azimuth with road heading; steer wheel & subtle body roll into bends
+      const heading = computeRoadHeadingRad(travelDist);
+      horizonPivot.rotation.y = heading;
+      const steerAng = computeSteeringWheelAngle(travelDist);
+      wheelPivot.rotation.z = steerAng;
+      cabin.rotation.z = -steerAng * 0.022;
+
+      // Position looping route props & landmarks cleanly along the live curve (reuse placed pole x/y)
+      let near1Z = -999;
+      let near1X = 0.9;
+      let near1Y = 0;
+      let near2Z = -999;
+      let near2X = 0.9;
+      let near2Y = 0;
+      for (const st of streetlights) {
+        const z = placeRouteObject(st.group, st.s, 0);
+        if (z < 4.0 && z > -55.0) {
+          const sx = 0.9 + st.group.position.x;
+          const sy = st.group.position.y;
+          if (z > near1Z) {
+            near2Z = near1Z;
+            near2X = near1X;
+            near2Y = near1Y;
+            near1Z = z;
+            near1X = sx;
+            near1Y = sy;
+          } else if (z > near2Z) {
+            near2Z = z;
+            near2X = sx;
+            near2Y = sy;
+          }
+        }
       }
-    }
+      for (const sg of roadSigns) {
+        placeRouteObject(sg.group, sg.s, sg.lateralX, sg.yawBias);
+      }
+      for (const d of delineators) {
+        placeRouteObject(d.group, d.s, 0);
+      }
+      for (const h of houses) {
+        placeRouteObject(h.group, h.s, h.lateralX, h.baseRotY, true);
+      }
+      for (const tr of trees) {
+        placeRouteObject(tr.group, tr.s, tr.lateralX, 0, true);
+      }
 
-    const poolFade = (pz) =>
-      Math.min(1, Math.max(0, (4.0 - pz) / 5.0)) * Math.min(1, Math.max(0, (pz + 55.0) / 8.0));
-    streetPools[0].position.set(near1X, 5.5, near1Z > -900 ? near1Z : -25);
-    streetPools[0].intensity = near1Z > -900 ? currentRoadLight.streetlightPoolIntensity * poolFade(near1Z) : 0;
-    streetPools[1].position.set(near2X, 5.5, near2Z > -900 ? near2Z : -45);
-    streetPools[1].intensity = near2Z > -900 ? currentRoadLight.streetlightPoolIntensity * poolFade(near2Z) : 0;
+      // Position lead car & oncoming cars on curved/rolling road surface
+      const leadZ = computeLeadCarZ(simTime);
+      const leadOff = computeRoadRelativeOffset(leadZ, travelDist);
+      leadCar.group.position.set(leadOff.dx, leadOff.dy + Math.sin(simTime * 5.2) * 0.008, leadZ);
+      leadCar.group.rotation.set(leadOff.pitch, leadOff.yaw, 0, 'YXZ');
 
-    if (closestOncomingZ > -900 && currentRoadLight.headlightEmissive > 2.0) {
-      oncomingFlashLight.position.set(closestOncomingX, 0.85, closestOncomingZ + 2.2);
-      const prox = Math.max(0, 1.0 - Math.abs(closestOncomingZ) / 48.0);
-      const nearFade = Math.min(1, Math.max(0, (-closestOncomingZ - 1.0) / 4.5));
-      oncomingFlashLight.intensity = prox * prox * nearFade * currentRoadLight.headlightEmissive * 0.85;
-    } else {
-      oncomingFlashLight.intensity = 0;
+      closestOncomingZ = -999;
+      closestOncomingX = -3.9;
+      closestOncomingY = 0;
+      for (const oc of oncomingCars) {
+        const z = oc.relZ;
+        const vis = z > -118.0 && z < 16.0;
+        oc.group.visible = vis;
+        if (!vis) continue;
+        const off = computeRoadRelativeOffset(z, travelDist);
+        const wx = -3.90 + off.dx;
+        oc.group.position.set(wx, off.dy, z);
+        oc.group.rotation.set(off.pitch, off.yaw, 0, 'YXZ');
+        // Smoothly scale additive headlight halos down to 0 before current fog.far so distant cars never pop bright dots
+        const haloScale = Math.min(1, Math.max(0, (currentRoadLight.fogFar - 2.0 + z) / 26.0));
+        for (const h of oc.halos) {
+          h.scale.setScalar(haloScale);
+        }
+        if (z < -1.0 && z > -48.0 && z > closestOncomingZ) {
+          closestOncomingZ = z;
+          closestOncomingX = wx;
+          closestOncomingY = off.dy;
+        }
+      }
+
+      // Aim own low-beam headlights gently into upcoming curve
+      const beamOff = computeRoadRelativeOffset(-24.0, travelDist);
+      for (let i = 0; i < ownBeamTargets.length; i += 1) {
+        ownBeamTargets[i].position.set((i === 0 ? -0.4 : 0.4) + beamOff.dx, beamOff.dy, -24.0);
+      }
+
+      // Update road-conforming wet reflections (follows roadGlobalX/Y spline to eliminate hill-clipping & Z-fighting flicker)
+      const wetHeadOp = currentRoadLight.wetness * 0.28;
+      const wetTailOp = currentRoadLight.wetness * 0.26;
+      const wetStreetOp = currentRoadLight.streetlightsOn ? currentRoadLight.wetness * 0.09 : 0.0;
+      const fogFar = currentRoadLight.fogFar;
+      for (const st of streetlights) {
+        const stZ = st.group.visible ? st.group.position.z : -999;
+        updateWetStreakRibbon(st.wetRibbon, 0.6, stZ, travelDist, wetStreetOp, fogFar);
+      }
+      for (const wr of leadCar.wetRibbons) {
+        updateWetStreakRibbon(wr.ribbon, wr.lx, leadZ + wr.zOffset, travelDist, wetTailOp, fogFar);
+      }
+      for (const oc of oncomingCars) {
+        for (const wr of oc.wetRibbons) {
+          updateWetStreakRibbon(wr.ribbon, -3.90 + wr.lx, oc.relZ + wr.zOffset, travelDist, wetHeadOp, fogFar);
+        }
+      }
+
+      const poolFade = (pz) =>
+        Math.min(1, Math.max(0, (4.0 - pz) / 5.0)) * Math.min(1, Math.max(0, (pz + 55.0) / 8.0));
+      streetPools[0].position.set(near1X, near1Y + 5.5, near1Z > -900 ? near1Z : -25);
+      streetPools[0].intensity = near1Z > -900 ? currentRoadLight.streetlightPoolIntensity * poolFade(near1Z) : 0;
+      streetPools[1].position.set(near2X, near2Y + 5.5, near2Z > -900 ? near2Z : -45);
+      streetPools[1].intensity = near2Z > -900 ? currentRoadLight.streetlightPoolIntensity * poolFade(near2Z) : 0;
+
+      if (closestOncomingZ > -900 && currentRoadLight.headlightEmissive > 2.0) {
+        oncomingFlashLight.position.set(closestOncomingX, closestOncomingY + 0.85, closestOncomingZ + 2.2);
+        const prox = Math.max(0, 1.0 - Math.abs(closestOncomingZ) / 48.0);
+        const nearFade = Math.min(1, Math.max(0, (-closestOncomingZ - 1.0) / 4.5));
+        oncomingFlashLight.intensity = prox * prox * nearFade * currentRoadLight.headlightEmissive * 0.85;
+      } else {
+        oncomingFlashLight.intensity = 0;
+      }
+
+      // Sync horizonPivot world matrix before reading sun direction (no 1-frame shadow lag in bends or on T switch)
+      horizonPivot.updateMatrixWorld(true);
+      sunDisk.getWorldPosition(sunWorldDir).normalize();
+      if (currentRoadLight.sunVisible) {
+        sunLight.position.set(
+          sunTarget.position.x + sunWorldDir.x * 52,
+          Math.max(6.0, sunWorldDir.y * 52),
+          sunTarget.position.z + sunWorldDir.z * 52
+        );
+      }
+
+      worldDirty = false;
     }
 
     if (!camera) return;
     camera.updateMatrixWorld(true);
     camera.getWorldDirection(forward);
 
-    // Sun direction in world space (rotated by horizonPivot heading -> cabin shadows sweep realistically in bends!)
-    sunDisk.getWorldPosition(sunWorldDir).normalize();
-    if (currentRoadLight.sunVisible) {
-      sunLight.position.set(sunWorldDir.x * 42, Math.max(4.0, sunWorldDir.y * 42), sunWorldDir.z * 42);
-    }
     const sunAlign = currentRoadLight.sunVisible ? Math.max(0, forward.dot(sunWorldDir)) : 0;
     let oncomingGlare = 0;
     if (closestOncomingZ > -900 && currentRoadLight.headlightEmissive > 2.0) {
-      toOncoming.set(closestOncomingX - camera.position.x, 0.65 - camera.position.y, closestOncomingZ - camera.position.z);
+      toOncoming.set(
+        closestOncomingX - camera.position.x,
+        closestOncomingY + 0.65 - camera.position.y,
+        closestOncomingZ - camera.position.z
+      );
       const dist = toOncoming.length();
       if (dist > 0.5) {
         const align = Math.max(0, forward.dot(toOncoming.divideScalar(dist)));
         oncomingGlare = Math.pow(align, 3.0) * Math.max(0, 1.0 - dist / 46.0) * 0.65;
       }
     }
-    const streetFlux = currentRoadLight.streetlightsOn ? 0.16 : 0.0;
+    const streetFlux = currentRoadLight.streetlightsOn ? 0.05 + Math.max(0, forward.y) * 0.18 : 0.0;
     state.eyelidLight = Math.min(
       1,
       Math.max(0.02, 0.03 + todPreset.outdoorLux * (0.18 + sunAlign * 0.78) + streetFlux + oncomingGlare)

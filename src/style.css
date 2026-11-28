@@ -391,6 +391,10 @@ body {
   white-space: nowrap;
 }
 
+.setting-value.is-nonzero {
+  color: #f5d38c;
+}
+
 .setting-select {
   flex: 1;
   min-width: 0;
