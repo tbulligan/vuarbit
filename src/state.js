@@ -495,9 +495,10 @@ export function updateSimState(state, dt) {
     state.glassesSlidingDown = false;
   } else if (!paused && !state.compareNormal && !state.glassesPinned) {
     const isAphakic = s.lensProfile === 'aphakic_bifocal';
-    const pitch = state.pitch || 0;
-    const uprightGravity = 1.0 - smoothstep(-0.04, 0.14, pitch);
-    const downTilt = smoothstep(-0.15, -0.78, pitch);
+    // Glasses sit on the head/nose bridge, so nose-slip gravity and upward-flick seat-back follow headPitch, not eye-in-head glance
+    const headPitch = (state.pitch || 0) - (state.eyePitch || 0);
+    const uprightGravity = 1.0 - smoothstep(-0.04, 0.14, headPitch);
+    const downTilt = smoothstep(-0.15, -0.78, headPitch);
     const leanFactor = clamp(state.lean || 0, 0, 1);
     const motionFactor = clamp((state.gazeVel || 0) * 0.45, 0, 1);
     const maxSlide = isAphakic ? 1.0 : 0.35;
@@ -508,9 +509,9 @@ export function updateSimState(state, dt) {
 
     let backRate = 0;
     if (!state.glassesSlidingDown && (state.glassesSlide || 0) > 0) {
-      const upTilt = smoothstep(0.22, 0.95, pitch);
+      const upTilt = smoothstep(0.22, 0.95, headPitch);
       const upFlick = clamp((state.gazeVelY || 0) - 1.1, 0, 6.0);
-      const flickPitchWeight = 0.45 + 0.55 * smoothstep(-0.25, 0.25, pitch);
+      const flickPitchWeight = smoothstep(0.0, 0.25, headPitch);
       const backScale = isAphakic ? 1.0 : 0.55;
       backRate = (0.045 * upTilt + 0.28 * upFlick * flickPitchWeight) * backScale;
     }

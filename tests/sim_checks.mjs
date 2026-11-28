@@ -719,6 +719,25 @@ for (let i = 0; i < 5; i++) {
 }
 assert.ok(stSlipBackFlick.glassesSlide < 0.48, `sharp upward head flick must slip glasses back noticeably, got ${stSlipBackFlick.glassesSlide}`);
 
+const stFlickLookingDown = createSimState();
+stFlickLookingDown.glassesSlide = 0.6;
+stFlickLookingDown.pitch = -0.45;
+stFlickLookingDown.gazeVelY = 5.5;
+for (let i = 0; i < 5; i++) {
+  updateSimState(stFlickLookingDown, 0.04);
+}
+assert.ok(stFlickLookingDown.glassesSlide >= 0.6, `upward flick while head looks down must not move glasses up, got ${stFlickLookingDown.glassesSlide}`);
+
+const stFlickEyeUpHeadDown = createSimState();
+stFlickEyeUpHeadDown.glassesSlide = 0.6;
+stFlickEyeUpHeadDown.pitch = 0.1;
+stFlickEyeUpHeadDown.eyePitch = 0.2;
+stFlickEyeUpHeadDown.gazeVelY = 5.5;
+for (let i = 0; i < 5; i++) {
+  updateSimState(stFlickEyeUpHeadDown, 0.04);
+}
+assert.ok(stFlickEyeUpHeadDown.glassesSlide >= 0.6, `upward eye glance while head still pitched down must not move glasses up, got ${stFlickEyeUpHeadDown.glassesSlide}`);
+
 const stSlipHoldShift = createSimState();
 stSlipHoldShift.glassesSlide = 0.6;
 stSlipHoldShift.pitch = 0.65;
