@@ -94,8 +94,8 @@ export function createTinnitusAudio() {
     const fatigue = Math.max(0, Math.min(1, state.fatigue || 0));
     const decomp = computeDecompensation(fatigue);
     const tinnitusScale = Math.max(0, Math.min(2, state.settings?.tinnitus ?? 1));
-    // Clearly audible baseline whisper on speakers/headphones, escalating ~6x past tipping point without harsh peak
-    const rawLevel = 0.0032 + 0.0030 * fatigue + 0.0138 * Math.pow(decomp, 1.5);
+    // Barely-there habituated whisper when rested, rising gently with fatigue and swelling past tipping point
+    const rawLevel = 0.0009 + 0.0024 * fatigue + 0.0135 * Math.pow(decomp, 1.5);
     const targetGain =
       state.muted || state.compareNormal || tinnitusScale <= 0.005
         ? 0

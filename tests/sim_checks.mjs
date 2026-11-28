@@ -4,7 +4,6 @@ import {
   PERSONAS,
   SCENES,
   SETTING_SPECS,
-  QUALITY_PRESETS,
   TIME_OF_DAY_PRESETS,
   FRAME_SHAPES,
   FRAME_COLORS,
@@ -13,6 +12,10 @@ import {
   getSceneById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
+  sanitizeCustomName,
+  encodeCustomProfileParams,
+  decodeCustomProfileParams,
+  applyCustomProfile,
   resolveIolGlassesOptics,
   applyPersona,
   updateVisualSetting,
@@ -24,6 +27,7 @@ import {
   cycleTimeOfDay,
   createSimState,
   detectTouchDevice,
+  computeAutoDprCap,
   applyLookDelta,
   computeOcclusionFromDistance,
   computeDiplopiaOffsetDeg,
@@ -252,20 +256,26 @@ const heldBare = computeHeldRestOffset(0.21, false);
 assert.equal(heldBare.x, 0.029, 'held object without glasses must align to bare OD pupil');
 assert.equal(heldBare.y, 0, 'held object without glasses must align to OD pupil height');
 
-// 5. Validate src/state.js: updateSimState (starts Focused, two-speed fatigue, Focus suppression, occlusion, closed eyes)
+// 5. Validate src/state.js: updateSimState (starts Focused, clinical fatigue balance, Focus suppression, occlusion, closed eyes)
 const stRelaxed = createSimState();
 assert.equal(stRelaxed.focusing, true, 'Vuarbit 1994 must start in Focused mode');
 assert.equal(stRelaxed.focusStrength, 1, 'initial focusStrength must start engaged');
 stRelaxed.focusing = false;
 stRelaxed.focusStrength = 0;
+stRelaxed.fatigue = 0.50;
 const stFocused = createSimState();
 stFocused.focusing = true;
+const stFocusedNear = createSimState();
+stFocusedNear.focusing = true;
+stFocusedNear.focusDistM = 0.35;
 for (let i = 0; i < 60; i++) {
   updateSimState(stRelaxed, 0.05);
   updateSimState(stFocused, 0.05);
+  updateSimState(stFocusedNear, 0.05);
 }
-assert.ok(stRelaxed.fatigue > 0.08, 'fatigue should rise while eyes open');
-assert.ok(stFocused.fatigue > stRelaxed.fatigue + 0.005, 'Focus effort must build fatigue faster');
+assert.ok(stRelaxed.fatigue < 0.50 && stRelaxed.fatigue >= 0.15, `calm Relaxed mode should ease elevated fatigue slowly toward 0.15, got ${stRelaxed.fatigue}`);
+assert.ok(stFocused.fatigue > 0.085, 'Focus effort at distance must gently build fatigue');
+assert.ok(stFocusedNear.fatigue > stFocused.fatigue + 0.01, 'near reading Focus effort must build fatigue substantially faster than distance');
 assert.ok(stFocused.focusStrength > 0.8, 'Focus effort should engage strongly at low fatigue');
 assert.ok(stRelaxed.mlnIntensity >= 0.12, `unfocused baseline MLN should be clearly present, got ${stRelaxed.mlnIntensity}`);
 assert.ok(
@@ -273,6 +283,15 @@ assert.ok(
   `Focus effort must curb baseline MLN (${stRelaxed.mlnIntensity} -> ${stFocused.mlnIntensity})`
 );
 assert.equal(stRelaxed.activeZone, 'distance');
+
+// Uncorrected aphakia still slowly drains even when Relaxed
+const stRelaxUncorr = createSimState();
+stRelaxUncorr.focusing = false;
+stRelaxUncorr.glassesOn = false;
+for (let i = 0; i < 40; i++) {
+  updateSimState(stRelaxUncorr, 0.05);
+}
+assert.ok(stRelaxUncorr.fatigue > 0.08, 'uncorrected aphakia must still build mild strain even when Relaxed');
 
 // Reserve-depletion -> tipping-point crash curve
 assert.equal(computeDecompensation(0.35), 0, 'symptoms must stay masked while compensatory reserve holds (<0.58)');
@@ -363,10 +382,6 @@ assert.equal(stHeld.heldRot.yaw, snapYaw, 'non-finite dx/sensitivity must leave 
 assert.equal(stHeld.heldRot.pitch, snapPitch, 'non-finite dy/sensitivity must leave pitch finite and unchanged');
 
 // 7. Validate src/personas.js & persona/settings integration in src/state.js
-assert.equal(QUALITY_PRESETS.high.dprCap, 1.75);
-assert.equal(QUALITY_PRESETS.balanced.dprCap, 1.25);
-assert.equal(QUALITY_PRESETS.performance.dprCap, 1.0);
-
 assert.equal(PERSONAS.length, 13, 'must define exactly 13 clinical presets');
 const expectedPersonas = {
   vuarbit_frut: {
@@ -383,7 +398,7 @@ const expectedPersonas = {
     lensProfile: 'pseudophakic_iol',
     myopiaD: 1.0,
     lensPowerD: -1.0,
-    nearAddD: 2.5,
+    nearAddD: 3.5,
     astigmatismD: 2.0,
     astigmatismAxisDeg: 123,
     lensCylD: 2.0,
@@ -488,7 +503,6 @@ assert.deepEqual(computeDiplopiaOffsetDeg(0.375, { diplopiaH: 2.2, diplopiaV: -0
 const stPersona = createSimState();
 assert.equal(stPersona.personaId, 'vuarbit_frut');
 assert.equal(stPersona.settingsOpen, false);
-assert.equal(stPersona.qualityPreset, 'high');
 assert.deepEqual(stPersona.settings, defaults);
 
 assert.equal(applyPersona(stPersona, 'does_not_exist'), false);
@@ -680,13 +694,38 @@ stNoAdd.pitch = -0.5;
 updateSimState(stNoAdd, 0.016);
 assert.equal(stNoAdd.activeZone, 'distance', 'zero nearAddD must not enter near bifocal zone');
 
-// Glasses nose-slip: zero slip when looking up, minimal creep upright, realistic slip when pitched down
+// Glasses nose-slip: zero forward slip when looking up, slips back on steady up-tilt and faster on sharp upward flick
 const stSlideUp = createSimState();
 stSlideUp.pitch = 0.45;
 for (let i = 0; i < 60; i++) {
   updateSimState(stSlideUp, 0.05);
 }
-assert.equal(stSlideUp.glassesSlide, 0, 'looking up must not slide glasses down the nose');
+assert.equal(stSlideUp.glassesSlide, 0, 'looking up from 0 must not slide glasses down the nose');
+
+const stSlipBackTilt = createSimState();
+stSlipBackTilt.glassesSlide = 0.6;
+stSlipBackTilt.pitch = 0.65;
+for (let i = 0; i < 40; i++) {
+  updateSimState(stSlipBackTilt, 0.05);
+}
+assert.ok(stSlipBackTilt.glassesSlide < 0.56, `steady upward head tilt should slip glasses back, got ${stSlipBackTilt.glassesSlide}`);
+
+const stSlipBackFlick = createSimState();
+stSlipBackFlick.glassesSlide = 0.6;
+stSlipBackFlick.pitch = 0.25;
+stSlipBackFlick.gazeVelY = 4.5;
+for (let i = 0; i < 5; i++) {
+  updateSimState(stSlipBackFlick, 0.04);
+}
+assert.ok(stSlipBackFlick.glassesSlide < 0.48, `sharp upward head flick must slip glasses back noticeably, got ${stSlipBackFlick.glassesSlide}`);
+
+const stSlipHoldShift = createSimState();
+stSlipHoldShift.glassesSlide = 0.6;
+stSlipHoldShift.pitch = 0.65;
+stSlipHoldShift.gazeVelY = 4.0;
+stSlipHoldShift.glassesSlidingDown = true;
+updateSimState(stSlipHoldShift, 0.05);
+assert.equal(stSlipHoldShift.glassesSlide, 0.6, 'holding Shift down-slide must not be cancelled by upward slip-back');
 
 const stSlideLevel = createSimState();
 stSlideLevel.pitch = 0.0;
@@ -745,7 +784,7 @@ assert.equal(stRest.occlusionLevel, 0, 'closed eyelids must ignore asymmetric mo
 assert.ok(stRest.mlnOnlyIntensity < 0.25, `closed-eye MLN must stay Focused-like calm, got ${stRest.mlnOnlyIntensity}`);
 assert.ok(stRest.glassesSlide > 0.02, 'glasses pitched down should still obey gravity while resting');
 
-// Pinning glasses (Space hold) prevents gravity slide
+// Pinning glasses (Space hold) prevents gravity slide and raises peripheral hand grip
 const stPin = createSimState();
 stPin.pitch = -0.6;
 stPin.glassesPinned = true;
@@ -753,6 +792,59 @@ for (let i = 0; i < 40; i++) {
   updateSimState(stPin, 0.05);
 }
 assert.equal(stPin.glassesSlide, 0, 'pinned glasses must not slide down while craning');
+assert.ok(stPin.glassesHand > 0.95, `pinning glasses must raise peripheral hand grip, got ${stPin.glassesHand}`);
+stPin.glassesPinned = false;
+for (let i = 0; i < 40; i++) {
+  updateSimState(stPin, 0.05);
+}
+assert.ok(stPin.glassesHand < 0.05, `releasing Space must lower peripheral hand grip, got ${stPin.glassesHand}`);
+
+// Custom profile URL encode/decode + sanitization + applyCustomProfile
+assert.equal(sanitizeCustomName('  My\n\tEyes  '), 'My Eyes');
+assert.equal(sanitizeCustomName('   '), 'Custom');
+assert.equal(sanitizeCustomName('1234567890123456789012345').length, 20);
+assert.equal(decodeCustomProfileParams(''), null);
+assert.equal(decodeCustomProfileParams('?foo=bar&name=OnlyName'), null, 'URL without any visual setting must return null');
+
+const customSettings = sanitizeVisualSettings({
+  ...getPersonaById('normal').settings,
+  lensProfile: 'single_vision',
+  lensPowerD: -4.5,
+  myopiaD: 4.5,
+  astigmatismD: 1.75,
+  astigmatismAxisDeg: 140,
+  lensCylD: 1.75,
+  lensAxisDeg: 140,
+  frameShape: 'round',
+  frameColor: 'gold',
+});
+const encodedQs = encodeCustomProfileParams(customSettings, {
+  name: 'My Prescription',
+  sceneId: 'exam_room',
+  glassesOn: true,
+});
+assert.ok(encodedQs.includes('myopiaD=4.5') && !encodedQs.includes('glaucoma='), 'encoded URL must stay compact diff-only');
+const decoded = decodeCustomProfileParams(`?${encodedQs}`);
+assert.ok(decoded, 'encoded custom profile must decode cleanly');
+assert.equal(decoded.name, 'My Prescription');
+assert.equal(decoded.sceneId, 'exam_room');
+assert.equal(decoded.glassesOn, true);
+assert.deepEqual(decoded.settings, customSettings);
+
+// Malicious / out-of-range URL params must clamp safely & drop unknown keys
+const dirtyDecoded = decodeCustomProfileParams('?name=<script>&myopiaD=99&glaucoma=-5&lensProfile=hack&scene=evil&glasses=0&injected=1');
+assert.ok(dirtyDecoded);
+assert.equal(dirtyDecoded.settings.myopiaD, 10, 'URL myopiaD must clamp to max 10');
+assert.equal(dirtyDecoded.settings.glaucoma, 0, 'URL glaucoma must clamp to min 0');
+assert.equal(dirtyDecoded.sceneId, null, 'invalid URL scene must be ignored');
+assert.equal(Object.hasOwn(dirtyDecoded.settings, 'injected'), false);
+
+const stCustom = createSimState();
+assert.equal(applyCustomProfile(stCustom, decoded), true);
+assert.equal(stCustom.personaId, 'custom');
+assert.equal(stCustom.glassesOn, true);
+assert.equal(stCustom.settings.myopiaD, 4.5);
+assert.equal(stCustom.settings.frameColor, 'gold');
 
 // applyPersona resets glassesSlide, glassesPinned, squint & restores Focused on Vuarbit 1994
 stNearBinoc.glassesSlide = 0.8;
@@ -800,20 +892,21 @@ assert.equal(iolDist.frameShape, 'rounded_rect');
 assert.equal(iolDist.frameColor, 'navy');
 
 const iolComp = resolveIolGlassesOptics(stGrant.settings, 'intermediate', true);
-assert.equal(iolComp.lensPowerD, 0.5, 'Computer pair (+1.5 D add over -1.0 D) = +0.50 D');
+assert.equal(iolComp.lensPowerD, 0.0, 'Computer pair (+1.0 D add over -1.0 D) = 0.00 D OD sphere (-0.75 D OS sphere)');
 assert.equal(iolComp.lensCylD, 2.0, 'Custom computer pair retains 2.00 D toric cylinder');
 assert.equal(iolComp.osResidualCylD, 0.0, 'Custom computer pair neutralizes OS cylinder');
-assert.ok(Math.abs(iolComp.focalDistM - 0.667) < 0.02, `Computer pair must focus near 65 cm, got ${iolComp.focalDistM}`);
+assert.equal(iolComp.domNetFocusD, 1.0, 'Computer pair OD net focus matches bare -1.0 D sphere (1.0 m)');
+assert.equal(iolComp.osNetFocusD, 1.0, 'Computer pair OS -0.75 D sphere matches OD focal plane');
 assert.equal(iolComp.osExtraMyopiaD, 0.0, 'Custom computer pair matches OS residual');
 assert.equal(iolComp.frameShape, 'rect');
 assert.equal(iolComp.frameColor, 'charcoal');
 
 const iolNear = resolveIolGlassesOptics(stGrant.settings, 'near', true);
-assert.equal(iolNear.lensPowerD, 2.5, 'OTC reading pair uses +2.5 D sphere');
+assert.equal(iolNear.lensPowerD, 3.5, 'OTC reading pair uses +3.50 D sphere both eyes');
 assert.equal(iolNear.lensCylD, 0.0, 'OTC reading glasses must have zero astigmatism correction');
 assert.equal(iolNear.osResidualCylD, 1.5, 'OTC reading glasses leave OS -1.50 D cylinder uncorrected');
-assert.ok(Math.abs(iolNear.focalDistM - 1 / 3.5) < 1e-4, 'OTC +2.5 D over -1.0 D residual focuses at ~28.6 cm');
-assert.equal(iolNear.osNetFocusD, 4.25, 'OTC equal lenses preserve 0.75 D OD/OS residual difference');
+assert.ok(Math.abs(iolNear.focalDistM - 0.20) < 1e-4, `OTC +3.50 D optimal Conoid focus must be 20 cm, got ${iolNear.focalDistM}`);
+assert.equal(iolNear.osNetFocusD, 5.25, 'OTC equal lenses preserve 0.75 D OD/OS residual difference');
 assert.equal(iolNear.frameShape, 'round');
 assert.equal(iolNear.frameColor, 'burgundy');
 
@@ -821,11 +914,26 @@ const iolOff = resolveIolGlassesOptics(stGrant.settings, 'off', false);
 assert.equal(iolOff.glassesOn, false);
 assert.equal(iolOff.lensCylD, 0.0);
 assert.equal(iolOff.osResidualCylD, 1.5, 'Bare IOL leaves OS -1.50 D cylinder uncorrected');
-assert.equal(iolOff.domNetFocusD, 1.0, 'Bare IOL OD focuses fixed at 1.0 m (-1.00 D residual)');
-assert.equal(iolOff.osNetFocusD, 1.75, 'Bare IOL OS focuses fixed at ~0.57 m (-1.75 D residual)');
-assert.equal(iolOff.focalDistM, 1.0);
+assert.equal(iolOff.domNetFocusD, 1.0, 'Bare IOL OD residual sphere is -1.00 D');
+assert.equal(iolOff.osNetFocusD, 1.75, 'Bare IOL OS residual sphere is -1.75 D');
+assert.ok(Math.abs(iolOff.focalDistM - 2 / 3) < 1e-4, `Bare IOL OD Conoid best focus expected ~67 cm, got ${iolOff.focalDistM}`);
 assert.equal(SETTING_SPECS.astigmatismAxisDeg.step, 1, 'Astigmatism axis slider must support 1 deg precision (e.g. 123 deg)');
 assert.equal(SETTING_SPECS.lensAxisDeg.step, 1, 'Glasses axis slider must support 1 deg precision');
+
+// Grant optical defocus strain: wearing distance glasses while reading at 25 cm fatigues faster than matching OTC readers
+const stGrantWrong = createSimState();
+applyPersona(stGrantWrong, 'vuarbit_grant');
+stGrantWrong.glassesSlot = 'distance';
+stGrantWrong.focusDistM = 0.25;
+const stGrantMatch = createSimState();
+applyPersona(stGrantMatch, 'vuarbit_grant');
+stGrantMatch.glassesSlot = 'near';
+stGrantMatch.focusDistM = 0.20;
+for (let i = 0; i < 40; i++) {
+  updateSimState(stGrantWrong, 0.05);
+  updateSimState(stGrantMatch, 0.05);
+}
+assert.ok(stGrantWrong.fatigue > stGrantMatch.fatigue + 0.002, 'wrong-distance IOL glasses must add defocus fatigue strain');
 
 // Z cycle on Vuarbit Grant: distance -> intermediate -> near -> off -> distance
 updateSimState(stGrant, 0.016);
@@ -885,7 +993,29 @@ assert.ok(
     onKeyDownSrc.indexOf("e.code === 'KeyM'") < onKeyDownSrc.indexOf('if (state.settingsOpen) return;'),
   'M must mute tinnitus even when Pause/Settings drawer is open'
 );
-assert.ok(settingsSrc.includes("e.code === 'KeyM'"), 'settings drawer must let KeyM bubble to controls');
+assert.ok(
+  onKeyDownSrc.indexOf("e.code === 'KeyF'") > 0 &&
+    onKeyDownSrc.indexOf("e.code === 'KeyF'") < onKeyDownSrc.indexOf('if (state.settingsOpen) return;'),
+  'F must toggle Focus inside and outside Pause/Settings drawer'
+);
+assert.ok(onKeyDownSrc.includes("case 'KeyG':"), 'G must grab/place back pickable objects');
+assert.ok(!controlsSrc.includes('MAX_PICKUP_ANGLE = 0.38'), 'pickup aim fallback must not use wide 22-deg cone');
+assert.ok(settingsSrc.includes("e.code === 'KeyM'") && settingsSrc.includes("e.code === 'KeyF'"), 'settings drawer must let KeyM and KeyF bubble to controls');
+assert.ok(!settingsSrc.includes("makeEl('details'"), 'Optics & Binocular Details must stay always expanded (no accordion)');
+assert.ok(!settingsSrc.includes('sceneDesc'), 'Scene box must omit redundant scene description paragraph');
+assert.ok(!settingsSrc.includes('statusBadge') && !settingsSrc.includes('customNameInput'), 'Settings header must omit redundant profile badge and fake multi-profile name input');
+assert.ok(settingsSrc.includes('settings-footer') && settingsSrc.includes('custom-bar'), 'settings drawer must include sticky Language footer and Custom Save/Share bar');
+const hudSrc = fs.readFileSync(new URL('../src/hud.js', import.meta.url), 'utf8');
+assert.ok(hudSrc.includes("makeEl('progress'") && hudSrc.includes('hud-toast') && hudSrc.includes('hud-slide-slider') && hudSrc.includes('hud-mute-btn'), 'HUD must include fatigue bar, glasses slide slider, mute pill, and action toast');
+assert.ok(!hudSrc.includes('panel.classList.toggle(\'is-hidden\''), 'H key must toggle keymap legend only, keeping top-left status HUD visible');
+assert.ok(hudSrc.includes('resting') && hudSrc.includes('reticle.classList.toggle'), 'HUD must hide reticle while resting');
+assert.ok(fragSrc.includes('uGlassesHand') && fragSrc.includes('smin('), 'vision.frag.glsl must render smooth smin left-hand silhouette while pinning/sliding glasses');
+const mainSrc = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+assert.ok(mainSrc.includes('clearUrlQuery'), 'switching preset or saving custom must clear stale URL query so tab reload does not resurrect old link');
+const audioSrc = fs.readFileSync(new URL('../src/audio.js', import.meta.url), 'utf8');
+assert.ok(audioSrc.includes('0.0009'), 'tinnitus rested baseline must stay gentle (~0.0009) before fatigue buildup');
+const propsSrc = fs.readFileSync(new URL('../src/scene/props.js', import.meta.url), 'utf8');
+assert.ok(!propsSrc.includes('Non-pickable metallic pencil sharpener'), 'props.js must not keep obsolete non-pickable sharpener comment');
 assert.ok(computeRoadLighting('sunny', true).fogFar < 114, 'car scene fog.far must stay inside mountainRing radius (114 m) to prevent asset pop-in');
 assert.ok(computeAmbientLight('night', true, 'car_passenger') < 0.20, 'car night with streetlights must stay genuinely dark (no indoor ceiling-lamp lux lift)');
 assert.equal(computeAmbientLight('sunny', true, 'car_passenger'), 1.0, 'car sunny daylight must reach full 1.0 outdoor ambient');
@@ -896,17 +1026,18 @@ assert.equal(stCvdAuto.settings.cvdSeverity, 1.0, 'selecting a CVD type from 0% 
 assert.equal(updateVisualSetting(stCvdAuto, 'cvdType', 'none'), 'none');
 assert.equal(stCvdAuto.settings.cvdSeverity, 0.0, 'clearing CVD type to none must reset severity to 0%');
 
-// P5: Mobile Observer Mode touch detection (hybrid touchscreen laptops stay desktop), balanced DPR default & look clamp
+// P5: Mobile Observer Mode touch detection (hybrid touchscreen laptops stay desktop), auto DPR cap & look clamp
 assert.equal(detectTouchDevice({ maxTouchPoints: 0, coarsePointer: false, finePointer: true }), false);
 assert.equal(detectTouchDevice({ maxTouchPoints: 10, coarsePointer: false, finePointer: true }), false, 'hybrid touchscreen laptop with fine mouse must stay desktop');
 assert.equal(detectTouchDevice({ maxTouchPoints: 5, coarsePointer: false, finePointer: false }), true);
 assert.equal(detectTouchDevice({ maxTouchPoints: 0, coarsePointer: true, finePointer: false }), true);
 const stTouch = createSimState({ maxTouchPoints: 5, coarsePointer: true, finePointer: false });
 assert.equal(stTouch.isTouchDevice, true);
-assert.equal(stTouch.qualityPreset, 'balanced', 'touch devices should default to balanced 1.25x DPR');
+assert.equal(computeAutoDprCap({ maxTouchPoints: 5, coarsePointer: true, finePointer: false, minScreenDim: 800 }), 1.25, 'touch devices must auto-cap DPR to 1.25x');
+assert.equal(computeAutoDprCap({ maxTouchPoints: 0, coarsePointer: false, finePointer: true, minScreenDim: 500 }), 1.25, 'compact viewports <=640px must auto-cap DPR to 1.25x');
+assert.equal(computeAutoDprCap({ maxTouchPoints: 10, coarsePointer: false, finePointer: true, minScreenDim: 1080 }), 1.75, 'desktop & hybrid laptops must auto-cap DPR to 1.75x');
 const stDesk = createSimState({ maxTouchPoints: 10, coarsePointer: false, finePointer: true });
 assert.equal(stDesk.isTouchDevice, false);
-assert.equal(stDesk.qualityPreset, 'high', 'desktop & hybrid laptops should default to high 1.75x DPR');
 
 stTouch.mode = 'seated';
 stTouch.lean = 0;
@@ -1107,7 +1238,7 @@ for (const lang of ['it', 'nl']) {
 for (const sc of SCENES) {
   for (const lang of LANGUAGES) {
     assert.notEqual(t(lang, `scene.${sc.id}.label`), `scene.${sc.id}.label`);
-    assert.notEqual(t(lang, `scene.${sc.id}.desc`), `scene.${sc.id}.desc`);
+    assert.notEqual(t(lang, `scene.${sc.id}.short`), `scene.${sc.id}.short`);
   }
 }
 for (const p of PERSONAS) {
@@ -1116,8 +1247,8 @@ for (const p of PERSONAS) {
     assert.notEqual(t(lang, `persona.${p.id}.desc`), `persona.${p.id}.desc`);
   }
 }
-assert.equal(t('it', 'hud.effort.focused', { pct: 85 }), 'Concentrato (85%, 2.0x)');
-assert.equal(t('nl', 'hud.glasses.slipped', { mm: 6 }), ', 6mm afgezakt (Spatie)');
+assert.equal(t('it', 'toast.compareOff', { preset: 'Frut' }), 'Ritorno a Frut');
+assert.equal(t('nl', 'hud.fatigue.restHint'), 'Laat ogen rusten (R)');
 
 console.log(
   `sim_checks.mjs PASSED: waveform=${wf.waveform.samples_x_deg.length} samples @ ${wf.waveform.sample_rate_hz} Hz (MLN p2p=${wf.phases.mln_occluded.peak_to_peak_deg} deg, SPV=${wf.phases.mln_occluded.slow_phase_velocity_deg_s} deg/s, exo=${wf.exotropia_estimate_deg} deg); all state/persona/MLN/diplopia/exam-room assertions green.`

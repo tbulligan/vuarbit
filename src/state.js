@@ -7,7 +7,6 @@ import {
   PERSONAS,
   SCENES,
   SETTING_SPECS,
-  QUALITY_PRESETS,
   TIME_OF_DAY_PRESETS,
   LENS_PROFILES,
   IOL_GLASSES_SLOTS,
@@ -20,6 +19,10 @@ import {
   getSceneById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
+  sanitizeCustomName,
+  encodeCustomProfileParams,
+  decodeCustomProfileParams,
+  applyCustomProfile,
   resolveIolGlassesOptics,
   applyPersona,
   updateVisualSetting,
@@ -48,7 +51,6 @@ export {
   PERSONAS,
   SCENES,
   SETTING_SPECS,
-  QUALITY_PRESETS,
   TIME_OF_DAY_PRESETS,
   LENS_PROFILES,
   IOL_GLASSES_SLOTS,
@@ -61,6 +63,10 @@ export {
   getSceneById,
   createDefaultVisualSettings,
   sanitizeVisualSettings,
+  sanitizeCustomName,
+  encodeCustomProfileParams,
+  decodeCustomProfileParams,
+  applyCustomProfile,
   resolveIolGlassesOptics,
   applyPersona,
   updateVisualSetting,
@@ -96,6 +102,20 @@ export function detectTouchDevice(env) {
   const fine = hasMatchMedia ? window.matchMedia('(pointer: fine)').matches : false;
   const points = typeof navigator !== 'undefined' ? (navigator.maxTouchPoints || 0) : 0;
   return coarse || (points > 0 && !fine);
+}
+
+/**
+ * Automatic pixel-ratio cap: crisp 1.75x on desktop/large displays, 1.25x on touch or compact viewports.
+ */
+export function computeAutoDprCap(env) {
+  if (detectTouchDevice(env)) return 1.25;
+  const minDim =
+    env && typeof env === 'object' && Number.isFinite(env.minScreenDim)
+      ? env.minScreenDim
+      : typeof window !== 'undefined'
+        ? Math.min(window.innerWidth || 0, window.innerHeight || 0)
+        : 1080;
+  return minDim > 0 && minDim <= 640 ? 1.25 : 1.75;
 }
 
 /**
@@ -272,9 +292,9 @@ export function createSimState(env) {
     sceneId: 'classroom',
     sceneLoading: false,
     personaId: 'vuarbit_frut',
+    customProfile: null,
     settings: createDefaultVisualSettings(),
     settingsOpen: false,
-    qualityPreset: isTouchDevice ? 'balanced' : 'high',
     timeOfDay: 'sunny',
     lightsOn: true,
     glareLightOn: true,
@@ -285,6 +305,8 @@ export function createSimState(env) {
     glassesSlot: 'distance',
     glassesSlide: 0,
     glassesPinned: false,
+    glassesSlidingDown: false,
+    glassesHand: 0,
     glassesBounce: 0,
     squint: 0,
     eyesClosed: false,
@@ -465,25 +487,49 @@ export function updateSimState(state, dt) {
     ? clamp((state.focusStrength || 0) + (targetFocusStrength - (state.focusStrength || 0)) * focusAlpha, 0, 1)
     : 0;
 
-  // Glasses nose-slip dynamics (0..14 mm): zero slip when looking up; very gentle creep upright (~12 min still),
-  // accelerating naturally when pitched down, leaning over desk, or turning head; Space pins, Shift slides down.
+  // Glasses nose-slip dynamics (0..14 mm): creeps down when upright/pitched down/leaning;
+  // slips back toward nose bridge when tilting head up or flicking upward sharply; Space pins, Shift slides down.
   if (!state.glassesOn || s.lensProfile === 'none') {
     state.glassesSlide = 0;
     state.glassesPinned = false;
+    state.glassesSlidingDown = false;
   } else if (!paused && !state.compareNormal && !state.glassesPinned) {
     const isAphakic = s.lensProfile === 'aphakic_bifocal';
     const pitch = state.pitch || 0;
-    const uprightGravity = 1.0 - smoothstep(-0.04, 0.14, pitch); // stops sliding when chin tilts up
+    const uprightGravity = 1.0 - smoothstep(-0.04, 0.14, pitch);
     const downTilt = smoothstep(-0.15, -0.78, pitch);
     const leanFactor = clamp(state.lean || 0, 0, 1);
     const motionFactor = clamp((state.gazeVel || 0) * 0.45, 0, 1);
     const maxSlide = isAphakic ? 1.0 : 0.35;
     const weightScale = isAphakic ? 1.0 : 0.22;
-    const slideRate =
+    const forwardRate =
       (0.0012 * uprightGravity + 0.017 * downTilt + 0.008 * leanFactor + 0.0045 * motionFactor * uprightGravity) *
       weightScale;
-    state.glassesSlide = clamp((state.glassesSlide || 0) + slideRate * step, 0, maxSlide);
+
+    let backRate = 0;
+    if (!state.glassesSlidingDown && (state.glassesSlide || 0) > 0) {
+      const upTilt = smoothstep(0.22, 0.95, pitch);
+      const upFlick = clamp((state.gazeVelY || 0) - 1.1, 0, 6.0);
+      const flickPitchWeight = 0.45 + 0.55 * smoothstep(-0.25, 0.25, pitch);
+      const backScale = isAphakic ? 1.0 : 0.55;
+      backRate = (0.045 * upTilt + 0.28 * upFlick * flickPitchWeight) * backScale;
+    }
+
+    state.glassesSlide = clamp((state.glassesSlide || 0) + (forwardRate - backRate) * step, 0, maxSlide);
   }
+  // Smooth peripheral hand reach when actively pinning (Space) or sliding (Shift) glasses
+  const handActive =
+    !paused &&
+    !state.compareNormal &&
+    !state.eyesClosed &&
+    Boolean(state.glassesOn) &&
+    s.lensProfile !== 'none' &&
+    Boolean(state.glassesPinned || state.glassesSlidingDown);
+  const targetHand = handActive ? 1 : 0;
+  const handAlpha = 1 - Math.exp(-13 * step);
+  state.glassesHand = clamp((state.glassesHand || 0) + (targetHand - (state.glassesHand || 0)) * handAlpha, 0, 1);
+  if (Math.abs(targetHand - state.glassesHand) < 1e-4) state.glassesHand = targetHand;
+
   // Decay tactile glasses-on spring settle
   if (Math.abs(state.glassesBounce || 0) > 1e-4) {
     state.glassesBounce *= Math.exp(-10 * step);
@@ -502,32 +548,54 @@ export function updateSimState(state, dt) {
   const squintAlpha = 1 - Math.exp(-7 * step);
   state.squint = clamp((state.squint || 0) + (targetSquint - (state.squint || 0)) * squintAlpha, 0, 1);
 
-  // Two-speed central visual fatigue dynamics (~10x accelerated vs real schoolwork; tuned for Focused waking default)
+  // Clinically calibrated central visual fatigue dynamics:
+  // - Focus ON: comfortable at distance (~3 min to 60% prompt), faster during near work / defocus / occlusion (~50-65s).
+  // - Focus OFF (Relaxed): stops draining under calm viewing and eases slowly toward 15% waking baseline.
+  // - Rest (R, eyes closed): rapid recovery toward 5% (~7-8s).
   if (!paused) {
     if (state.eyesClosed || !suppressionActive) {
-      const recovAlpha = 1 - Math.exp(-0.14 * step);
+      const recovAlpha = 1 - Math.exp(-0.28 * step);
       state.fatigue = clamp(state.fatigue + (0.05 - state.fatigue) * recovAlpha, 0, 1);
     } else if (!state.compareNormal) {
       const isAphakic = s.lensProfile === 'aphakic_bifocal';
+      const isIol = s.lensProfile === 'pseudophakic_iol';
       const hasDip = Math.abs(s.diplopiaH || 0) >= 0.01 || Math.abs(s.diplopiaV || 0) >= 0.01;
-      let rate = 0.0009;
-      if ((isAphakic || hasDip) && state.focusDistM > 0 && state.focusDistM < 0.7) {
-        rate += 0.0010;
-      }
-      // Sub-15 cm binocular convergence mismatch strain (both eyes unoccluded, trying & failing to converge)
-      if ((isAphakic || hasDip) && state.focusDistM > 0 && state.focusDistM < 0.16 && state.occlOD < 0.25 && state.occlOS < 0.25) {
-        rate += 0.0016;
-      }
-      if ((s.mlnScale || 0) > 0.005 && state.occlusionLevel > 0.05) {
-        rate += 0.0035 * state.occlusionLevel;
-      }
-      if (isAphakic && !state.glassesOn) {
-        rate += 0.0022;
-      }
+      const occlStrain = (s.mlnScale || 0) > 0.005 && state.occlusionLevel > 0.05 ? state.occlusionLevel : 0;
+
       if (wantsFocus) {
-        rate = rate * 2.0 + 0.0014;
+        let rate = 0.0028;
+        if ((isAphakic || isIol || hasDip) && state.focusDistM > 0 && state.focusDistM < 0.7) {
+          rate += 0.0052;
+        }
+        // Sub-15 cm binocular convergence mismatch strain (both eyes unoccluded, trying & failing to converge)
+        if ((isAphakic || isIol || hasDip) && state.focusDistM > 0 && state.focusDistM < 0.16 && state.occlOD < 0.25 && state.occlOS < 0.25) {
+          rate += 0.0030;
+        }
+        if (occlStrain > 0) {
+          rate += 0.0065 * occlStrain;
+        }
+        if (isAphakic && !state.glassesOn) {
+          rate += 0.0045;
+        } else if (isIol && state.focusDistM > 0.02) {
+          const iol = resolveIolGlassesOptics(s, state.glassesSlot, state.glassesOn);
+          const objVerg = 1.0 / state.focusDistM;
+          const minF = iol.domNetFocusD;
+          const maxF = minF + iol.residualDomCylD * 0.5;
+          const iolDefocus = Math.max(0, minF - objVerg, objVerg - maxF) - 0.35;
+          if (iolDefocus > 0) {
+            rate += 0.0032 * clamp(iolDefocus / 2.0, 0, 1);
+          }
+        }
+        state.fatigue = clamp(state.fatigue + rate * step, 0, 1);
+      } else {
+        const stressRate = (occlStrain > 0 ? 0.0028 * occlStrain : 0) + (isAphakic && !state.glassesOn ? 0.0014 : 0);
+        if (stressRate > 0) {
+          state.fatigue = clamp(state.fatigue + stressRate * step, 0, 1);
+        } else if (state.fatigue > 0.15) {
+          const calmAlpha = 1 - Math.exp(-0.045 * step);
+          state.fatigue = clamp(state.fatigue + (0.15 - state.fatigue) * calmAlpha, 0.15, 1);
+        }
       }
-      state.fatigue = clamp(state.fatigue + rate * step, 0, 1);
     }
   }
 

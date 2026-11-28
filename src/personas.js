@@ -7,12 +7,6 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-export const QUALITY_PRESETS = Object.freeze({
-  high: Object.freeze({ id: 'high', label: 'High (1.75x)', dprCap: 1.75 }),
-  balanced: Object.freeze({ id: 'balanced', label: 'Balanced (1.25x)', dprCap: 1.25 }),
-  performance: Object.freeze({ id: 'performance', label: 'Performance (1.0x)', dprCap: 1.0 }),
-});
-
 export const SCENES = Object.freeze([
   Object.freeze({
     id: 'classroom',
@@ -150,7 +144,7 @@ export const LENS_PROFILES = Object.freeze([
 ]);
 
 export const IOL_GLASSES_SLOTS = Object.freeze(['distance', 'intermediate', 'near', 'off']);
-export const IOL_INTERMEDIATE_ADD_D = 1.5; // +1.50 D over distance Rx -> exact ~0.65-0.67 m computer plane
+export const IOL_INTERMEDIATE_ADD_D = 1.0; // +1.00 D over distance Rx -> OD 0.00 D / OS -0.75 D sphere + toric cyl
 export const IOL_OS_RESIDUAL_DIFF_D = 0.75; // Residual OS -1.75 D vs OD -1.00 D anisometropia
 export const IOL_OS_RESIDUAL_CYL_D = 1.5; // Residual OS -1.50 D × 180° astigmatism when bare or wearing spherical OTC readers
 
@@ -161,7 +155,7 @@ export function resolveIolGlassesOptics(settings, glassesSlot = 'distance', glas
   const s = settings || createDefaultVisualSettings();
   const myopiaD = Number.isFinite(s.myopiaD) ? s.myopiaD : 1.0;
   const distRxD = Number.isFinite(s.lensPowerD) ? s.lensPowerD : -1.0;
-  const nearOtcD = Number.isFinite(s.nearAddD) ? s.nearAddD : 2.5;
+  const nearOtcD = Number.isFinite(s.nearAddD) ? s.nearAddD : 3.5;
   const cylD = Number.isFinite(s.lensCylD) ? s.lensCylD : 0.0;
   const eyeAstigD = Number.isFinite(s.astigmatismD) ? s.astigmatismD : 0.0;
   const slot = !glassesOn || glassesSlot === 'off'
@@ -187,6 +181,7 @@ export function resolveIolGlassesOptics(settings, glassesSlot = 'distance', glas
     frameShape = 'rounded_rect';
     frameColor = 'navy';
   } else if (slot === 'intermediate') {
+    // Computer pair: OD 0.00 D / OS -0.75 D sphere + full toric astigmatism correction
     lensPowerD = distRxD + IOL_INTERMEDIATE_ADD_D;
     lensCylD = cylD;
     osExtraMyopiaD = 0.0;
@@ -194,7 +189,7 @@ export function resolveIolGlassesOptics(settings, glassesSlot = 'distance', glas
     frameShape = 'rect';
     frameColor = 'charcoal';
   } else if (slot === 'near') {
-    // Off-the-shelf +2.50 D reading glasses: identical sphere both eyes, zero astigmatism correction
+    // Off-the-shelf +3.50 D reading glasses: identical sphere both eyes, zero astigmatism correction -> optimal focus at 20 cm
     lensPowerD = nearOtcD;
     lensCylD = 0.0;
     osExtraMyopiaD = osExtraBase;
@@ -205,18 +200,22 @@ export function resolveIolGlassesOptics(settings, glassesSlot = 'distance', glas
 
   const domNetFocusD = myopiaD + lensPowerD;
   const osNetFocusD = myopiaD + osExtraMyopiaD + lensPowerD;
+  const residualDomCylD = Math.max(0, eyeAstigD - lensCylD);
+  // Conoid of Sturm midpoint (matches vision.frag.glsl [minFocusD, minFocusD + 0.5*residualAstigD]): bare IOL ~67 cm, +3.50 D OTC = 20 cm
+  const domMidFocusD = domNetFocusD + 0.25 * residualDomCylD;
   return {
     slot,
     glassesOn: slot !== 'off',
     lensPowerD,
     lensCylD,
+    residualDomCylD,
     frameShape,
     frameColor,
     domNetFocusD,
     osNetFocusD,
     osExtraMyopiaD,
     osResidualCylD,
-    focalDistM: domNetFocusD > 0.01 ? 1.0 / domNetFocusD : Infinity,
+    focalDistM: domMidFocusD > 0.01 ? 1.0 / domMidFocusD : Infinity,
   };
 }
 
@@ -364,7 +363,7 @@ export const PERSONAS = Object.freeze([
     settings: Object.freeze(sanitizeVisualSettings({
       lensProfile: 'pseudophakic_iol',
       lensPowerD: -1.0,
-      nearAddD: 2.5,
+      nearAddD: 3.5,
       lensCylD: 2.0,
       lensAxisDeg: 123,
       myopiaD: 1.0,
@@ -542,6 +541,122 @@ export function getPersonaById(id) {
 }
 
 /**
+ * Sanitize user-provided or URL-shared custom profile label (plain text only, <=20 chars).
+ */
+export function sanitizeCustomName(raw) {
+  if (typeof raw !== 'string') return 'Custom';
+  const cleaned = raw
+    .replace(/\s+/g, ' ')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .trim()
+    .slice(0, 20);
+  return cleaned || 'Custom';
+}
+
+/**
+ * Encode custom visual settings as a compact diff-only URL query string relative to Normal Vision.
+ */
+export function encodeCustomProfileParams(settings, opts = {}) {
+  const clean = sanitizeVisualSettings(settings);
+  const params = new URLSearchParams();
+  const name = sanitizeCustomName(opts.name);
+  if (name !== 'Custom') {
+    params.set('name', name);
+  }
+  if (typeof opts.sceneId === 'string' && getSceneById(opts.sceneId) && opts.sceneId !== 'classroom') {
+    params.set('scene', opts.sceneId);
+  }
+  let wroteSetting = false;
+  for (const [key, spec] of Object.entries(SETTING_SPECS)) {
+    const val = clean[key];
+    const base = Object.hasOwn(EMMETROPIC_BASE, key) ? EMMETROPIC_BASE[key] : spec.default;
+    if (spec.type === 'number') {
+      if (Math.abs(val - base) > 1e-4) {
+        params.set(key, String(Number(val.toFixed(2))));
+        wroteSetting = true;
+      }
+    } else if (val !== base) {
+      params.set(key, String(val));
+      wroteSetting = true;
+    }
+  }
+  if (!wroteSetting) {
+    params.set('lensProfile', clean.lensProfile);
+  }
+  if (clean.lensProfile !== 'none' && typeof opts.glassesOn === 'boolean') {
+    params.set('glasses', opts.glassesOn ? '1' : '0');
+  }
+  return params.toString();
+}
+
+/**
+ * Parse and strictly sanitize a custom profile from URL query parameters (?myopiaD=4&...).
+ * Returns null if no allow-listed visual setting parameter is present.
+ */
+export function decodeCustomProfileParams(searchOrParams) {
+  if (!searchOrParams) return null;
+  const params =
+    searchOrParams instanceof URLSearchParams
+      ? searchOrParams
+      : new URLSearchParams(String(searchOrParams));
+  const rawPartial = { ...EMMETROPIC_BASE };
+  let foundSetting = false;
+  for (const key of Object.keys(SETTING_SPECS)) {
+    if (params.has(key)) {
+      rawPartial[key] = params.get(key);
+      foundSetting = true;
+    }
+  }
+  if (!foundSetting) return null;
+  const settings = sanitizeVisualSettings(rawPartial);
+  const name = sanitizeCustomName(params.get('name'));
+  const rawScene = params.get('scene');
+  const sceneId = rawScene && getSceneById(rawScene) ? rawScene : null;
+  const rawGlasses = params.get('glasses');
+  const glassesOn =
+    settings.lensProfile === 'none'
+      ? false
+      : rawGlasses === '0' || rawGlasses === 'false'
+        ? false
+        : rawGlasses === '1' || rawGlasses === 'true'
+          ? true
+          : true;
+  return { name, settings, sceneId, glassesOn };
+}
+
+/**
+ * Apply a saved or URL-shared custom profile to simulation state.
+ */
+export function applyCustomProfile(state, profile) {
+  if (!state || !profile || typeof profile !== 'object' || !profile.settings) {
+    return false;
+  }
+  state.settings = sanitizeVisualSettings(profile.settings);
+  state.personaId = 'custom';
+  state.compareNormal = false;
+  state.fatigue = 0.08;
+  const suppression = hasSuppressionMechanics(state.settings);
+  state.focusing = suppression;
+  state.focusStrength = suppression ? 1 : 0;
+  state.eyesClosed = false;
+  state.eyelidClose = 0;
+  state.glassesSlide = 0;
+  state.glassesPinned = false;
+  state.glassesSlidingDown = false;
+  state.glassesHand = 0;
+  state.glassesBounce = 0;
+  state.squint = 0;
+  state.glassesOn =
+    state.settings.lensProfile === 'none'
+      ? false
+      : typeof profile.glassesOn === 'boolean'
+        ? profile.glassesOn
+        : true;
+  state.glassesSlot = state.glassesOn ? 'distance' : 'off';
+  return true;
+}
+
+/**
  * Whether cortical focus suppression & asthenopia fatigue reserve apply to these settings.
  */
 export function hasSuppressionMechanics(settings) {
@@ -574,6 +689,8 @@ export function applyPersona(state, personaId) {
   state.eyelidClose = 0;
   state.glassesSlide = 0;
   state.glassesPinned = false;
+  state.glassesSlidingDown = false;
+  state.glassesHand = 0;
   state.glassesBounce = 0;
   state.squint = 0;
   state.glassesOn =
@@ -609,7 +726,7 @@ export function updateVisualSetting(state, key, value) {
         state.settings.lensPowerD = -1.0;
         if ((state.settings.myopiaD || 0) < 0.05) state.settings.myopiaD = 1.0;
       }
-      if ((state.settings.nearAddD || 0) < 0.5) state.settings.nearAddD = 2.5;
+      if ((state.settings.nearAddD || 0) < 0.5) state.settings.nearAddD = 3.5;
     } else if (validated === 'aphakic_bifocal') {
       if ((state.settings.lensPowerD || 0) < 6) state.settings.lensPowerD = 13.0;
       if ((state.settings.nearAddD || 0) < 0.5) state.settings.nearAddD = 4.0;

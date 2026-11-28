@@ -1,12 +1,59 @@
 import * as THREE from 'three';
-import { createSimState, normalizeLanguage, toggleCompareNormal, toggleGlasses, updateSimState } from './state.js';
 import {
-  QUALITY_PRESETS,
+  computeAutoDprCap,
+  createSimState,
+  normalizeLanguage,
+  t,
+  toggleCompareNormal,
+  toggleGlasses,
+  updateSimState,
+} from './state.js';
+import {
   TIME_OF_DAY_PRESETS,
+  applyCustomProfile,
   applyPersona,
+  decodeCustomProfileParams,
+  encodeCustomProfileParams,
   getSceneById,
+  sanitizeCustomName,
+  sanitizeVisualSettings,
   updateVisualSetting,
 } from './personas.js';
+
+const CUSTOM_PROFILE_STORAGE_KEY = 'vuarbit.customProfile.v1';
+
+function loadSavedCustomProfile() {
+  try {
+    const raw = window.localStorage?.getItem(CUSTOM_PROFILE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !parsed.settings) return null;
+    return {
+      name: sanitizeCustomName(parsed.name),
+      settings: sanitizeVisualSettings(parsed.settings),
+      glassesOn: typeof parsed.glassesOn === 'boolean' ? parsed.glassesOn : true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveCustomProfileToStorage(profile) {
+  try {
+    window.localStorage?.setItem(CUSTOM_PROFILE_STORAGE_KEY, JSON.stringify(profile));
+  } catch {
+    // Ignore storage quota or private-browsing blocks
+  }
+}
+
+function clearUrlQuery() {
+  if (!window.location.search) return;
+  try {
+    window.history?.replaceState?.(null, '', `${window.location.pathname}${window.location.hash || ''}`);
+  } catch {
+    // Ignore history restrictions on file:// or sandboxed frames
+  }
+}
 import { createControls } from './controls.js';
 import { createOpticsRenderer } from './optics.js';
 import { createTinnitusAudio } from './audio.js';
@@ -81,7 +128,24 @@ async function init() {
   renderer.toneMappingExposure = 1.0;
 
   const state = createSimState();
-  const initDprCap = QUALITY_PRESETS[state.qualityPreset]?.dprCap ?? 1.75;
+  const urlCustom = decodeCustomProfileParams(window.location.search);
+  if (urlCustom) {
+    state.customProfile = {
+      name: urlCustom.name,
+      settings: urlCustom.settings,
+      glassesOn: urlCustom.glassesOn,
+    };
+    applyCustomProfile(state, state.customProfile);
+    if (urlCustom.sceneId) {
+      state.sceneId = urlCustom.sceneId;
+    }
+  } else {
+    const savedCustom = loadSavedCustomProfile();
+    if (savedCustom) {
+      state.customProfile = savedCustom;
+    }
+  }
+  const initDprCap = computeAutoDprCap();
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, initDprCap));
   renderer.setSize(window.innerWidth, window.innerHeight);
 
@@ -123,6 +187,9 @@ async function init() {
     onSitToggle() {
       controls.toggleSeatMode();
     },
+    onMuteToggle() {
+      state.muted = !state.muted;
+    },
   });
 
   let sceneLoadSeq = 0;
@@ -159,7 +226,7 @@ async function init() {
   }
 
   const onResize = () => {
-    const dprCap = QUALITY_PRESETS[state.qualityPreset]?.dprCap ?? 1.75;
+    const dprCap = computeAutoDprCap();
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCap));
     renderer.setSize(window.innerWidth, window.innerHeight);
     optics.resize(window.innerWidth, window.innerHeight);
@@ -175,12 +242,54 @@ async function init() {
     },
     onSelectPersona(id) {
       applyPersona(state, id);
+      clearUrlQuery();
+    },
+    onSelectCustom() {
+      if (state.customProfile) {
+        applyCustomProfile(state, state.customProfile);
+      }
+    },
+    onSaveCustom() {
+      const profile = {
+        name: 'Custom',
+        settings: sanitizeVisualSettings(state.settings),
+        glassesOn: state.settings.lensProfile !== 'none' && Boolean(state.glassesOn),
+      };
+      state.customProfile = profile;
+      state.personaId = 'custom';
+      saveCustomProfileToStorage(profile);
+      clearUrlQuery();
+      hud.notify(t(state.language, 'toast.customSaved'));
+    },
+    onShareCustom() {
+      const qs = encodeCustomProfileParams(state.settings, {
+        sceneId: state.sceneId,
+        glassesOn: Boolean(state.glassesOn),
+      });
+      const shareUrl = `${window.location.origin}${window.location.pathname}?${qs}`;
+      const fallbackUrlBar = () => {
+        try {
+          window.history?.replaceState?.(null, '', `?${qs}`);
+        } catch {
+          // Ignore history restrictions on file:// or sandboxed frames
+        }
+        hud.notify(t(state.language, 'toast.urlUpdated'));
+      };
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard
+          .writeText(shareUrl)
+          .then(() => hud.notify(t(state.language, 'toast.linkCopied')))
+          .catch(fallbackUrlBar);
+      } else {
+        fallbackUrlBar();
+      }
     },
     onSettingChange(key, value) {
       updateVisualSetting(state, key, value);
     },
     onReset() {
       applyPersona(state, 'vuarbit_frut');
+      clearUrlQuery();
     },
     onCompareToggle() {
       toggleCompareNormal(state);
@@ -200,11 +309,6 @@ async function init() {
     },
     onGlareLightToggle() {
       state.glareLightOn = state.glareLightOn === false;
-    },
-    onQualityChange(presetId) {
-      if (!QUALITY_PRESETS[presetId]) return;
-      state.qualityPreset = presetId;
-      optics.setQuality(presetId);
     },
     onClose() {
       state.settingsOpen = false;

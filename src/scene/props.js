@@ -445,7 +445,7 @@ export function createUpgradedPickables({ scene, addFocusMesh, makeCanvasTexture
   rulerGroup.quaternion.copy(rulerRestQuat);
   scene.add(registerFocus(rulerGroup));
 
-  // 5. Non-pickable metallic pencil sharpener (temperino) on Vuarbit's desk
+  // 5. Pickable metallic pencil sharpener (temperino) on Vuarbit's desk
   const temperino = new THREE.Group();
   temperino.position.set(-1.63, 0.737, -1.53);
   temperino.rotation.y = 0.45;

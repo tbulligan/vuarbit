@@ -91,10 +91,14 @@ export function createControls(domElement, state, sceneApi) {
     applySceneInitialPose(activeSceneApi);
   }
 
-  const MAX_PICKUP_ANGLE = 0.38; // ~22 deg crosshair cone: forgiving for nystagmus/low vision, never grabs off-axis items
+  const MAX_PICKUP_DIST = 1.85;
+  const PICKUP_NYSTAGMUS_MARGIN_RAD = 0.095; // ~5.4 deg margin around object silhouette (forgiving for MLN & bifocal jump, blocks ~20 deg off-axis)
+  const MAX_PICKUP_CONE_RAD = 0.18; // ~10.3 deg cap
+  const eyeOrigin = new THREE.Vector3();
 
   function findAimedPickable(camera) {
     if (!camera || activeSceneApi.pickables.length === 0) return null;
+    if (state.eyesClosed || (state.eyelidClose || 0) > 0.15) return null;
     const horizDistToDesk = Math.hypot(
       standPos.x - activeSceneApi.deskPos.x,
       standPos.z - activeSceneApi.deskPos.z
@@ -103,10 +107,15 @@ export function createControls(domElement, state, sceneApi) {
       return null;
     }
 
+    // Raycast from rendered dominant eye position (+-2.9 cm) so close-range desk aim matches screen reticle
     camera.getWorldDirection(forward);
-    raycaster.set(camera.position, forward);
+    right.set(1, 0, 0).applyQuaternion(camera.quaternion);
+    const domSign = state.compareNormal ? 0 : state.settings?.dominantEye === 'OS' ? -1 : 1;
+    eyeOrigin.copy(camera.position).addScaledVector(right, 0.029 * domSign);
+
+    raycaster.set(eyeOrigin, forward);
     raycaster.near = 0.02;
-    raycaster.far = 2.0;
+    raycaster.far = MAX_PICKUP_DIST;
     const hits = raycaster.intersectObjects(pickableMeshes, true);
     if (hits.length > 0) {
       const hitObj = hits[0].object;
@@ -121,14 +130,18 @@ export function createControls(domElement, state, sceneApi) {
       if (direct) return direct;
     }
 
+    const focusDist = state.focusDistM || 0;
     let chosen = null;
     let bestScore = Infinity;
     for (const item of activeSceneApi.pickables) {
-      toItem.copy(item.mesh.position).sub(camera.position);
+      toItem.copy(item.mesh.position).sub(eyeOrigin);
       const dist = toItem.length();
-      if (dist > 2.0 || dist < 1e-4) continue;
+      if (dist > MAX_PICKUP_DIST || dist < 1e-4) continue;
+      if (focusDist > 0.02 && dist > focusDist + 0.25) continue;
+      const itemRadius = Math.max(0.028, item.halfDepth || 0.035, item.occluderRadius || 0.025);
+      const maxAngle = Math.min(MAX_PICKUP_CONE_RAD, Math.atan2(itemRadius, dist) + PICKUP_NYSTAGMUS_MARGIN_RAD);
       const angle = forward.angleTo(toItem.divideScalar(dist));
-      if (angle > MAX_PICKUP_ANGLE) continue;
+      if (angle > maxAngle) continue;
       const score = angle + dist * 0.05;
       if (score < bestScore) {
         bestScore = score;
@@ -319,6 +332,17 @@ export function createControls(domElement, state, sceneApi) {
   };
 
   const onKeyDown = (e) => {
+    const targetEl = e.target;
+    if (
+      targetEl instanceof HTMLElement &&
+      ((targetEl.tagName === 'INPUT' && targetEl.type === 'text') || targetEl.tagName === 'TEXTAREA')
+    ) {
+      if (e.code === 'Escape') {
+        targetEl.blur();
+      }
+      return;
+    }
+
     if (!e.repeat && e.code === 'KeyP') {
       e.preventDefault();
       const opening = !state.settingsOpen;
@@ -329,6 +353,7 @@ export function createControls(domElement, state, sceneApi) {
         rmbDown = false;
         wheelDeltaAccum = 0;
         state.glassesPinned = false;
+        state.glassesSlidingDown = false;
       } else if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }
@@ -372,7 +397,7 @@ export function createControls(domElement, state, sceneApi) {
       return;
     }
 
-    if (!e.repeat && e.code === 'KeyC') {
+    if (!e.repeat && e.code === 'KeyF') {
       if (state.settingsOpen) e.preventDefault();
       state.focusing = !state.focusing;
       return;
@@ -396,7 +421,7 @@ export function createControls(domElement, state, sceneApi) {
       case 'KeyX':
         toggleSeatMode();
         break;
-      case 'KeyF':
+      case 'KeyG':
         tryTogglePickup(latestCamera);
         break;
       case 'KeyR':
@@ -425,6 +450,7 @@ export function createControls(domElement, state, sceneApi) {
     rmbDown = false;
     activeTouchId = null;
     state.glassesPinned = false;
+    state.glassesSlidingDown = false;
   };
 
   domElement.addEventListener('click', onCanvasClick);
@@ -468,6 +494,7 @@ export function createControls(domElement, state, sceneApi) {
     const holdingSpace = canAdjustGlasses && keys.has('Space');
     const holdingShift = canAdjustGlasses && (keys.has('ShiftLeft') || keys.has('ShiftRight')) && !holdingSpace;
     state.glassesPinned = holdingSpace;
+    state.glassesSlidingDown = holdingShift;
     if (holdingSpace) {
       state.glassesSlide = Math.max(0, (state.glassesSlide || 0) - 1.15 * step);
     } else if (holdingShift) {
@@ -621,7 +648,8 @@ export function createControls(domElement, state, sceneApi) {
         );
       }
       camera.updateMatrixWorld(true);
-      state.aimingPickable = !state.holding && !state.settingsOpen && Boolean(findAimedPickable(camera));
+      const resting = Boolean(state.eyesClosed) || (state.eyelidClose || 0) > 0.15;
+      state.aimingPickable = !state.holding && !state.settingsOpen && !resting && Boolean(findAimedPickable(camera));
     }
   }
 

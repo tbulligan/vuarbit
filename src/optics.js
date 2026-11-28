@@ -7,7 +7,6 @@ import {
   computeMlnFreqScale,
 } from './state.js';
 import {
-  QUALITY_PRESETS,
   createDefaultVisualSettings,
   computeAcuityBlurUV,
   computeAdaptedExposure,
@@ -155,6 +154,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uTime: { value: 0 },
     uGlassesOn: { value: 1 },
     uGlassesSlide: { value: 0 },
+    uGlassesHand: { value: 0 },
     uGlassesBounce: { value: 0 },
     uSquint: { value: 0 },
     uEyelidClose: { value: 0 },
@@ -422,6 +422,7 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     uniforms.uHasNonDomRT.value = renderNonDom ? 1.0 : 0.0;
     uniforms.uGlassesOn.value = state.glassesOn ? 1.0 : 0.0;
     uniforms.uGlassesSlide.value = state.glassesSlide || 0.0;
+    uniforms.uGlassesHand.value = state.glassesHand || 0.0;
     uniforms.uGlassesBounce.value = state.glassesBounce || 0.0;
     uniforms.uSquint.value = state.squint || 0.0;
     uniforms.uEyelidClose.value = state.eyelidClose || 0.0;
@@ -509,12 +510,6 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     renderer.shadowMap.needsUpdate = true;
   }
 
-  function setQuality(presetId) {
-    const cap = QUALITY_PRESETS[presetId]?.dprCap ?? 1.75;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
-    resize(window.innerWidth, window.innerHeight);
-  }
-
   function resize(w, h) {
     const dpr = renderer.getPixelRatio();
     const bw = Math.max(1, Math.floor(w * dpr));
@@ -547,5 +542,5 @@ export function createOpticsRenderer(renderer, scene, waveformData) {
     quadMaterial.dispose();
   }
 
-  return { odCamera, render, resize, setQuality, setScene, dispose };
+  return { odCamera, render, resize, setScene, dispose };
 }

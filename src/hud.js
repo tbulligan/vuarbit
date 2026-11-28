@@ -12,84 +12,6 @@ function fmtD(v) {
   return `${v > 0.001 ? '+' : ''}${v.toFixed(1)} D`;
 }
 
-function zoneLabel(state, lang) {
-  if (state.eyelidClose > 0.8 || state.activeZone === 'closed') return t(lang, 'hud.zone.closed');
-  if (state.compareNormal || state.activeZone === 'normal') return t(lang, 'hud.zone.normal');
-  const lp = state.settings?.lensProfile || 'aphakic_bifocal';
-  if (lp === 'none' || state.activeZone === 'emmetropic') {
-    return t(lang, 'hud.zone.none');
-  }
-  if (lp === 'pseudophakic_iol') {
-    const iol = resolveIolGlassesOptics(state.settings, state.glassesSlot, state.glassesOn);
-    if (!iol.glassesOn || iol.slot === 'off') {
-      const dist = Number.isFinite(iol.focalDistM) ? `${iol.focalDistM.toFixed(1)} m` : '∞';
-      return t(lang, 'hud.zone.iolOff', { dist });
-    }
-    if (iol.slot === 'intermediate') {
-      return t(lang, 'hud.zone.iolIntermediate', { power: fmtD(iol.lensPowerD) });
-    }
-    if (iol.slot === 'near') {
-      return t(lang, 'hud.zone.iolNear', { power: fmtD(iol.lensPowerD) });
-    }
-    return t(lang, 'hud.zone.iolDistance', { power: fmtD(iol.lensPowerD) });
-  }
-  const p = Number.isFinite(state.settings?.lensPowerD) ? state.settings.lensPowerD : 13.0;
-  const a = Number.isFinite(state.settings?.nearAddD) ? state.settings.nearAddD : 4.0;
-  if (!state.glassesOn || state.activeZone === 'uncorrected') {
-    return lp === 'aphakic_bifocal'
-      ? t(lang, 'hud.zone.uncorrectedOff', { power: fmtD(p) })
-      : t(lang, 'hud.zone.uncorrectedPressZ');
-  }
-  if (lp === 'progressive') {
-    return state.activeZone === 'near'
-      ? t(lang, 'hud.zone.progNear', { add: a.toFixed(1) })
-      : t(lang, 'hud.zone.progDist');
-  }
-  if (lp === 'single_vision') return t(lang, 'hud.zone.singleVision', { power: fmtD(p) });
-  if (state.activeZone === 'near') return t(lang, 'hud.zone.nearBifocal', { power: fmtD(p + a) });
-  return t(lang, 'hud.zone.distance', { power: fmtD(p) });
-}
-
-function glassesLabel(state, lang) {
-  if (state.compareNormal) return t(lang, 'hud.glasses.normalCompare');
-  const lp = state.settings?.lensProfile || 'aphakic_bifocal';
-  if (lp === 'none') return t(lang, 'hud.glasses.none');
-  if (lp === 'pseudophakic_iol') {
-    const iol = resolveIolGlassesOptics(state.settings, state.glassesSlot, state.glassesOn);
-    if (!iol.glassesOn || iol.slot === 'off') {
-      return t(lang, 'hud.glasses.iolOff');
-    }
-    const slotName = t(lang, `hud.glasses.slot.${iol.slot}`);
-    const ax = Number.isFinite(state.settings?.lensAxisDeg) ? state.settings.lensAxisDeg : 90;
-    const cylStr = iol.lensCylD > 0.1 ? ` / ${iol.lensCylD.toFixed(2)} cyl ×${Math.round(ax)}°` : '';
-    const slideMm = Math.round((state.glassesSlide || 0) * 14);
-    const slideNote = state.glassesPinned
-      ? t(lang, 'hud.glasses.pinned')
-      : slideMm >= 3
-        ? t(lang, 'hud.glasses.slipped', { mm: slideMm })
-        : '';
-    return `${slotName} (${fmtD(iol.lensPowerD)}${cylStr}${slideNote})`;
-  }
-  const p = Number.isFinite(state.settings?.lensPowerD) ? state.settings.lensPowerD : 13.0;
-  const a = Number.isFinite(state.settings?.nearAddD) ? state.settings.nearAddD : 4.0;
-  const cyl = Number.isFinite(state.settings?.lensCylD) ? state.settings.lensCylD : 0;
-  const ax = Number.isFinite(state.settings?.lensAxisDeg) ? state.settings.lensAxisDeg : 90;
-  const hasAdd = lp !== 'single_vision' && a > 0.1;
-  const cylStr = lp !== 'aphakic_bifocal' && cyl > 0.1 ? ` / ${cyl.toFixed(2)} cyl ×${Math.round(ax)}°` : '';
-  const rx = hasAdd ? `${fmtD(p)} / +${a.toFixed(1)} add${cylStr}` : `${fmtD(p)}${cylStr}`;
-  const slideMm = Math.round((state.glassesSlide || 0) * 14);
-  const slideNote = !state.glassesOn
-    ? ''
-    : state.glassesPinned
-      ? t(lang, 'hud.glasses.pinned')
-      : slideMm >= 3
-        ? t(lang, 'hud.glasses.slipped', { mm: slideMm })
-        : '';
-  return state.glassesOn
-    ? `${t(lang, 'settings.on')} (${rx}${slideNote})`
-    : `${t(lang, 'settings.off')} (${rx}${t(lang, 'hud.glasses.pressZ')})`;
-}
-
 function personaLabel(state, lang) {
   if (state.personaId === 'custom') return t(lang, 'settings.custom');
   const persona = getPersonaById?.(state.personaId);
@@ -101,8 +23,22 @@ function sceneLabel(state, lang) {
   return sc ? t(lang, `scene.${sc.id}.short`) : t(lang, 'scene.classroom.short');
 }
 
+function formatGlassesToast(state, lang) {
+  const s = state.settings || {};
+  if (s.lensProfile === 'pseudophakic_iol') {
+    const iol = resolveIolGlassesOptics(s, state.glassesSlot, state.glassesOn);
+    if (!iol.glassesOn || iol.slot === 'off') {
+      return t(lang, 'toast.glassesIolOff');
+    }
+    const slotName = t(lang, `hud.glasses.slot.${iol.slot}`);
+    return `${t(lang, 'toast.glassesPrefix')}: ${slotName} (${fmtD(iol.lensPowerD)})`;
+  }
+  return state.glassesOn ? t(lang, 'toast.glassesOn') : t(lang, 'toast.glassesOff');
+}
+
 /**
- * Strictly safe DOM HUD telemetry, mobile action bar & keybind overlay (DOM APIs only, live EN/IT/NL i18n).
+ * Strictly safe DOM HUD telemetry, fatigue meter, transient action toast, mobile bar & keybind overlay
+ * (DOM APIs only, zero inline styles, live EN/IT/NL i18n).
  */
 export function createHud(rootElement, initialState, callbacks = {}) {
   let entered = false;
@@ -110,30 +46,93 @@ export function createHud(rootElement, initialState, callbacks = {}) {
   let lastLegendKey = null;
   let lastTouchMode = null;
   let lastMobileBarSig = null;
+  let lastHudSig = null;
   let isTouch = Boolean(initialState?.isTouchDevice);
+
+  // Toast transition tracking (seeded on first update so initial load stays silent)
+  let toastSeeded = false;
+  let toastTimer = null;
+  let prevPersonaId = null;
+  let prevSceneId = null;
+  let prevLensProfile = null;
+  let prevGlassesOn = null;
+  let prevGlassesSlot = null;
+  let prevCompare = null;
+  let prevTimeOfDay = null;
+  let prevLightsOn = null;
+  let prevMuted = null;
 
   const panel = makeEl('div', 'hud-panel');
 
-  function makeRow(labelKey) {
-    const row = makeEl('div', 'hud-row');
-    const k = makeEl('span', 'hud-label', '');
-    const v = makeEl('span', 'hud-val', '-');
-    row.replaceChildren(k, v);
-    panel.appendChild(row);
-    return { row, keyEl: k, labelKey, val: v };
-  }
+  // Compact 1-line context header: Preset · Scene (+ Mute pill on tinnitus presets, Compare pill when active)
+  const headerRow = makeEl('div', 'hud-header');
+  const titleGroup = makeEl('div', 'hud-title-group');
+  const presetEl = makeEl('span', 'hud-preset', '');
+  const sepEl = makeEl('span', 'hud-sep', '·');
+  const sceneEl = makeEl('span', 'hud-scene', '');
+  titleGroup.replaceChildren(presetEl, sepEl, sceneEl);
+  const headerPills = makeEl('div', 'hud-header-pills');
+  const mutePill = makeEl('button', 'hud-mute-btn is-hidden', '🔊 M');
+  mutePill.type = 'button';
+  mutePill.setAttribute('aria-pressed', 'false');
+  const comparePill = makeEl('span', 'hud-pill hud-pill-compare is-hidden', '');
+  headerPills.replaceChildren(mutePill, comparePill);
+  headerRow.replaceChildren(titleGroup, headerPills);
 
-  const rows = {
-    scene: makeRow('hud.row.scene'),
-    persona: makeRow('hud.row.preset'),
-    glasses: makeRow('hud.row.glasses'),
-    zone: makeRow('hud.row.zone'),
-    focus: makeRow('hud.row.focusDist'),
-    effort: makeRow('hud.row.focus'),
-    nystagmus: makeRow('hud.row.nystagmus'),
-    fatigue: makeRow('hud.row.fatigue'),
-    tinnitus: makeRow('hud.row.tinnitus'),
-  };
+  // Focus (F) ON/OFF row
+  const focusRow = makeEl('div', 'hud-row');
+  const focusLabel = makeEl('span', 'hud-label', '');
+  const focusPill = makeEl('span', 'hud-pill', '');
+  focusRow.replaceChildren(focusLabel, focusPill);
+
+  // Fatigue meter row (<progress> uses DOM value attribute — zero inline styles, CSP-safe & accessible)
+  const fatigueRow = makeEl('div', 'hud-row');
+  const fatigueLabel = makeEl('span', 'hud-label', '');
+  const fatigueMeter = makeEl('progress', 'hud-fatigue-bar is-low');
+  fatigueMeter.max = 100;
+  fatigueMeter.value = 0;
+  fatigueRow.replaceChildren(fatigueLabel, fatigueMeter);
+
+  // Gentle Rest (R) prompt once fatigue crosses decompensation onset (~60%)
+  const restHint = makeEl('div', 'hud-rest-hint is-hidden', '');
+
+  // Contextual Glasses slide/pin position slider (shown only when slipped or actively sliding/pinning)
+  const slideRow = makeEl('div', 'hud-row is-hidden');
+  const slideLabel = makeEl('span', 'hud-label', '');
+  const slideWrap = makeEl('div', 'hud-slide-wrap');
+  const slideUpMark = makeEl('span', 'hud-slide-dir', '↑');
+  const slideSlider = makeEl('input', 'hud-slide-slider');
+  slideSlider.type = 'range';
+  slideSlider.min = '0';
+  slideSlider.max = '14';
+  slideSlider.step = '1';
+  slideSlider.value = '0';
+  slideSlider.disabled = true;
+  const slideDownMark = makeEl('span', 'hud-slide-dir', '↓');
+  slideWrap.replaceChildren(slideUpMark, slideSlider, slideDownMark);
+  slideRow.replaceChildren(slideLabel, slideWrap);
+
+  const slideHint = makeEl('div', 'hud-slide-hint is-hidden', '');
+
+  panel.replaceChildren(headerRow, focusRow, fatigueRow, restHint, slideRow, slideHint);
+
+  // Transient action toast (Z / V / T / L / M)
+  const toast = makeEl('div', 'hud-toast', '');
+  toast.setAttribute('role', 'status');
+  toast.setAttribute('aria-live', 'polite');
+
+  function showToast(message) {
+    if (!message) return;
+    toast.textContent = message;
+    toast.classList.add('is-visible');
+    if (toastTimer !== null) {
+      clearTimeout(toastTimer);
+    }
+    toastTimer = setTimeout(() => {
+      toast.classList.remove('is-visible');
+      toastTimer = null;
+    }, 2400);
+  }
 
   const controlsLegend = makeEl('div', 'hud-controls');
   const helpMoveLine = makeEl('div', 'hud-controls-line', '');
@@ -160,6 +159,14 @@ export function createHud(rootElement, initialState, callbacks = {}) {
   const onMobileCompare = () => callbacks.onCompareToggle?.();
   const onMobileGlasses = () => callbacks.onGlassesToggle?.();
   const onMobileSit = () => callbacks.onSitToggle?.();
+  const onMuteClick = (e) => {
+    e.stopPropagation();
+    callbacks.onMuteToggle?.();
+  };
+  mutePill.addEventListener('touchstart', stopBarEvent, { passive: true });
+  mutePill.addEventListener('pointerdown', stopBarEvent);
+  mutePill.addEventListener('mousedown', stopBarEvent);
+  mutePill.addEventListener('click', onMuteClick);
   mobileBar.addEventListener('touchstart', stopBarEvent, { passive: true });
   mobileBar.addEventListener('pointerdown', stopBarEvent);
   mobileBar.addEventListener('mousedown', stopBarEvent);
@@ -191,12 +198,17 @@ export function createHud(rootElement, initialState, callbacks = {}) {
   };
   overlay.addEventListener('click', onOverlayClick);
 
-  rootElement.replaceChildren(panel, controlsLegend, mobileBar, reticle, overlay);
+  rootElement.replaceChildren(panel, toast, controlsLegend, mobileBar, reticle, overlay);
 
   function updateStaticCopy(lang, touchMode) {
-    for (const r of Object.values(rows)) {
-      r.keyEl.textContent = t(lang, r.labelKey);
-    }
+    focusLabel.textContent = t(lang, 'hud.row.focus');
+    fatigueLabel.textContent = t(lang, 'hud.row.fatigue');
+    fatigueMeter.setAttribute('aria-label', t(lang, 'hud.row.fatigue'));
+    slideSlider.setAttribute('aria-label', t(lang, 'hud.row.glassesPos'));
+    mutePill.setAttribute('aria-label', t(lang, 'settings.label.muteAudio'));
+    restHint.textContent = t(lang, 'hud.fatigue.restHint');
+    slideHint.textContent = t(lang, 'hud.glasses.slideHint');
+    comparePill.textContent = t(lang, 'hud.badge.compare');
     helpOpticsLine.textContent = t(lang, 'hud.help.optics');
     helpEnvLine.textContent = t(lang, 'hud.help.env');
     line1.textContent = t(lang, 'hud.overlay.line1');
@@ -225,26 +237,78 @@ export function createHud(rootElement, initialState, callbacks = {}) {
     const sc = getSceneById?.(sceneId);
     const s = state.settings || {};
     const hasLens = s.lensProfile !== 'none';
+    const resting = Boolean(state.eyesClosed) || (state.eyelidClose || 0) > 0.15;
 
-    panel.classList.toggle('is-hidden', !state.hudVisible);
+    // Detect user-triggered live toggles for transient toast feedback
+    const lensProfileNow = s.lensProfile || 'none';
+    const glassesOnNow = Boolean(state.glassesOn);
+    const glassesSlotNow = state.glassesSlot || 'distance';
+    const compareNow = Boolean(state.compareNormal);
+    const todNow = state.timeOfDay || 'sunny';
+    const lightsNow = state.lightsOn !== false;
+    const mutedNow = Boolean(state.muted);
+    if (!toastSeeded) {
+      toastSeeded = true;
+    } else if (entered) {
+      const personaOrSceneChanged = state.personaId !== prevPersonaId || sceneId !== prevSceneId;
+      if (compareNow !== prevCompare && !personaOrSceneChanged) {
+        showToast(
+          compareNow
+            ? t(lang, 'toast.compareOn')
+            : t(lang, 'toast.compareOff', { preset: personaLabel(state, lang) })
+        );
+      } else if (
+        !personaOrSceneChanged &&
+        !compareNow &&
+        hasLens &&
+        lensProfileNow === prevLensProfile &&
+        (glassesOnNow !== prevGlassesOn || glassesSlotNow !== prevGlassesSlot)
+      ) {
+        showToast(formatGlassesToast(state, lang));
+      } else if (todNow !== prevTimeOfDay) {
+        showToast(t(lang, `opt.tod.${todNow}`));
+      } else if (lightsNow !== prevLightsOn) {
+        const key =
+          sceneId === 'car_passenger'
+            ? lightsNow
+              ? 'toast.roadLightsOn'
+              : 'toast.roadLightsOff'
+            : lightsNow
+              ? 'toast.lightsOn'
+              : 'toast.lightsOff';
+        showToast(t(lang, key));
+      } else if (mutedNow !== prevMuted) {
+        showToast(mutedNow ? t(lang, 'toast.audioMuted') : t(lang, 'toast.audioOn'));
+      }
+    }
+    prevPersonaId = state.personaId;
+    prevSceneId = sceneId;
+    prevLensProfile = lensProfileNow;
+    prevGlassesOn = glassesOnNow;
+    prevGlassesSlot = glassesSlotNow;
+    prevCompare = compareNow;
+    prevTimeOfDay = todNow;
+    prevLightsOn = lightsNow;
+    prevMuted = mutedNow;
+
+    // H toggles bottom-left keymap legend only; top-left status HUD stays visible
     controlsLegend.classList.toggle('is-hidden', !state.hudVisible || isTouch);
     mobileBar.classList.toggle('is-hidden', !isTouch || !entered);
-    reticle.classList.toggle('is-hidden', isTouch || !state.pointerLocked || Boolean(state.settingsOpen));
-    reticle.classList.toggle('is-target', Boolean(state.aimingPickable));
+    reticle.classList.toggle('is-hidden', isTouch || !state.pointerLocked || Boolean(state.settingsOpen) || resting);
+    reticle.classList.toggle('is-target', !resting && Boolean(state.aimingPickable));
     overlay.classList.toggle('is-hidden', entered);
 
     if (isTouch && entered) {
       const settingsOpen = Boolean(state.settingsOpen);
-      const comparing = Boolean(state.compareNormal);
       const glassesActive = hasLens && Boolean(state.glassesOn);
       const seatedOnly = Boolean(sc?.seatedOnly);
-      const mobileBarSig = `${lang}|${settingsOpen}|${comparing}|${hasLens}|${glassesActive}|${s.lensProfile}|${state.glassesSlot}|${seatedOnly}|${state.mode}`;
+      const mobileBarSig = `${lang}|${settingsOpen}|${compareNow}|${hasLens}|${glassesActive}|${s.lensProfile}|${state.glassesSlot}|${seatedOnly}|${state.mode}`;
       if (mobileBarSig !== lastMobileBarSig) {
         lastMobileBarSig = mobileBarSig;
         mobileSettingsBtn.classList.toggle('is-active', settingsOpen);
         mobileSettingsBtn.setAttribute('aria-pressed', settingsOpen ? 'true' : 'false');
-        mobileCompareBtn.classList.toggle('is-active', comparing);
-        mobileCompareBtn.setAttribute('aria-pressed', comparing ? 'true' : 'false');
+        mobileCompareBtn.classList.toggle('is-active', compareNow);
+        mobileCompareBtn.setAttribute('aria-pressed', compareNow ? 'true' : 'false');
         mobileGlassesBtn.disabled = !hasLens;
         mobileGlassesBtn.classList.toggle('is-active', glassesActive);
         mobileGlassesBtn.setAttribute('aria-pressed', glassesActive ? 'true' : 'false');
@@ -266,54 +330,90 @@ export function createHud(rootElement, initialState, callbacks = {}) {
       }
     }
 
-    if (!state.hudVisible) return;
-
-    const hasSuppression = hasSuppressionMechanics(s);
-    const hasNystagmus = (s.mlnScale || 0) > 0.005 || (s.albinism || 0) > 0.005;
-    const hasTinnitus = (s.tinnitus ?? 1) > 0.005;
-
-    rows.glasses.row.classList.toggle('is-hidden', !hasLens && !state.compareNormal);
-    rows.effort.row.classList.toggle('is-hidden', !hasSuppression);
-    rows.nystagmus.row.classList.toggle('is-hidden', !hasNystagmus);
-    rows.fatigue.row.classList.toggle('is-hidden', !hasSuppression);
-    rows.tinnitus.row.classList.toggle('is-hidden', !hasTinnitus && !state.muted);
-
-    const moveKey = sc?.seatedOnly ? 'hud.help.moveSeated' : 'hud.help.moveFull';
-    if (moveKey !== lastLegendKey) {
-      lastLegendKey = moveKey;
-      helpMoveLine.textContent = t(lang, moveKey);
+    if (state.hudVisible) {
+      const moveKey = sc?.seatedOnly ? 'hud.help.moveSeated' : 'hud.help.moveFull';
+      if (moveKey !== lastLegendKey) {
+        lastLegendKey = moveKey;
+        helpMoveLine.textContent = t(lang, moveKey);
+      }
     }
 
-    rows.scene.val.textContent = sceneLabel(state, lang);
-    rows.persona.val.textContent = personaLabel(state, lang);
-    rows.glasses.val.textContent = glassesLabel(state, lang);
-    rows.zone.val.textContent = zoneLabel(state, lang);
+    const showSuppression = hasSuppressionMechanics(s) && !compareNow;
+    const hasTinnitus = (s.tinnitus ?? 1) > 0.005;
+    const showMutePill = hasTinnitus && !compareNow;
     const isClosed = state.eyelidClose > 0.8 || state.activeZone === 'closed';
-    rows.focus.val.textContent = isClosed
-      ? t(lang, 'hud.focus.closed')
-      : `${(state.focusDistM || 0).toFixed(2)} m`;
-    const effortPct = Math.round((state.focusStrength || 0) * 100);
-    rows.effort.val.textContent = isClosed || state.compareNormal
-      ? t(lang, 'hud.effort.inactive')
-      : state.focusing
-        ? t(lang, 'hud.effort.focused', { pct: effortPct })
-        : t(lang, 'hud.effort.relaxed');
-    const occlPct = Math.round((state.occlusionLevel || 0) * 100);
-    const nystPct = Math.round((state.mlnIntensity || 0) * 100);
-    rows.nystagmus.val.textContent = (s.mlnScale || 0) > 0.005
-      ? t(lang, 'hud.nyst.occl', { occl: occlPct, nyst: nystPct })
-      : `${nystPct}%`;
-    rows.fatigue.val.textContent = `${Math.round((state.fatigue || 0) * 100)}%`;
-    rows.tinnitus.val.textContent =
-      state.muted || state.compareNormal
-        ? t(lang, 'hud.tinnitus.muted')
-        : hasTinnitus
+    const focusActive = Boolean(state.focusing) && !isClosed;
+    const fatiguePct = Math.round(Math.min(100, Math.max(0, (state.fatigue || 0) * 100)));
+    const slideMm = Math.round(Math.min(14, Math.max(0, (state.glassesSlide || 0) * 14)));
+    const pinnedNow = Boolean(state.glassesPinned);
+    const slidingNow = Boolean(state.glassesSlidingDown);
+    const showSlide =
+      hasLens &&
+      glassesOnNow &&
+      !compareNow &&
+      !isClosed &&
+      (slideMm >= 1 || pinnedNow || slidingNow);
+    const hudSig = `${lang}|${state.personaId}|${sceneId}|${compareNow}|${showMutePill}|${mutedNow}|${showSuppression}|${isClosed}|${focusActive}|${fatiguePct}|${showSlide}|${slideMm}|${pinnedNow}|${slidingNow}`;
+    if (hudSig === lastHudSig) return;
+    lastHudSig = hudSig;
+
+    presetEl.textContent = personaLabel(state, lang);
+    sceneEl.textContent = sceneLabel(state, lang);
+    comparePill.classList.toggle('is-hidden', !compareNow);
+    mutePill.classList.toggle('is-hidden', !showMutePill);
+    if (showMutePill) {
+      mutePill.textContent = mutedNow ? '🔇 M' : '🔊 M';
+      mutePill.classList.toggle('is-muted', mutedNow);
+      mutePill.setAttribute('aria-pressed', mutedNow ? 'true' : 'false');
+    }
+
+    focusRow.classList.toggle('is-hidden', !showSuppression);
+    fatigueRow.classList.toggle('is-hidden', !showSuppression);
+
+    if (showSuppression) {
+      focusPill.textContent = isClosed
+        ? t(lang, 'hud.focus.resting')
+        : focusActive
           ? t(lang, 'settings.on')
           : t(lang, 'settings.off');
+      focusPill.classList.toggle('is-on', focusActive);
+
+      fatigueMeter.value = fatiguePct;
+      const isHigh = fatiguePct >= 70;
+      const isMid = fatiguePct >= 45 && !isHigh;
+      fatigueMeter.classList.toggle('is-low', !isMid && !isHigh);
+      fatigueMeter.classList.toggle('is-mid', isMid);
+      fatigueMeter.classList.toggle('is-high', isHigh);
+
+      const showRestPrompt = !isClosed && fatiguePct >= 60;
+      restHint.classList.toggle('is-hidden', !showRestPrompt);
+    } else {
+      restHint.classList.add('is-hidden');
+    }
+
+    slideRow.classList.toggle('is-hidden', !showSlide);
+    if (showSlide) {
+      slideLabel.textContent = pinnedNow ? t(lang, 'hud.glasses.pinnedLabel') : t(lang, 'hud.row.glassesPos');
+      slideLabel.classList.toggle('is-accent', pinnedNow);
+      slideSlider.value = String(slideMm);
+      slideSlider.classList.toggle('is-pinned', pinnedNow);
+      const showSlideHint = slideMm >= 4 && !pinnedNow && !slidingNow;
+      slideHint.classList.toggle('is-hidden', !showSlideHint);
+    } else {
+      slideHint.classList.add('is-hidden');
+    }
   }
 
   function dispose() {
+    if (toastTimer !== null) {
+      clearTimeout(toastTimer);
+      toastTimer = null;
+    }
     overlay.removeEventListener('click', onOverlayClick);
+    mutePill.removeEventListener('touchstart', stopBarEvent);
+    mutePill.removeEventListener('pointerdown', stopBarEvent);
+    mutePill.removeEventListener('mousedown', stopBarEvent);
+    mutePill.removeEventListener('click', onMuteClick);
     mobileBar.removeEventListener('touchstart', stopBarEvent);
     mobileBar.removeEventListener('pointerdown', stopBarEvent);
     mobileBar.removeEventListener('mousedown', stopBarEvent);
@@ -327,5 +427,5 @@ export function createHud(rootElement, initialState, callbacks = {}) {
   }
 
   update(initialState);
-  return { update, dispose };
+  return { update, notify: showToast, dispose };
 }

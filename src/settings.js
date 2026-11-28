@@ -1,12 +1,10 @@
 import {
   PERSONAS,
-  QUALITY_PRESETS,
   SCENES,
   SETTING_SPECS,
   TIME_OF_DAY_PRESETS,
   formatSnellenAcuity,
   getPersonaById,
-  getSceneById,
   resolveIolGlassesOptics,
 } from './personas.js';
 import { LANGUAGE_OPTIONS, normalizeLanguage, t } from './i18n.js';
@@ -210,10 +208,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
 
   // Header
   const header = makeEl('div', 'settings-header');
-  const titleWrap = makeEl('div', 'settings-title-wrap');
   const title = bindText(makeEl('h2', 'settings-title'), 'settings.title');
-  const statusBadge = makeEl('span', 'settings-badge', 'Frut');
-  titleWrap.replaceChildren(title, statusBadge);
 
   const headerActions = makeEl('div', 'settings-header-actions');
   const compareBtn = bindText(makeEl('button', 'settings-btn'), 'settings.compareBtn');
@@ -224,7 +219,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   const closeBtn = bindText(makeEl('button', 'settings-btn settings-btn-close'), 'settings.closeBtn');
   closeBtn.type = 'button';
   headerActions.replaceChildren(compareBtn, resetBtn, closeBtn);
-  header.replaceChildren(titleWrap, headerActions);
+  header.replaceChildren(title, headerActions);
 
   // Scrollable body
   const body = makeEl('div', 'settings-body');
@@ -235,7 +230,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     listeners.push({ target, type, handler });
   }
 
-  // Scene & Language section
+  // Scene section (Environment + Lighting)
   const sceneSection = makeEl('section', 'setting-group');
   const sceneHeading = bindText(makeEl('h3', 'setting-group-title'), 'settings.section.scene');
   const sceneRow = makeEl('label', 'setting-row');
@@ -251,21 +246,41 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   });
   sceneRow.replaceChildren(sceneLbl, sceneSelect);
 
-  const langRow = makeEl('label', 'setting-row');
-  const langLbl = bindText(makeEl('span', 'setting-label'), 'settings.label.language');
-  const langSelect = makeEl('select', 'setting-select');
-  for (const opt of LANGUAGE_OPTIONS) {
-    const optionEl = makeEl('option', null, opt.label);
-    optionEl.value = opt.value;
-    langSelect.appendChild(optionEl);
+  const todRow = makeEl('label', 'setting-row');
+  const todLbl = bindText(makeEl('span', 'setting-label'), 'settings.label.timeOfDay');
+  const todSelect = makeEl('select', 'setting-select');
+  for (const preset of Object.values(TIME_OF_DAY_PRESETS)) {
+    const optionEl = bindText(makeEl('option', null), `opt.tod.${preset.id}`);
+    optionEl.value = preset.id;
+    todSelect.appendChild(optionEl);
   }
-  listen(langSelect, 'change', () => {
-    callbacks.onLanguageChange?.(langSelect.value);
+  listen(todSelect, 'change', () => {
+    lastTimeOfDay = todSelect.value;
+    callbacks.onTimeOfDayChange?.(todSelect.value);
   });
-  langRow.replaceChildren(langLbl, langSelect);
+  todRow.replaceChildren(todLbl, todSelect);
 
-  const sceneDesc = makeEl('p', 'persona-desc', '');
-  sceneSection.replaceChildren(sceneHeading, sceneRow, langRow, sceneDesc);
+  const lightsRow = makeEl('div', 'setting-row');
+  const lightsLbl = makeEl('span', 'setting-label', t(currentLang, 'settings.label.ceilingLights'));
+  const lightsBtn = makeEl('button', 'settings-btn', t(currentLang, 'settings.on'));
+  lightsBtn.type = 'button';
+  lightsBtn.setAttribute('aria-pressed', 'true');
+  listen(lightsBtn, 'click', () => {
+    callbacks.onLightsToggle?.();
+  });
+  lightsRow.replaceChildren(lightsLbl, lightsBtn);
+
+  const glareRow = makeEl('div', 'setting-row is-hidden');
+  const glareLbl = bindText(makeEl('span', 'setting-label'), 'settings.label.glareLamp');
+  const glareBtn = makeEl('button', 'settings-btn', t(currentLang, 'settings.on'));
+  glareBtn.type = 'button';
+  glareBtn.setAttribute('aria-pressed', 'true');
+  listen(glareBtn, 'click', () => {
+    callbacks.onGlareLightToggle?.();
+  });
+  glareRow.replaceChildren(glareLbl, glareBtn);
+
+  sceneSection.replaceChildren(sceneHeading, sceneRow, todRow, lightsRow, glareRow);
   body.appendChild(sceneSection);
 
   // Presets section (Profiles vs Ocular Conditions vs Refraction & Color)
@@ -280,7 +295,11 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   const personaButtons = new Map();
 
   for (const persona of PERSONAS) {
-    const btn = bindText(makeEl('button', 'persona-btn'), `persona.${persona.id}.short`);
+    const labelKey =
+      persona.id === 'vuarbit_frut' || persona.id === 'vuarbit_grant'
+        ? `persona.${persona.id}.btn`
+        : `persona.${persona.id}.short`;
+    const btn = bindText(makeEl('button', 'persona-btn'), labelKey);
     btn.type = 'button';
     btn.setAttribute('data-persona-id', persona.id);
     btn.setAttribute('aria-pressed', 'false');
@@ -290,7 +309,32 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     personaButtons.set(persona.id, btn);
   }
 
+  // 4th slot in Profiles grid (next to Normal Vision) for single saved / URL-shared Custom profile
+  const customPersonaBtn = bindText(makeEl('button', 'persona-btn'), 'settings.custom');
+  customPersonaBtn.type = 'button';
+  customPersonaBtn.setAttribute('aria-pressed', 'false');
+  customPersonaBtn.disabled = true;
+  listen(customPersonaBtn, 'click', () => {
+    callbacks.onSelectCustom?.();
+  });
+  vuarbitGrid.appendChild(customPersonaBtn);
+
   const personaDesc = makeEl('p', 'persona-desc', '');
+
+  // Compact Custom save + URL share bar (single Custom slot + clipboard link)
+  const customBar = makeEl('div', 'custom-bar');
+  const saveCustomBtn = bindText(makeEl('button', 'settings-btn'), 'settings.saveCustomBtn');
+  saveCustomBtn.type = 'button';
+  listen(saveCustomBtn, 'click', () => {
+    callbacks.onSaveCustom?.();
+  });
+  const shareUrlBtn = bindText(makeEl('button', 'settings-btn'), 'settings.shareUrlBtn');
+  shareUrlBtn.type = 'button';
+  listen(shareUrlBtn, 'click', () => {
+    callbacks.onShareCustom?.();
+  });
+  customBar.replaceChildren(saveCustomBtn, shareUrlBtn);
+
   presetSection.replaceChildren(
     presetHeading,
     vuarbitSub,
@@ -299,7 +343,8 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     condGrid,
     refSub,
     refGrid,
-    personaDesc
+    personaDesc,
+    customBar
   );
   body.appendChild(presetSection);
 
@@ -399,76 +444,32 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     body.appendChild(section);
   }
 
-  // Collapsed Optics & Binocular Details accordion
-  const advDetails = makeEl('details', 'setting-group setting-details');
-  const advSummary = bindText(makeEl('summary', 'setting-details-summary'), 'settings.section.optics');
-  const advBody = makeEl('div', 'setting-details-body');
+  // Optics & Binocular Details (always expanded at bottom of scrollable body)
+  const advSection = makeEl('section', 'setting-group');
+  const advHeading = bindText(makeEl('h3', 'setting-group-title'), 'settings.section.optics');
+  advSection.appendChild(advHeading);
   for (const cfg of ADVANCED_CONTROLS) {
-    advBody.appendChild(buildControlRow(cfg));
+    advSection.appendChild(buildControlRow(cfg));
   }
-  advDetails.replaceChildren(advSummary, advBody);
-  body.appendChild(advDetails);
+  body.appendChild(advSection);
 
-  // Lighting section
-  const lightSection = makeEl('section', 'setting-group');
-  const lightHeading = bindText(makeEl('h3', 'setting-group-title'), 'settings.section.lighting');
-  const todRow = makeEl('label', 'setting-row');
-  const todLbl = bindText(makeEl('span', 'setting-label'), 'settings.label.timeOfDay');
-  const todSelect = makeEl('select', 'setting-select');
-  for (const preset of Object.values(TIME_OF_DAY_PRESETS)) {
-    const optionEl = bindText(makeEl('option', null), `opt.tod.${preset.id}`);
-    optionEl.value = preset.id;
-    todSelect.appendChild(optionEl);
+  // Sticky Language footer pinned at drawer bottom (compact inline LANGUAGE [select])
+  const footer = makeEl('div', 'settings-footer');
+  const langRow = makeEl('label', 'settings-footer-row');
+  const langLbl = bindText(makeEl('span', 'setting-group-title settings-footer-label'), 'settings.label.language');
+  const langSelect = makeEl('select', 'setting-select');
+  for (const opt of LANGUAGE_OPTIONS) {
+    const optionEl = makeEl('option', null, opt.label);
+    optionEl.value = opt.value;
+    langSelect.appendChild(optionEl);
   }
-  listen(todSelect, 'change', () => {
-    lastTimeOfDay = todSelect.value;
-    callbacks.onTimeOfDayChange?.(todSelect.value);
+  listen(langSelect, 'change', () => {
+    callbacks.onLanguageChange?.(langSelect.value);
   });
-  todRow.replaceChildren(todLbl, todSelect);
+  langRow.replaceChildren(langLbl, langSelect);
+  footer.replaceChildren(langRow);
 
-  const lightsRow = makeEl('div', 'setting-row');
-  const lightsLbl = makeEl('span', 'setting-label', t(currentLang, 'settings.label.ceilingLights'));
-  const lightsBtn = makeEl('button', 'settings-btn', t(currentLang, 'settings.on'));
-  lightsBtn.type = 'button';
-  lightsBtn.setAttribute('aria-pressed', 'true');
-  listen(lightsBtn, 'click', () => {
-    callbacks.onLightsToggle?.();
-  });
-  lightsRow.replaceChildren(lightsLbl, lightsBtn);
-
-  const glareRow = makeEl('div', 'setting-row is-hidden');
-  const glareLbl = bindText(makeEl('span', 'setting-label'), 'settings.label.glareLamp');
-  const glareBtn = makeEl('button', 'settings-btn', t(currentLang, 'settings.on'));
-  glareBtn.type = 'button';
-  glareBtn.setAttribute('aria-pressed', 'true');
-  listen(glareBtn, 'click', () => {
-    callbacks.onGlareLightToggle?.();
-  });
-  glareRow.replaceChildren(glareLbl, glareBtn);
-
-  lightSection.replaceChildren(lightHeading, todRow, lightsRow, glareRow);
-  body.appendChild(lightSection);
-
-  // Graphics Quality section
-  const qualitySection = makeEl('section', 'setting-group');
-  const qualityHeading = bindText(makeEl('h3', 'setting-group-title'), 'settings.section.graphics');
-  const qualityRow = makeEl('label', 'setting-row');
-  const qualityLbl = bindText(makeEl('span', 'setting-label'), 'settings.label.resScale');
-  const qualitySelect = makeEl('select', 'setting-select');
-  for (const preset of Object.values(QUALITY_PRESETS)) {
-    const optionEl = bindText(makeEl('option', null), `opt.quality.${preset.id}`);
-    optionEl.value = preset.id;
-    qualitySelect.appendChild(optionEl);
-  }
-  listen(qualitySelect, 'change', () => {
-    lastQuality = qualitySelect.value;
-    callbacks.onQualityChange?.(qualitySelect.value);
-  });
-  qualityRow.replaceChildren(qualityLbl, qualitySelect);
-  qualitySection.replaceChildren(qualityHeading, qualityRow);
-  body.appendChild(qualitySection);
-
-  drawer.replaceChildren(header, body);
+  drawer.replaceChildren(header, body, footer);
   rootElement.appendChild(drawer);
 
   listen(compareBtn, 'click', () => callbacks.onCompareToggle?.());
@@ -496,7 +497,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       e.code === 'KeyZ' ||
       e.code === 'KeyL' ||
       e.code === 'KeyT' ||
-      e.code === 'KeyC' ||
+      e.code === 'KeyF' ||
       e.code === 'KeyM'
     ) {
       return;
@@ -509,6 +510,7 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   let lastSceneId = null;
   let lastSceneLoading = null;
   let lastPersonaId = null;
+  let lastCustomSig = null;
   let lastCompare = null;
   let lastGlassesOn = null;
   let lastGlassesLabel = null;
@@ -517,7 +519,6 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
   let lastTimeOfDay = null;
   let lastLightsOn = null;
   let lastGlareLightOn = null;
-  let lastQuality = null;
   let lastAcuitySig = null;
   const lastValues = new Map();
   const lastDisabled = new Map();
@@ -571,8 +572,6 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       if (document.activeElement !== sceneSelect) {
         sceneSelect.value = sceneId;
       }
-      const sc = getSceneById(sceneId);
-      sceneDesc.textContent = sc ? t(lang, `scene.${sc.id}.desc`) : '';
       glareRow.classList.toggle('is-hidden', sceneId !== 'exam_room');
       lightsLbl.textContent = t(
         lang,
@@ -588,10 +587,12 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
     }
 
     const personaId = state.personaId || 'vuarbit_frut';
-    if (refresh || personaId !== lastPersonaId) {
+    const hasSavedCustom = Boolean(state.customProfile);
+    const customSig = `${hasSavedCustom}|${personaId === 'custom'}`;
+    if (refresh || personaId !== lastPersonaId || customSig !== lastCustomSig) {
       lastPersonaId = personaId;
+      lastCustomSig = customSig;
       const persona = personaId === 'custom' ? null : getPersonaById(personaId);
-      statusBadge.textContent = persona ? t(lang, `persona.${persona.id}.short`) : t(lang, 'settings.custom');
       personaDesc.textContent = persona
         ? t(lang, `persona.${persona.id}.desc`)
         : t(lang, 'settings.customDesc');
@@ -600,6 +601,10 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
         btn.classList.toggle('is-active', active);
         btn.setAttribute('aria-pressed', active ? 'true' : 'false');
       }
+      const isCustomActive = personaId === 'custom';
+      customPersonaBtn.disabled = !hasSavedCustom && !isCustomActive;
+      customPersonaBtn.classList.toggle('is-active', isCustomActive);
+      customPersonaBtn.setAttribute('aria-pressed', isCustomActive ? 'true' : 'false');
     }
 
     const s = state.settings || {};
@@ -724,12 +729,6 @@ export function createSettingsDrawer(rootElement, initialState, callbacks = {}) 
       glareBtn.textContent = glareOn ? t(lang, 'settings.on') : t(lang, 'settings.off');
       glareBtn.classList.toggle('is-active', glareOn);
       glareBtn.setAttribute('aria-pressed', glareOn ? 'true' : 'false');
-    }
-
-    const quality = state.qualityPreset || 'high';
-    if (refresh || (quality !== lastQuality && document.activeElement !== qualitySelect)) {
-      lastQuality = quality;
-      qualitySelect.value = quality;
     }
   }
 

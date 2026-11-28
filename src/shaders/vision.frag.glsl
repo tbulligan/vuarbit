@@ -11,6 +11,7 @@ uniform float uAspect;
 uniform float uTime;
 uniform float uGlassesOn;
 uniform float uGlassesSlide;
+uniform float uGlassesHand;
 uniform float uGlassesBounce;
 uniform float uSquint;
 uniform float uEyelidClose;
@@ -112,6 +113,11 @@ float sdSegment(vec2 p, vec2 a, vec2 b) {
   vec2 ba = b - a;
   float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
   return length(pa - ba * h);
+}
+
+float smin(float a, float b, float k) {
+  float h = clamp(0.5 + 0.5 * (b - a) / max(k, 1e-5), 0.0, 1.0);
+  return mix(b, a, h) - k * h * (1.0 - h);
 }
 
 float sdRoundedBox(vec2 p, vec2 b, float r) {
@@ -1026,6 +1032,23 @@ void main() {
           : mix(col * 0.18 + frameTint * 0.82, frameTint, 0.72);
         rimCol += vec3(0.14, 0.13, 0.12) * frameLight * (1.0 - rimBevel) * (isMetallic > 0.5 ? 0.48 : 0.28);
         col = mix(col, rimCol, rimMask * mix(0.84, 0.76, isAcetateTrans));
+      }
+
+      // Soft out-of-focus peripheral left-hand silhouette holding outer-left temple/rim (keeps right hand & dominant OD clear)
+      if (uGlassesHand > 0.005 && glassesOn > 0.5) {
+        float gripX = max(cL.x - mix(boxHalf.x, lensR, shapeRound) * 0.96, -uAspect * 0.46);
+        vec2 reachOff = (1.0 - uGlassesHand) * vec2(-0.18, -0.26);
+        vec2 pHand = pFrame - reachOff;
+        float dFinger = sdSegment(pHand, vec2(gripX + 0.015, 0.045), vec2(gripX - 0.16, -0.02)) - 0.044;
+        float dThumb = sdSegment(pHand, vec2(gripX + 0.005, -0.045), vec2(gripX - 0.15, -0.14)) - 0.046;
+        float dPalm = sdSegment(pHand, vec2(gripX - 0.14, -0.07), vec2(gripX - 0.30, -0.44)) - 0.105;
+        float dHand = smin(smin(dFinger, dThumb, 0.075), dPalm, 0.085);
+        float handMask = (1.0 - smoothstep(-0.02, 0.08, dHand)) * uGlassesHand;
+        if (handMask > 0.005) {
+          float handShade = clamp(0.84 + 0.18 * clamp(pHand.y + 0.15, -0.4, 0.4) - 0.14 * clamp((gripX - pHand.x) * 2.2, 0.0, 1.0), 0.54, 1.02);
+          vec3 handCol = vec3(0.79, 0.60, 0.49) * frameLight * handShade;
+          col = mix(col, mix(col * 0.24 + handCol * 0.76, handCol, 0.68), handMask * 0.78);
+        }
       }
     }
 
